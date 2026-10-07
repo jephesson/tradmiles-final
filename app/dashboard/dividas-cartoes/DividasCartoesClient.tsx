@@ -51,16 +51,6 @@ function monthLabel(ym: string) {
   );
 }
 
-function nextOpenMonth(
-  currentYm: string,
-  openByMonth: { month: string; count: number }[]
-) {
-  return (
-    openByMonth.find((m) => m.count > 0 && m.month > currentYm)?.month ||
-    openByMonth.find((m) => m.count > 0 && m.month >= currentYm)?.month ||
-    null
-  );
-}
 
 export default function DividasCartoesClient() {
   const [month, setMonth] = useState(currentMonthISORecife());
@@ -121,14 +111,8 @@ export default function DividasCartoesClient() {
       if (!json?.ok) throw new Error(json?.error || `Falha ao carregar (${res.status}).`);
       const monthsOpen = json.data.openByMonth || [];
       setOpenByMonth(monthsOpen);
-      const monthOpenCount = Number(json.data.totals?.monthOpenCount || 0);
-      if (hidePaid && monthOpenCount === 0) {
-        const jump = nextOpenMonth(ym, monthsOpen);
-        if (jump && jump !== ym) {
-          setMonth(jump);
-          return;
-        }
-      }
+      const returnedMonth = String(json.data.month || ym);
+      if (returnedMonth !== ym) setMonth(returnedMonth);
       setRows(json.data.installments || []);
       setTotals(json.data.totals);
       setCreditorName(json.data.creditor?.name || "Jocykleber");

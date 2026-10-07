@@ -18,6 +18,15 @@ function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+function payMonthFromOpen(
+  requested: string,
+  openByMonth: { month: string; count: number }[]
+) {
+  const open = openByMonth.filter((m) => m.count > 0).sort((a, b) => a.month.localeCompare(b.month));
+  if (!open.length) return requested;
+  return open.find((m) => m.month >= requested)?.month || open[0].month;
+}
+
 export async function GET(req: Request) {
   let sess;
   try {
@@ -39,15 +48,9 @@ export async function GET(req: Request) {
 
   try {
     const { creditor, viewOnly } = await resolveCardDebtCreditor(sess);
-    const { start, end } = monthRange(month);
     const scope = installmentScope(sess, creditor?.id || null);
 
-  const [monthRows, allOpen, allPaid, allTotal, monthBuckets] = await Promise.all([
-    prisma.cardDebtInstallment.findMany({
-      where: { ...scope, dueDate: { gte: start, lt: end } },
-      include: { purchase: { select: { id: true, title: true } } },
-      orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
-    }),
+  const [allOpen, allPaid, allTotal, monthBuckets] = await Promise.all([
     prisma.cardDebtInstallment.aggregate({
       where: { ...scope, status: "OPEN" },
       _sum: { amountCents: true },
@@ -76,6 +79,18 @@ export async function GET(req: Request) {
     byMonth[key].openCents += row.amountCents;
     byMonth[key].count += 1;
   }
+
+  const openByMonth = Object.entries(byMonth)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([ym, v]) => ({ month: ym, ...v }));
+  month = payMonthFromOpen(month, openByMonth);
+  const { start, end } = monthRange(month);
+
+  const monthRows = await prisma.cardDebtInstallment.findMany({
+    where: { ...scope, dueDate: { gte: start, lt: end } },
+    include: { purchase: { select: { id: true, title: true } } },
+    orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
+  });
 
   const monthOpen = monthRows.filter((r) => r.status === "OPEN");
   const monthPaid = monthRows.filter((r) => r.status === "PAID");
@@ -114,9 +129,7 @@ export async function GET(req: Request) {
         allTotalCents: allTotal._sum.amountCents || 0,
         allCount: allTotal._count,
       },
-      openByMonth: Object.entries(byMonth)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([ym, v]) => ({ month: ym, ...v })),
+      openByMonth,
     },
   });
   } catch (e: unknown) {
