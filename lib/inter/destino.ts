@@ -76,7 +76,11 @@ export async function employeePixDestino(userId: string): Promise<PixDestino> {
   );
 }
 
-export async function cedentePixDestino(cedenteId: string): Promise<PixDestino> {
+export async function cedentePixDraft(cedenteId: string): Promise<{
+  destino: PixDestino;
+  needsPix: boolean;
+  error: string | null;
+}> {
   const cedente = await prisma.cedente.findUnique({
     where: { id: cedenteId },
     select: {
@@ -89,18 +93,37 @@ export async function cedentePixDestino(cedenteId: string): Promise<PixDestino> 
     },
   });
   if (!cedente) throw new Error("Cedente não encontrado.");
-  if (!cedente.chavePix) throw new Error("Cedente sem chave PIX cadastrada.");
-  const pixKey = normalizePixKey(cedente.pixTipo, cedente.chavePix);
-  if (!pixKeyLooksValid(cedente.pixTipo, pixKey)) {
-    throw new Error("Chave PIX do cedente inválida.");
-  }
-  return {
+
+  const pixTipo = cedente.pixTipo || "CPF";
+  const raw = String(cedente.chavePix || "").trim();
+  const fallbackCpf = String(cedente.cpf || "").replace(/\D/g, "");
+  const suggested = raw || (pixTipo === "CPF" && fallbackCpf.length === 11 ? fallbackCpf : "");
+  const pixKey = suggested ? normalizePixKey(pixTipo, suggested) : "";
+  const valid = Boolean(pixKey) && pixKeyLooksValid(pixTipo, pixKey);
+
+  const destino: PixDestino = {
     nome: cedente.nomeCompleto,
     cpf: cedente.cpf || null,
     banco: cedente.banco || null,
-    pixTipo: cedente.pixTipo,
-    pixKey,
+    pixTipo,
+    pixKey: valid ? pixKey : suggested,
     source: `cedente ${cedente.identificador}`,
-    cpfMatchesKey: cpfMatch(cedente.pixTipo, pixKey, cedente.cpf),
+    cpfMatchesKey: valid ? cpfMatch(pixTipo, pixKey, cedente.cpf) : null,
   };
+
+  if (!raw) {
+    return { destino, needsPix: true, error: "Cedente sem chave PIX cadastrada." };
+  }
+  if (!valid) {
+    return { destino, needsPix: true, error: "Chave PIX do cedente inválida." };
+  }
+  return { destino, needsPix: false, error: null };
+}
+
+export async function cedentePixDestino(cedenteId: string): Promise<PixDestino> {
+  const draft = await cedentePixDraft(cedenteId);
+  if (draft.needsPix) {
+    throw new Error(draft.error || "Chave PIX do cedente inválida.");
+  }
+  return draft.destino;
 }

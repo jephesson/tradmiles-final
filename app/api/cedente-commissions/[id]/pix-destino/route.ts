@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionServer } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
-import { cedentePixDestino } from "@/lib/inter/destino";
+import { cedentePixDraft } from "@/lib/inter/destino";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +23,15 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Comissão não encontrada." }, { status: 404 });
   }
   try {
-    const destino = await cedentePixDestino(row.cedenteId);
-    return NextResponse.json({ ok: true, amountCents: row.amountCents, status: row.status, destino });
+    const draft = await cedentePixDraft(row.cedenteId);
+    return NextResponse.json({
+      ok: true,
+      amountCents: row.amountCents,
+      status: row.status,
+      destino: draft.destino,
+      needsPix: draft.needsPix,
+      pixError: draft.error,
+    });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Falha ao ler PIX." },

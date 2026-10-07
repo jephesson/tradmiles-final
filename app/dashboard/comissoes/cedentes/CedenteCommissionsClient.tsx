@@ -159,6 +159,8 @@ export default function CedenteCommissionsClient() {
     id: string;
     amountCents: number;
     destino: PixDestinoView;
+    needsPix?: boolean;
+    pixError?: string | null;
   } | null>(null);
 
   async function load() {
@@ -240,7 +242,13 @@ export default function CedenteCommissionsClient() {
           setErr(json?.error || "Não deu para conferir o PIX.");
           return;
         }
-        setPixModal({ id, amountCents: json.amountCents, destino: json.destino });
+        setPixModal({
+          id,
+          amountCents: json.amountCents,
+          destino: json.destino,
+          needsPix: Boolean(json.needsPix),
+          pixError: json.pixError || null,
+        });
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : "Falha ao conferir PIX.");
       } finally {
@@ -637,7 +645,9 @@ export default function CedenteCommissionsClient() {
                         PIX {it.cedente.pixTipo}: {it.cedente.chavePix}
                         {it.cedente.banco ? ` · ${it.cedente.banco}` : ""}
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-1 text-[11px] text-amber-700">Sem chave PIX — dá para cadastrar no envio</div>
+                    )}
                   </td>
                   <td className="px-4 py-3.5">
                     <div className="font-medium text-slate-900">{it.purchase?.numero || "—"}</div>
@@ -813,8 +823,33 @@ export default function CedenteCommissionsClient() {
           amountCents={pixModal.amountCents}
           destino={pixModal.destino}
           busy={loading}
+          editable
+          needsPix={pixModal.needsPix}
+          pixError={pixModal.pixError}
           onCancel={() => setPixModal(null)}
           onConfirm={() => void postPay(pixModal.id, "inter")}
+          onSavePix={async (pixTipo, pixKey) => {
+            const res = await fetch(`/api/cedente-commissions/${pixModal.id}/pix`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pixTipo, chavePix: pixKey }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json?.ok) {
+              throw new Error(json?.error || "Não deu para gravar a chave PIX.");
+            }
+            setPixModal((m) =>
+              m
+                ? {
+                    ...m,
+                    destino: json.destino,
+                    needsPix: Boolean(json.needsPix),
+                    pixError: json.pixError || null,
+                  }
+                : m
+            );
+            await load();
+          }}
         />
       ) : null}
 
