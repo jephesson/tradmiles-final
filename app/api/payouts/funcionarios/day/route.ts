@@ -21,7 +21,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
   name?: string;
 };
 

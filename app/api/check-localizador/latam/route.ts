@@ -7,7 +7,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
 };
 
 const MANUAL_STATUS = ["CANCELADO", "CONFIRMADO", "ALTERADO"] as const;

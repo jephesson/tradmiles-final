@@ -7,7 +7,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
 };
 
 const SMILES_MANUAL_STATUS = ["CONFIRMADO", "DERRUBADO"] as const;

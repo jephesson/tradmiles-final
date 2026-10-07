@@ -14,7 +14,7 @@ import { readSessionCookie } from "@/lib/session";
 type SessionCookie = {
   id: string;
   login: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
   team: string;
 };
 

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
-type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" | "socio" };
 
 function clampNonNegInt(n: any) {
   const x = Number(n);

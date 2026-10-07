@@ -10,7 +10,7 @@ export const revalidate = 0;
 type SessionCookie = {
   id: string;
   login: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
   team: string;
 };
 

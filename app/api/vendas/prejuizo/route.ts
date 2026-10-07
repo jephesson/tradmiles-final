@@ -22,7 +22,7 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status, headers: noCacheHeaders() });
 }
 
-type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" | "socio" };
 
 async function getServerSession(): Promise<Sess | null> {
   const store = await cookies();

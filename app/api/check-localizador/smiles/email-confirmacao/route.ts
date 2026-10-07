@@ -10,7 +10,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "socio";
 };
 
 /** Janela de cadastro do cedente considerada "conta nova". */

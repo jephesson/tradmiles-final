@@ -9,7 +9,7 @@ import { readSessionCookie } from "@/lib/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Sess = { id: string; login: string; team: string; role: "admin" | "staff" };
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" | "socio" };
 
 
 
