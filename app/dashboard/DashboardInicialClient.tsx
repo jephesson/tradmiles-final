@@ -311,8 +311,11 @@ function BankBalanceCard() {
 
   useEffect(() => {
     load();
-    const t = window.setInterval(load, 60_000);
-    return () => window.clearInterval(t);
+    function onVisible() {
+      if (document.visibilityState === "visible") void load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [load]);
 
   if (!visible) return null;
@@ -353,7 +356,7 @@ function BankBalanceCard() {
               Bloqueado: {fmtMoney(blockedCents)}
             </p>
           ) : (
-            <p className="mt-2 text-xs text-slate-500">Atualiza sozinho a cada minuto.</p>
+            <p className="mt-2 text-xs text-slate-500">Atualiza ao abrir a página, ao voltar para a aba ou no ícone.</p>
           )}
         </>
       )}
