@@ -138,133 +138,133 @@ export default function DashboardInicialClient() {
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <BankBalanceCard />
-        <TodayPaceCard bonus={bonus} todayLabel={data?.todayLabel || ""} loading={!data && !error} />
-        <MonthGoalCard bonus={bonus} loading={!data && !error} />
-      </div>
-
       {showCelebration && bonus ? (
         <BonusProgressCard bonus={bonus} todayLabel={data?.todayLabel || ""} compact />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
-              <h2 className="text-sm font-semibold text-slate-900">Agenda do dia</h2>
-            </div>
-            <div className="text-right text-xs text-slate-500">
-              {data ? (
-                <>
-                  <div className="font-medium capitalize text-slate-700">{data.todayLabel}</div>
-                  <div>Agora: {data.nowHHMM} (Recife)</div>
-                </>
-              ) : (
-                <span>Carregando…</span>
-              )}
-            </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-4">
+          <BankBalanceCard />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <TodayPaceCard bonus={bonus} todayLabel={data?.todayLabel || ""} loading={!data && !error} />
+            <MonthGoalCard bonus={bonus} loading={!data && !error} />
           </div>
+        </div>
 
-          <div className="mt-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Eventos de hoje
-            </div>
-            <p className="mt-1 text-[11px] leading-snug text-slate-500">
-              Fundo verde = turno no horário atual (Recife); a pessoa deve estar online agora.
-            </p>
-            {!data ? (
-              <p className="mt-2 text-sm text-slate-500">Carregando…</p>
-            ) : data.agendaToday.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">Nenhum turno ou ausência cadastrado para hoje.</p>
-            ) : (
-              <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
-                {data.agendaToday.map((e) => {
-                  const turnoAtivo =
-                    e.type === "SHIFT" && (data.expectedShiftEventIds || []).includes(e.id);
-                  return (
-                  <li
-                    key={e.id}
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-sm shadow-sm",
-                      turnoAtivo
-                        ? "border-emerald-200/90 bg-emerald-50/95 ring-1 ring-emerald-200/60"
-                        : "border-slate-100 bg-white"
-                    )}
-                  >
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="font-medium text-slate-900">{e.user.name}</span>
-                      <span className="tabular-nums text-xs text-slate-600">
-                        {e.startHHMM}–{e.endHHMM}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-500">
-                      {e.type === "SHIFT" ? (
-                        <span className="text-emerald-700">Turno</span>
-                      ) : (
-                        <span className="text-amber-700">Ausência</span>
-                      )}
-                      {e.note ? ` · ${e.note}` : ""}
-                    </div>
-                  </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          <Link
-            href="/dashboard/agenda"
-            className="mt-4 inline-flex text-xs font-medium text-sky-700 underline-offset-2 hover:underline"
-          >
-            Abrir agenda completa
-          </Link>
-        </section>
-
-        <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-            <Users className="h-4 w-4 text-slate-500" aria-hidden />
-            <h2 className="text-sm font-semibold text-slate-900">Equipe — quem está online</h2>
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-slate-600">
-            Verde = abriu o dashboard nos últimos 3 minutos (sinal automático a cada 1 min enquanto você navega no
-            sistema).
-          </p>
-          {!data ? (
-            <p className="mt-4 text-sm text-slate-500">Carregando…</p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {data.teamPresence.map((m) => (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-900">{m.name}</div>
-                    <div className="truncate text-xs text-slate-500">{m.login}</div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <Circle
-                      className={cn("h-2.5 w-2.5 fill-current", m.online ? "text-emerald-500" : "text-slate-300")}
-                      aria-hidden
-                    />
-                    <span
-                      className={cn(
-                        "text-xs font-semibold",
-                        m.online ? "text-emerald-700" : "text-slate-500"
-                      )}
-                    >
-                      {m.online ? "Online" : "Offline"}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <AgendaPresenceCard data={data} />
       </div>
     </div>
+  );
+}
+
+function AgendaPresenceCard({ data }: { data: InicialData | null }) {
+  const presenceById = new Map((data?.teamPresence || []).map((m) => [m.id, m]));
+  const agendaUserIds = new Set((data?.agendaToday || []).map((e) => e.user.id));
+  const extrasOnline = (data?.teamPresence || []).filter(
+    (m) => m.online && !agendaUserIds.has(m.id)
+  );
+
+  return (
+    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
+          <h2 className="text-sm font-semibold text-slate-900">Agenda do dia</h2>
+        </div>
+        <Link
+          href="/dashboard/agenda"
+          className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline"
+        >
+          Agenda completa
+        </Link>
+      </div>
+
+      <p className="mt-2 text-[11px] leading-snug text-slate-500">
+        Ativo = está na agenda de hoje e com o sistema aberto agora.
+      </p>
+
+      {!data ? (
+        <p className="mt-3 text-sm text-slate-500">Carregando…</p>
+      ) : data.agendaToday.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Nenhum turno ou ausência cadastrado para hoje.</p>
+      ) : (
+        <ul className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+          {data.agendaToday.map((e) => {
+            const online = Boolean(presenceById.get(e.user.id)?.online);
+            const noTurno =
+              e.type === "SHIFT" && (data.expectedShiftEventIds || []).includes(e.id);
+            return (
+              <li
+                key={e.id}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm shadow-sm",
+                  online
+                    ? "border-emerald-200/90 bg-emerald-50/95 ring-1 ring-emerald-200/60"
+                    : noTurno
+                      ? "border-amber-200/80 bg-amber-50/70"
+                      : "border-slate-100 bg-white"
+                )}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-slate-900">{e.user.name}</span>
+                  <div className="flex items-center gap-2">
+                    {online ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                        <Circle className="h-2 w-2 fill-current" aria-hidden />
+                        Ativo
+                      </span>
+                    ) : noTurno ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                        No turno
+                      </span>
+                    ) : null}
+                    <span className="tabular-nums text-xs text-slate-600">
+                      {e.startHHMM}–{e.endHHMM}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {e.type === "SHIFT" ? (
+                    <span className="text-emerald-700">Turno</span>
+                  ) : (
+                    <span className="text-amber-700">Ausência</span>
+                  )}
+                  {e.note ? ` · ${e.note}` : ""}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {data && extrasOnline.length > 0 ? (
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <div className="flex items-center gap-2">
+            <Users className="h-3.5 w-3.5 text-slate-500" aria-hidden />
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Ativos agora · fora da agenda
+            </h3>
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {extrasOnline.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
+                  <div className="truncate text-[11px] text-slate-500">{m.login}</div>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
+                  <Circle className="h-2 w-2 fill-current" aria-hidden />
+                  Ativo
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
