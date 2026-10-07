@@ -13,6 +13,7 @@ import {
 } from "@/lib/balcao-commission";
 import { taxPaidCentsFromPayment, taxPendingCents } from "@/lib/taxes";
 import { unpaidDay1BonusNetCents, day1BonusTaxByPayMonth } from "@/lib/card-cashback";
+import { isInterCaixaDescription, syncInterCaixaBalance } from "@/lib/caixa/interBalance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,6 +108,8 @@ export async function GET(req: Request) {
 
     const latest = snapshots[0] ?? null;
 
+    const interSync = await syncInterCaixaBalance(session.team);
+
     const creditCards = await prisma.creditCardBalance.findMany({
       where: { team: session.team },
       orderBy: [{ createdAt: "asc" }, { description: "asc" }],
@@ -115,6 +118,11 @@ export async function GET(req: Request) {
         description: true,
         amountCents: true,
       },
+    });
+    creditCards.sort((a, b) => {
+      const ia = isInterCaixaDescription(a.description) ? 0 : 1;
+      const ib = isInterCaixaDescription(b.description) ? 0 : 1;
+      return ia - ib;
     });
     const creditCardsTotalCents = creditCards.reduce(
       (sum: number, card: { amountCents: number }) => sum + safeInt(card.amountCents),
@@ -339,8 +347,14 @@ export async function GET(req: Request) {
             id: card.id,
             description: card.description,
             amountCents: safeInt(card.amountCents),
+            liveInter: isInterCaixaDescription(card.description) && interSync.configured,
           })),
           creditCardsTotalCents,
+          interBalance: {
+            configured: interSync.configured,
+            synced: interSync.synced,
+            error: interSync.error,
+          },
           latestTotalLiquidoCents: safeInt(latest?.totalLiquido ?? 0),
 
           snapshots: snapshots.map((s) => ({

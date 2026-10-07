@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { isInterCaixaDescription } from "@/lib/caixa/interBalance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,12 @@ export async function POST(req: Request) {
     if (!description) {
       return NextResponse.json({ ok: false, error: "Informe a descrição do cartão." }, { status: 400 });
     }
+    if (isInterCaixaDescription(description)) {
+      return NextResponse.json(
+        { ok: false, error: "O saldo Inter atualiza sozinho pelo banco. Lance só os outros saldos." },
+        { status: 400 }
+      );
+    }
     if (amountCents == null || amountCents < 0) {
       return NextResponse.json({ ok: false, error: "Informe um valor válido para o cartão." }, { status: 400 });
     }
@@ -84,6 +91,17 @@ export async function DELETE(req: Request) {
 
     if (!id) {
       return NextResponse.json({ ok: false, error: "ID do cartão não informado." }, { status: 400 });
+    }
+
+    const current = await prisma.creditCardBalance.findFirst({
+      where: { id, team: session.team },
+      select: { description: true },
+    });
+    if (current && isInterCaixaDescription(current.description)) {
+      return NextResponse.json(
+        { ok: false, error: "O saldo Inter vem do banco e não pode ser removido." },
+        { status: 400 }
+      );
     }
 
     const result = await prisma.creditCardBalance.deleteMany({

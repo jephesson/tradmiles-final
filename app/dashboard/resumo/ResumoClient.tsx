@@ -21,6 +21,7 @@ type CreditCard = {
   id: string;
   description: string;
   amountCents: number;
+  liveInter?: boolean;
 };
 
 type CedenteOpt = {
@@ -1366,7 +1367,7 @@ export default function CedentesResumoClient() {
               <div>
                 <div className="text-sm font-semibold text-slate-900">Saldos</div>
                 <div className="text-xs text-slate-500">
-                  Adicione e remova saldos disponíveis para compor o caixa.
+                  Inter atualiza pelo banco. Os outros saldos você lança na mão.
                 </div>
               </div>
               <div className="text-base font-bold tabular-nums text-slate-900">
@@ -1379,7 +1380,7 @@ export default function CedentesResumoClient() {
                 label="Descrição"
                 value={creditCardDescription}
                 onChange={setCreditCardDescription}
-                placeholder="Ex: Inter / Nubank final 1234 / Caixa Lucas"
+                placeholder="Ex: RecargaPay / Nubank / Caixa Lucas"
               />
               <Input
                 label="Valor disponível (R$)"
@@ -1406,20 +1407,30 @@ export default function CedentesResumoClient() {
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-900">{card.description}</div>
-                      <div className="text-xs text-slate-500">Saldo disponível</div>
+                      <div className="text-xs text-slate-500">
+                        {card.liveInter
+                          ? "Atualizado do Banco Inter"
+                          : "Saldo disponível"}
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-sm font-bold tabular-nums text-slate-900">
                         {fmtMoneyBR(card.amountCents)}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removeCreditCard(card.id)}
-                        disabled={savingCreditCard}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        Remover
-                      </button>
+                      {card.liveInter ? (
+                        <span className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
+                          Automático
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => removeCreditCard(card.id)}
+                          disabled={savingCreditCard}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          Remover
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
