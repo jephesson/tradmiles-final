@@ -90,7 +90,7 @@ export function interConfig() {
       ? "https://cdpj-sandbox.partners.uatinter.co/banking/v2"
       : "https://cdpj.partners.bancointer.com.br/banking/v2",
     scope:
-      "pagamento-pix.write pagamento-pix.read webhook-banking.write webhook-banking.read",
+      "pagamento-pix.write pagamento-pix.read webhook-banking.write webhook-banking.read extrato.read",
   };
 }
 

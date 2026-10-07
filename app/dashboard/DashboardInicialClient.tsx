@@ -3,9 +3,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Circle, PartyPopper, Sparkles, Trophy, Users } from "lucide-react";
+import {
+  CalendarDays,
+  Circle,
+  Landmark,
+  PartyPopper,
+  RefreshCw,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
-import LogoutButton from "@/components/LogoutButton";
 
 type AgendaRow = {
   id: string;
@@ -92,34 +100,52 @@ export default function DashboardInicialClient() {
     return () => window.clearInterval(t);
   }, [load]);
 
+  const bonus = data?.bonusProgress || null;
+  const showCelebration = Boolean(
+    bonus?.revenueGoalMet || (bonus?.isRenewalDay && bonus.previousMonth?.revenueGoalMet)
+  );
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
-          <div className="relative h-20 w-48 shrink-0 sm:h-24 sm:w-56">
-            <Image
-              src="/vias-aereas-logo.png"
-              alt="Vias Aéreas"
-              fill
-              className="object-contain object-left"
-              sizes="(max-width: 640px) 192px, 224px"
-              priority
-            />
-          </div>
-          <div className="text-center sm:text-left">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Página inicial</h1>
-            <p className="mt-1 text-sm text-slate-600">Meta de bônus, agenda do dia e presença da equipe.</p>
-          </div>
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <div className="relative h-12 w-32 shrink-0 sm:h-14 sm:w-40">
+          <Image
+            src="/vias-aereas-logo.png"
+            alt="Vias Aéreas"
+            fill
+            className="object-contain object-left"
+            sizes="160px"
+            priority
+          />
         </div>
-        <LogoutButton />
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+            Página inicial
+          </h1>
+          <p className="mt-0.5 text-sm text-slate-600">
+            {data ? (
+              <span className="capitalize">
+                {data.todayLabel} · {data.nowHHMM} (Recife)
+              </span>
+            ) : (
+              "Saldo do banco, ritmo do dia e equipe."
+            )}
+          </p>
+        </div>
       </div>
 
       {error ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
-      {data?.bonusProgress ? (
-        <BonusProgressCard bonus={data.bonusProgress} todayLabel={data.todayLabel} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <BankBalanceCard />
+        <TodayPaceCard bonus={bonus} todayLabel={data?.todayLabel || ""} loading={!data && !error} />
+        <MonthGoalCard bonus={bonus} loading={!data && !error} />
+      </div>
+
+      {showCelebration && bonus ? (
+        <BonusProgressCard bonus={bonus} todayLabel={data?.todayLabel || ""} compact />
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -242,6 +268,233 @@ export default function DashboardInicialClient() {
   );
 }
 
+function BankBalanceCard() {
+  const [visible, setVisible] = useState(true);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [availableCents, setAvailableCents] = useState<number | null>(null);
+  const [blockedCents, setBlockedCents] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/inter/saldo", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (json?.visible === false) {
+        setVisible(false);
+        setLoading(false);
+        return;
+      }
+      setVisible(true);
+      if (json?.configured === false) {
+        setConfigured(false);
+        setAvailableCents(null);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+      setConfigured(true);
+      if (!res.ok || json?.ok === false) {
+        setError(String(json?.error || "Não foi possível consultar o Banco Inter."));
+        setLoading(false);
+        return;
+      }
+      setAvailableCents(Number(json.availableCents) || 0);
+      setBlockedCents(Number(json.blockedCents) || 0);
+      setError(null);
+    } catch {
+      setError("Erro de rede ao consultar o saldo.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = window.setInterval(load, 60_000);
+    return () => window.clearInterval(t);
+  }, [load]);
+
+  if (!visible) return null;
+
+  return (
+    <section className="rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Landmark className="h-4 w-4 text-sky-700" aria-hidden />
+          <h2 className="text-sm font-semibold text-slate-900">Saldo da conta</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
+          className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+          title="Atualizar saldo"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden />
+        </button>
+      </div>
+      <p className="mt-0.5 text-xs text-slate-500">Banco Inter · disponível para PIX</p>
+      {loading && availableCents == null && !error && configured !== false ? (
+        <p className="mt-4 text-sm text-slate-500">Consultando…</p>
+      ) : configured === false ? (
+        <p className="mt-4 text-sm text-slate-600">PIX Inter ainda não está configurado neste ambiente.</p>
+      ) : error ? (
+        <p className="mt-4 text-sm text-rose-700">{error}</p>
+      ) : (
+        <>
+          <div className="mt-4 text-2xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-3xl">
+            {fmtMoney(availableCents || 0)}
+          </div>
+          {blockedCents > 0 ? (
+            <p className="mt-2 text-xs text-amber-800">
+              Bloqueado: {fmtMoney(blockedCents)}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">Atualiza sozinho a cada minuto.</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function TodayPaceCard({
+  bonus,
+  todayLabel,
+  loading,
+}: {
+  bonus: BonusProgress | null;
+  todayLabel: string;
+  loading: boolean;
+}) {
+  if (loading || !bonus) {
+    return (
+      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
+        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
+      </section>
+    );
+  }
+  const todayMet = bonus.dailyTargetCents > 0 && bonus.todayRevenueCents >= bonus.dailyTargetCents;
+  const todayGapCents = Math.max(0, bonus.dailyTargetCents - bonus.todayRevenueCents);
+  const salesLabel = `${bonus.todaySalesCount} venda${bonus.todaySalesCount === 1 ? "" : "s"}`;
+  const balcao =
+    bonus.todayBalcaoCount > 0 ? ` · ${bonus.todayBalcaoCount} no balcão` : "";
+
+  return (
+    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
+      <p className="mt-2 text-[15px] leading-snug text-slate-800">
+        <b className="tabular-nums">{fmtMoney(bonus.todayRevenueCents)}</b>
+        {bonus.dailyTargetCents > 0 ? (
+          <>
+            {" "}
+            de <span className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</span>
+          </>
+        ) : null}
+      </p>
+      {bonus.dailyTargetCents > 0 ? (
+        <div className="mt-3 space-y-2">
+          <ProgressBar pct={bonus.todayVsDailyPct} tone={todayMet ? "done" : "warn"} />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="tabular-nums text-slate-500">{bonus.todayVsDailyPct}%</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 font-semibold",
+                todayMet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
+              )}
+            >
+              {todayMet ? "Ritmo ok" : `Faltam ${fmtMoney(todayGapCents)}`}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs capitalize text-slate-500">{todayLabel}</p>
+      )}
+      <p className="mt-3 text-xs text-slate-500">
+        {salesLabel}
+        {balcao}
+      </p>
+    </section>
+  );
+}
+
+function MonthGoalCard({
+  bonus,
+  loading,
+}: {
+  bonus: BonusProgress | null;
+  loading: boolean;
+}) {
+  if (loading || !bonus) {
+    return (
+      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mês</div>
+        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
+      </section>
+    );
+  }
+  if (bonus.revenueGoalCents <= 0) {
+    return (
+      <section className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-5 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Mês</div>
+        <p className="mt-2 text-sm text-slate-700">Ainda não tem meta de faturamento neste mês.</p>
+        <Link href="/dashboard/bonus" className="mt-3 inline-block text-xs font-medium text-sky-700 hover:underline">
+          Configurar meta
+        </Link>
+      </section>
+    );
+  }
+  const remainingCents = Math.max(0, bonus.revenueGoalCents - bonus.revenueCents);
+  return (
+    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Mês · {bonus.monthLabel}
+        </div>
+        <Link href="/dashboard/bonus" className="text-[11px] font-medium text-sky-700 hover:underline">
+          Regras
+        </Link>
+      </div>
+      <p className="mt-2 text-[15px] leading-snug text-slate-800">
+        <b className="tabular-nums">{fmtMoney(bonus.revenueCents)}</b>
+        {" "}
+        de <span className="tabular-nums">{fmtMoney(bonus.revenueGoalCents)}</span>
+      </p>
+      <div className="mt-3 space-y-2">
+        <ProgressBar
+          pct={bonus.monthRevenuePct}
+          tone={bonus.revenueGoalMet || bonus.monthRevenuePct >= 80 ? "ok" : "warn"}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span className="tabular-nums">{bonus.monthRevenuePct}% concluído</span>
+          <span>
+            {bonus.daysRemaining} dia{bonus.daysRemaining === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-slate-600">
+        {bonus.revenueGoalMet ? (
+          "Meta batida."
+        ) : (
+          <>
+            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
+            {bonus.dailyTargetCents > 0 ? (
+              <>
+                {" "}
+                · ~<b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b>/dia
+              </>
+            ) : null}
+          </>
+        )}
+      </p>
+    </section>
+  );
+}
+
 function ProgressBar({
   pct,
   tone,
@@ -310,13 +563,33 @@ function MetaBatidaPanel({
 function BonusProgressCard({
   bonus,
   todayLabel,
+  compact,
 }: {
   bonus: BonusProgress;
   todayLabel: string;
+  compact?: boolean;
 }) {
   const hasGoal = bonus.revenueGoalCents > 0;
   const prev = bonus.previousMonth || null;
   const showPrevWin = Boolean(bonus.isRenewalDay && prev?.revenueGoalMet);
+
+  if (compact) {
+    if (showPrevWin && prev) {
+      return (
+        <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
+          <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta />
+        </section>
+      );
+    }
+    if (bonus.revenueGoalMet) {
+      return (
+        <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
+          <MetaBatidaPanel monthLabel={bonus.monthLabel} />
+        </section>
+      );
+    }
+    return null;
+  }
   const remainingCents = Math.max(0, bonus.revenueGoalCents - bonus.revenueCents);
   const todayGapCents = Math.max(0, bonus.dailyTargetCents - bonus.todayRevenueCents);
   const todayMet = bonus.dailyTargetCents > 0 && bonus.todayRevenueCents >= bonus.dailyTargetCents;

@@ -1,13 +1,15 @@
 import { interConfig } from "@/lib/inter/config";
 import { interHttp } from "@/lib/inter/http";
 
-type TokenCache = { accessToken: string; expiresAt: number };
+type TokenCache = { accessToken: string; expiresAt: number; scope: string };
 let cache: TokenCache | null = null;
 
 export async function interAccessToken() {
-  if (cache && Date.now() < cache.expiresAt - 60_000) return cache.accessToken;
-
   const cfg = interConfig();
+  if (cache && cache.scope === cfg.scope && Date.now() < cache.expiresAt - 60_000) {
+    return cache.accessToken;
+  }
+
   const body = new URLSearchParams({
     grant_type: "client_credentials",
     client_id: cfg.clientId,
@@ -39,6 +41,10 @@ export async function interAccessToken() {
   }
 
   const ttlMs = Math.max(60, Number(data.expires_in) || 3600) * 1000;
-  cache = { accessToken: data.access_token, expiresAt: Date.now() + ttlMs };
+  cache = {
+    accessToken: data.access_token,
+    expiresAt: Date.now() + ttlMs,
+    scope: cfg.scope,
+  };
   return cache.accessToken;
 }
