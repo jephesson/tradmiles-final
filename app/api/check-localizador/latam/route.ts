@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { readSessionCookie } from "@/lib/session";
 
 type Sess = {
   id: string;
@@ -12,23 +13,7 @@ type Sess = {
 const MANUAL_STATUS = ["CANCELADO", "CONFIRMADO", "ALTERADO"] as const;
 type ManualStatus = (typeof MANUAL_STATUS)[number];
 
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(base64, "base64").toString("utf8");
-}
 
-function readSessionCookie(raw?: string): Sess | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
-    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
-    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
-    return parsed as Sess;
-  } catch {
-    return null;
-  }
-}
 
 async function getServerSession(): Promise<Sess | null> {
   const store = await cookies();

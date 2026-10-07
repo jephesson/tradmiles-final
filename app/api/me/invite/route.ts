@@ -2,24 +2,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type SessionCookie = {
-  id: string;
-  login: string;
-  role: "admin" | "staff";
-  team: string;
-};
-
-// base64 url-safe decode
-function b64urlDecode(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-  return Buffer.from(b64 + pad, "base64").toString("utf8");
-}
 
 function noCacheHeaders() {
   return {
@@ -31,25 +18,10 @@ function noCacheHeaders() {
   };
 }
 
-async function readSessionCookie(): Promise<SessionCookie | null> {
-  try {
-    const cookieStore = await cookies(); // ✅ Next 16: cookies() é async
-    const raw = cookieStore.get("tm.session")?.value;
-    if (!raw) return null;
-
-    const json = b64urlDecode(raw);
-    const data = JSON.parse(json) as Partial<SessionCookie>;
-    if (!data?.id || !data?.login) return null;
-
-    return data as SessionCookie;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET() {
   try {
-    const session = await readSessionCookie();
+    const cookieStore = await cookies();
+    const session = readSessionCookie(cookieStore.get("tm.session")?.value);
 
     if (!session?.id) {
       return NextResponse.json(

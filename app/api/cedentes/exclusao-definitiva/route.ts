@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import crypto from "node:crypto";
+import { readSessionCookie } from "@/lib/session";
 
 type SessionCookie = {
   id: string;
@@ -26,12 +27,6 @@ function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  return Buffer.from(b64, "base64").toString("utf8");
-}
-
 function readCookie(req: Request, name: string) {
   const raw = req.headers.get("cookie") || "";
   const parts = raw.split(";").map((s) => s.trim());
@@ -42,14 +37,9 @@ function readCookie(req: Request, name: string) {
 
 function getSession(req: Request): SessionCookie | null {
   const cookie = readCookie(req, "tm.session");
-  if (!cookie) return null;
-  try {
-    const s = JSON.parse(b64urlDecode(cookie)) as SessionCookie;
-    if (!s?.id || !s?.team || !s?.role || !s?.login) return null;
-    return s;
-  } catch {
-    return null;
-  }
+  const s = readSessionCookie(cookie);
+  if (!s?.id || !s?.team || !s?.role || !s?.login) return null;
+  return s as SessionCookie;
 }
 
 async function requirePassword(req: Request, password: string) {

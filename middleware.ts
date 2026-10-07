@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isSocio, socioCanCallApi, socioCanVisit, socioHome } from "@/lib/roles";
 import { isSessionIdleExpired } from "@/lib/session-idle";
+import { verifySessionValueEdge } from "@/lib/session-token";
 
 function buildNext(url: URL) {
   const next = url.pathname + (url.search || "");
@@ -24,24 +25,6 @@ type CookieSess = {
   login?: string;
   team?: string;
 };
-
-function b64urlDecodeUtf8(raw: string) {
-  const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  const bin = atob(b64 + pad);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
-
-function readCookieSession(raw?: string): CookieSess | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(b64urlDecodeUtf8(raw)) as CookieSess;
-  } catch {
-    return null;
-  }
-}
 
 function sessionCookieOpts(maxAge: number) {
   const domain = process.env.COOKIE_DOMAIN?.trim();
@@ -68,12 +51,12 @@ function toLogin(req: NextRequest, reason?: "idle") {
   return res;
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const sessionCookie = req.cookies.get("tm.session")?.value;
   const isLogin = url.pathname === "/login" || url.pathname.startsWith("/login/");
-  const sess = readCookieSession(sessionCookie);
-  const idle = Boolean(sessionCookie && (!sess || isSessionIdleExpired(sess.last)));
+  const sess = await verifySessionValueEdge<CookieSess>(sessionCookie);
+  const idle = Boolean(sess && isSessionIdleExpired(sess.last));
   const valid = Boolean(sess?.id && sess.login && sess.role && sess.team && !idle);
 
   if (url.pathname.startsWith("/dashboard")) {

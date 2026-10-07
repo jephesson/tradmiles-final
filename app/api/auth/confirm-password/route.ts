@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,13 +18,6 @@ type SessionCookie = {
 
 function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
-}
-
-// base64url -> json
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/") + pad;
-  return Buffer.from(b64, "base64").toString("utf8");
 }
 
 function readCookie(req: Request, name: string) {
@@ -49,10 +43,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
     }
 
-    let session: SessionCookie | null = null;
-    try {
-      session = JSON.parse(b64urlDecode(cookie)) as SessionCookie;
-    } catch {
+    const session = readSessionCookie(cookie) as SessionCookie | null;
+    if (!session) {
       return NextResponse.json({ ok: false, error: "Sessão inválida." }, { status: 401 });
     }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { SESSION_IDLE_COOKIE_MAX_AGE } from "@/lib/session-idle";
+import { signSessionValue, verifySessionValue } from "@/lib/session";
 
 export type SessionCookie = {
   id: string;
@@ -9,20 +10,6 @@ export type SessionCookie = {
   pages?: string[];
   last?: number;
 };
-
-function b64urlEncode(input: string) {
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function b64urlDecode(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  return Buffer.from(b64 + pad, "base64").toString("utf8");
-}
 
 function cookieBase(maxAge: number) {
   return {
@@ -34,21 +21,23 @@ function cookieBase(maxAge: number) {
   };
 }
 
-export function setSessionCookie(res: NextResponse, payload: SessionCookie) {
-  const value = b64urlEncode(
-    JSON.stringify({
-      id: payload.id,
-      login: payload.login,
-      role: payload.role,
-      team: payload.team,
-      pages: payload.pages || [],
-      last: Date.now(),
-    })
-  );
-  const base = cookieBase(SESSION_IDLE_COOKIE_MAX_AGE);
+function applyCookie(res: NextResponse, name: string, value: string, maxAge: number) {
+  const base = cookieBase(maxAge);
   const domain = process.env.COOKIE_DOMAIN?.trim();
-  if (domain) res.cookies.set("tm.session", value, { ...base, domain });
-  else res.cookies.set("tm.session", value, base);
+  if (domain) res.cookies.set(name, value, { ...base, domain });
+  else res.cookies.set(name, value, base);
+}
+
+export function setSessionCookie(res: NextResponse, payload: SessionCookie) {
+  const value = signSessionValue({
+    id: payload.id,
+    login: payload.login,
+    role: payload.role,
+    team: payload.team,
+    pages: payload.pages || [],
+    last: Date.now(),
+  });
+  applyCookie(res, "tm.session", value, SESSION_IDLE_COOKIE_MAX_AGE);
 }
 
 export function clearSessionCookie(res: NextResponse) {
@@ -59,11 +48,8 @@ export function clearSessionCookie(res: NextResponse) {
 }
 
 export function setPending2faCookie(res: NextResponse, userId: string) {
-  const value = b64urlEncode(JSON.stringify({ id: userId, exp: Date.now() + 10 * 60 * 1000 }));
-  const base = cookieBase(10 * 60);
-  const domain = process.env.COOKIE_DOMAIN?.trim();
-  if (domain) res.cookies.set("tm.2fa", value, { ...base, domain });
-  else res.cookies.set("tm.2fa", value, base);
+  const value = signSessionValue({ id: userId, exp: Date.now() + 10 * 60 * 1000 });
+  applyCookie(res, "tm.2fa", value, 10 * 60);
 }
 
 export function clearPending2faCookie(res: NextResponse) {
@@ -75,14 +61,13 @@ export function clearPending2faCookie(res: NextResponse) {
 
 export function readPending2faCookie(req: Request): string | null {
   const header = req.headers.get("cookie") || "";
-  const match = header.split(";").map((p) => p.trim()).find((p) => p.startsWith("tm.2fa="));
+  const match = header
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("tm.2fa="));
   if (!match) return null;
   const raw = decodeURIComponent(match.slice("tm.2fa=".length));
-  try {
-    const json = JSON.parse(b64urlDecode(raw)) as { id?: string; exp?: number };
-    if (!json?.id || !json.exp || json.exp < Date.now()) return null;
-    return String(json.id);
-  } catch {
-    return null;
-  }
+  const json = verifySessionValue<{ id?: string; exp?: number }>(raw);
+  if (!json?.id || !json.exp || json.exp < Date.now()) return null;
+  return String(json.id);
 }

@@ -6,6 +6,7 @@ import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
+import { readSessionCookie } from "@/lib/session";
 
 type UserLite = { id: string; name: string; login: string };
 
@@ -17,22 +18,7 @@ type Sess = {
   role: "admin" | "staff";
 };
 
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(base64, "base64").toString("utf8");
-}
 
-function readSessionCookie(raw?: string): Sess | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
-    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
-    return parsed as Sess;
-  } catch {
-    return null;
-  }
-}
 
 export default async function Page() {
   const store = await cookies();

@@ -1,7 +1,7 @@
 // lib/auth-server.ts
 import "server-only";
 import { cookies } from "next/headers";
-import { isSessionIdleExpired } from "@/lib/session-idle";
+import { readSessionCookie } from "@/lib/session";
 
 type Role = "admin" | "staff" | "socio";
 
@@ -13,25 +13,11 @@ export type Session = {
   pages?: string[];
 };
 
-function b64urlDecode(input: string) {
-  const b64 = input.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4;
-  const padded = pad ? b64 + "=".repeat(4 - pad) : b64;
-  return Buffer.from(padded, "base64").toString("utf8");
-}
-
 export async function getSessionServer(): Promise<Session | null> {
   try {
-    const jar = await cookies(); // ✅ Next 16: cookies() pode ser Promise
-    const raw = jar.get("tm.session")?.value;
-    if (!raw) return null;
-
-    const json = b64urlDecode(raw);
-    const s = JSON.parse(json);
-
-    if (!s?.id || !s?.login || !s?.role || !s?.team) return null;
-    if (isSessionIdleExpired(s.last)) return null;
-
+    const jar = await cookies();
+    const s = readSessionCookie(jar.get("tm.session")?.value);
+    if (!s) return null;
     return {
       id: String(s.id),
       login: String(s.login),

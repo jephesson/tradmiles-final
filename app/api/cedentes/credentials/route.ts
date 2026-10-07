@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { readSessionCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 // opcional (se usar pg/adapter): garante Node
@@ -19,10 +20,7 @@ function pickSenhaPrograma(program: Program, c: any) {
 export async function GET(req: NextRequest) {
   try {
     // ✅ pega cookie direto do request (sem cookies() async)
-    const hasSession =
-      req.cookies.get("tm.session")?.value ||
-      req.cookies.get("auth_session")?.value ||
-      req.cookies.get("session")?.value;
+    const hasSession = readSessionCookie(req.cookies.get("tm.session")?.value);
 
     if (!hasSession) {
       return NextResponse.json(

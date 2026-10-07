@@ -12,6 +12,7 @@ import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { day1BonusByUser } from "@/lib/card-cashback";
 import { applyEmployeeDebtDiscountsForDate, addDaysISO } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
+import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,23 +28,7 @@ type Sess = {
 /* =========================
    Session (tm.session)
 ========================= */
-function b64urlDecode(input: string) {
-  const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
-  const base64 = (input + pad).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(base64, "base64").toString("utf8");
-}
 
-function readSessionCookie(raw?: string): Sess | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(b64urlDecode(raw)) as Partial<Sess>;
-    if (!parsed?.id || !parsed?.login || !parsed?.team || !parsed?.role) return null;
-    if (parsed.role !== "admin" && parsed.role !== "staff") return null;
-    return parsed as Sess;
-  } catch {
-    return null;
-  }
-}
 
 async function getServerSession(): Promise<Sess | null> {
   const store = await cookies(); // ✅ Next 16: cookies() é Promise
