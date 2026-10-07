@@ -51,6 +51,17 @@ function monthLabel(ym: string) {
   );
 }
 
+function nextOpenMonth(
+  currentYm: string,
+  openByMonth: { month: string; count: number }[]
+) {
+  return (
+    openByMonth.find((m) => m.count > 0 && m.month > currentYm)?.month ||
+    openByMonth.find((m) => m.count > 0 && m.month >= currentYm)?.month ||
+    null
+  );
+}
+
 export default function DividasCartoesClient() {
   const [month, setMonth] = useState(currentMonthISORecife());
   const [tab, setTab] = useState<"mes" | "todas">("mes");
@@ -108,9 +119,18 @@ export default function DividasCartoesClient() {
       const res = await fetch(`/api/dividas-cartoes?month=${ym}`, { cache: "no-store", credentials: "include" });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || `Falha ao carregar (${res.status}).`);
+      const monthsOpen = json.data.openByMonth || [];
+      setOpenByMonth(monthsOpen);
+      const monthOpenCount = Number(json.data.totals?.monthOpenCount || 0);
+      if (hidePaid && monthOpenCount === 0) {
+        const jump = nextOpenMonth(ym, monthsOpen);
+        if (jump && jump !== ym) {
+          setMonth(jump);
+          return;
+        }
+      }
       setRows(json.data.installments || []);
       setTotals(json.data.totals);
-      setOpenByMonth(json.data.openByMonth || []);
       setCreditorName(json.data.creditor?.name || "Jocykleber");
       if (json.data.creditor?.pixTipo) setPixTipo(json.data.creditor.pixTipo);
       if (json.data.creditor?.chavePix) setChavePix(json.data.creditor.chavePix);
@@ -223,7 +243,12 @@ export default function DividasCartoesClient() {
       setNewTitle("");
       setNewAmount("");
       setShowNew(false);
-      await loadMonth(month);
+      const dueMonth = newDue.slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(dueMonth) && dueMonth !== month) {
+        setMonth(dueMonth);
+      } else {
+        await loadMonth(month);
+      }
       await loadOpen();
     } catch (e: any) {
       alert(e?.message || "Erro");
@@ -315,11 +340,23 @@ export default function DividasCartoesClient() {
 
         {showNew ? (
           <div className="mt-4 grid gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-3 sm:grid-cols-5">
-            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Compra" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Valor da parcela" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} />
-            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Qtd" value={newCount} onChange={(e) => setNewCount(e.target.value)} />
-            <input className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm" type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
-            <button type="button" className="h-10 rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white" onClick={() => void createPurchase()}>
+            <label className="block text-xs font-medium text-slate-600">
+              Compra
+              <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Descrição" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Valor da parcela
+              <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="R$ 0,00" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} />
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Qtd de parcelas
+              <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="12" value={newCount} onChange={(e) => setNewCount(e.target.value)} />
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Data da 1ª parcela
+              <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
+            </label>
+            <button type="button" className="h-10 self-end rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white" onClick={() => void createPurchase()}>
               Cadastrar
             </button>
           </div>
@@ -329,7 +366,9 @@ export default function DividasCartoesClient() {
       {totals ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-white p-4 shadow-sm">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">A pagar neste mês</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+              A pagar em {monthLabel(month)}
+            </div>
             <div className="mt-1 text-2xl font-bold tabular-nums text-amber-950">{money(totals.monthOpenCents)}</div>
             <div className="mt-1 text-xs text-amber-800">{totals.monthOpenCount} parcela(s)</div>
           </div>
