@@ -32,7 +32,7 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
   const [users, payouts, sales, finalizedPurchases, balcaoOps, settings, lucroMes] =
     await Promise.all([
       prisma.user.findMany({
-        where: { team, isActive: true },
+        where: { team, isActive: true, role: { in: ["admin", "staff"] } },
         select: { id: true, name: true, login: true },
         orderBy: { name: "asc" },
       }),
