@@ -38,6 +38,7 @@ import {
 } from "@/lib/latam/parseReceiptPdf";
 import { DEFAULT_TARGET_MARKUP_CENTS } from "@/lib/purchases/purchaseDefaults";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
+import { saleMeetsCedenteMinMilheiro } from "@/lib/vendas/cedenteMinMilheiro";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -60,6 +61,7 @@ type Suggestion = {
     } | null;
     owner: Owner;
     impedirBloqueioPax?: boolean;
+    minSellMilheiroCents?: number | null;
   };
   program: Program;
   pointsNeeded: number;
@@ -869,6 +871,8 @@ export default function NovaVendaClient({
             }
           : { id: "", name: "—", login: "" },
         impedirBloqueioPax: Boolean(c.impedirBloqueioPax),
+        minSellMilheiroCents:
+          typeof c.minSellMilheiroCents === "number" ? c.minSellMilheiroCents : null,
       },
       program,
       pointsNeeded: pointsTotal,
@@ -986,7 +990,9 @@ export default function NovaVendaClient({
           program
         )}&points=${encodeURIComponent(
           String(pointsTotal)
-        )}&passengers=${encodeURIComponent(String(passengers))}`;
+        )}&passengers=${encodeURIComponent(String(passengers))}&milheiroCents=${encodeURIComponent(
+          String(milheiroCents)
+        )}`;
 
         const out = await api<{ ok: true; suggestions: Suggestion[] }>(url, {
           signal: ac.signal,
@@ -1043,6 +1049,14 @@ export default function NovaVendaClient({
           setLatamPaxError("");
         }
 
+        nextList = nextList.filter((s) =>
+          saleMeetsCedenteMinMilheiro({
+            minSellMilheiroCents: s.cedente.minSellMilheiroCents,
+            milheiroCents,
+            leftoverPoints: s.leftoverPoints,
+          })
+        );
+
         setSuggestions(nextList);
 
         if (sel?.cedente?.id) {
@@ -1066,7 +1080,7 @@ export default function NovaVendaClient({
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [program, pointsTotal, passengers]);
+  }, [program, pointsTotal, passengers, milheiroCents]);
 
   // ✅ mantém selectedCliente em sync quando escolhe no select
   useEffect(() => {

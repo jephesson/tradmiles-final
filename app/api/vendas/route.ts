@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { Prisma, SalePaymentStatus } from "@prisma/client";
 import { triggerEmployeePayoutAutoCompute } from "@/lib/payouts/autoCompute";
+import { saleMeetsCedenteMinMilheiro } from "@/lib/vendas/cedenteMinMilheiro";
 import {
   affiliateCommissionCents,
   affiliateProfitBaseCents,
@@ -434,6 +435,7 @@ export async function POST(req: Request) {
           pontosEsfera: true,
           pontosIberia: true,
           impedirBloqueioPax: true,
+          minSellMilheiroCents: true,
         },
       });
       if (!ced) throw new Error("Cedente não encontrado.");
@@ -463,6 +465,18 @@ export async function POST(req: Request) {
       const field = pointsField(program) as CedentePointsField;
       const availablePts = clampInt(ced[field]);
       if (availablePts < points) throw new Error("Pontos insuficientes.");
+
+      if (
+        !saleMeetsCedenteMinMilheiro({
+          minSellMilheiroCents: ced.minSellMilheiroCents,
+          milheiroCents,
+          leftoverPoints: availablePts - points,
+        })
+      ) {
+        throw new Error(
+          "Esta conta só vende com milheiro na média mínima (ou emissão MAX)."
+        );
+      }
 
       const purchaseSelect = {
         id: true,

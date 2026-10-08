@@ -659,6 +659,9 @@ model Cedente {
   /// Contas que não podem ultrapassar o limite de passageiros (não aparecem se a venda estourar).
   impedirBloqueioPax Boolean @default(false)
 
+  /// Milheiro mínimo para sugerir a conta na venda (null = sem piso). MAX (sobra ≤ 2.000) ignora o piso.
+  minSellMilheiroCents Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -669,6 +672,7 @@ model Cedente {
   @@index([createdAt])
   @@index([emailRedirecionado])
   @@index([impedirBloqueioPax])
+  @@index([minSellMilheiroCents])
   @@map("cedentes")
 }
 

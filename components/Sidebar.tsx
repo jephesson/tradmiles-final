@@ -719,6 +719,9 @@ export default function Sidebar() {
             <NavLink href="/dashboard/cedentes/impedir-bloqueio">
               Impedir bloqueio
             </NavLink>
+            <NavLink href="/dashboard/cedentes/min-milheiro">
+              Média mínima
+            </NavLink>
           </SubAccordion>
 
           <SubAccordion

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clampInt, endOfYearExclusive, passengerLimit, pointsField, startOfYear } from "../../_helpers/sales";
+import { saleMeetsCedenteMinMilheiro } from "@/lib/vendas/cedenteMinMilheiro";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
   const program = (searchParams.get("program") || "") as Program;
   const pointsNeeded = clampInt(searchParams.get("points"));
   const passengersNeeded = clampInt(searchParams.get("passengers"));
+  const milheiroCents = clampInt(searchParams.get("milheiroCents"));
 
   if (!["LATAM", "SMILES", "LIVELO", "ESFERA", "IBERIA"].includes(program)) {
     return NextResponse.json({ ok: false, error: "program inválido" }, { status: 400 });
@@ -73,6 +75,7 @@ export async function GET(req: Request) {
       pontosEsfera: true,
       pontosIberia: true,
       impedirBloqueioPax: true,
+      minSellMilheiroCents: true,
       biometriaHorario: {
         select: {
           turnoManha: true,
@@ -139,6 +142,7 @@ export async function GET(req: Request) {
             : null,
           owner: c.owner,
           impedirBloqueioPax: Boolean(c.impedirBloqueioPax),
+          minSellMilheiroCents: c.minSellMilheiroCents ?? null,
         },
         program,
         pointsNeeded,
@@ -159,8 +163,14 @@ export async function GET(req: Request) {
         ],
       };
     })
-    // Impedir bloqueio: não oferece opção se a venda estouraria o limite de PAX
-    .filter((r) => !(r.cedente.impedirBloqueioPax && r.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")));
+    .filter((r) => !(r.cedente.impedirBloqueioPax && r.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS")))
+    .filter((r) =>
+      saleMeetsCedenteMinMilheiro({
+        minSellMilheiroCents: r.cedente.minSellMilheiroCents,
+        milheiroCents,
+        leftoverPoints: r.leftoverPoints,
+      })
+    );
 
   // sort: elegíveis por bucket e sobrar menos (inelegíveis ficam de fora)
   const eligibleRows = rows.filter((r) => r.eligible && r.priorityLabel !== "INELIGIVEL");
