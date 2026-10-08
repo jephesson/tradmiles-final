@@ -179,29 +179,44 @@ export async function GET(req: Request) {
   const status = (searchParams.get("status") || "").trim().toUpperCase();
   const clientId = (searchParams.get("clientId") || "").trim();
 
-  const where: Prisma.SaleWhereInput = {};
+  const parts: Prisma.SaleWhereInput[] = [];
 
   if (status && status !== "ALL") {
-    if (status === "PENDING" || status === "PAID" || status === "CANCELED") {
-      where.paymentStatus = status as SalePaymentStatus;
+    if (status === "PENDING") {
+      parts.push({
+        OR: [
+          { paymentStatus: SalePaymentStatus.PENDING },
+          {
+            paymentStatus: SalePaymentStatus.CANCELED,
+            cancelFineCents: { gt: 0 },
+            receivable: { is: { status: "OPEN", balanceCents: { gt: 0 } } },
+          },
+        ],
+      });
+    } else if (status === "PAID" || status === "CANCELED") {
+      parts.push({ paymentStatus: status as SalePaymentStatus });
     }
   }
 
   if (clientId && clientId !== "ALL") {
-    where.clienteId = clientId;
+    parts.push({ clienteId: clientId });
   }
 
   if (q) {
-    where.OR = [
-      { numero: { contains: q, mode: "insensitive" } },
-      { locator: { contains: q, mode: "insensitive" } },
-      { feeCardLabel: { contains: q, mode: "insensitive" } },
-      { cliente: { nome: { contains: q, mode: "insensitive" } } },
-      { cliente: { identificador: { contains: q, mode: "insensitive" } } },
-      { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
-      { cedente: { identificador: { contains: q, mode: "insensitive" } } },
-    ];
+    parts.push({
+      OR: [
+        { numero: { contains: q, mode: "insensitive" } },
+        { locator: { contains: q, mode: "insensitive" } },
+        { feeCardLabel: { contains: q, mode: "insensitive" } },
+        { cliente: { nome: { contains: q, mode: "insensitive" } } },
+        { cliente: { identificador: { contains: q, mode: "insensitive" } } },
+        { cedente: { nomeCompleto: { contains: q, mode: "insensitive" } } },
+        { cedente: { identificador: { contains: q, mode: "insensitive" } } },
+      ],
+    });
   }
+
+  const where: Prisma.SaleWhereInput = parts.length ? { AND: parts } : {};
 
   const sales = await prisma.sale.findMany({
     where,
@@ -219,6 +234,7 @@ export async function GET(req: Request) {
       totalCents: true,
       paymentStatus: true,
       paidAt: true,
+      cancelFineCents: true,
       locator: true,
       purchaseCode: true,
       firstPassengerLastName: true,

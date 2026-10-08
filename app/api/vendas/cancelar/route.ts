@@ -52,8 +52,8 @@ async function restorePoints(args: {
  * - sempre estorna pontos
  * - CPF permanece queimado (não regenera)
  * - opcional: multa por passageiro (sem bebê — Sale.passengers já exclui)
- * - se PAID: gera dívida de reembolso = total − multa (multa não é lucro da venda)
- * - se PENDING: cancela recebível da venda e cria dívida a receber só da multa
+ * - se PAID: gera dívida de reembolso = total − multa (multa já retida, não vai a Dívidas a receber)
+ * - se PENDING: multa fica no localizador (recebível da venda = valor da multa)
  */
 export async function POST(req: Request) {
   try {
@@ -113,54 +113,64 @@ export async function POST(req: Request) {
 
     // 2) CPF NÃO regenera no cancelamento normal
 
-    // 3) cancelar recebível da venda
-    if (venda.receivableId) {
-      await prisma.receivable.update({
-        where: { id: venda.receivableId },
-        data: {
-          status: "CANCELED",
-          balanceCents: 0,
-        },
-      });
-    }
-
     let cancelFineDividaId: string | null = null;
     let cancelRefundDebtId: string | null = null;
     let cancelRefundCents = 0;
 
     const loc = (venda.locator || "").trim();
     const locLabel = loc ? ` LOC ${loc}` : "";
-    const fineTitle = `Multa CPF cancelamento ${venda.numero}${locLabel}`;
-    const fineDesc = [
-      `Multa por cancelamento de localizador (${venda.program}).`,
-      `${paxCount} passageiro(s) × R$ ${(finePerPaxCents / 100).toFixed(2).replace(".", ",")}.`,
-      "Não vinculada a compra. Não entra no lucro da venda.",
-    ].join(" ");
+    const fineTitle = `Multa CPF ${venda.numero}${locLabel}`;
+    const saleIdForReceivable = venda.id;
+    const saleReceivableId = venda.receivableId;
+    const saleProgram = venda.program;
 
-    if (fineCents > 0) {
-      if (wasPaid) {
+    async function setSaleReceivable(data: {
+      status: "OPEN" | "RECEIVED" | "CANCELED";
+      totalCents: number;
+      receivedCents: number;
+      balanceCents: number;
+    }) {
+      if (saleReceivableId) {
+        await prisma.receivable.update({
+          where: { id: saleReceivableId },
+          data,
+        });
+        return;
+      }
+      const rec = await prisma.receivable.create({
+        data: {
+          title: fineTitle,
+          description: `Multa de cancelamento (${saleProgram}).`,
+          ...data,
+        },
+      });
+      await prisma.sale.update({
+        where: { id: saleIdForReceivable },
+        data: { receivableId: rec.id },
+      });
+    }
+
+    if (fineCents > 0 && !wasPaid) {
+      await setSaleReceivable({
+        status: "OPEN",
+        totalCents: fineCents,
+        receivedCents: 0,
+        balanceCents: fineCents,
+      });
+    } else if (venda.receivableId) {
+      await prisma.receivable.update({
+        where: { id: venda.receivableId },
+        data: {
+          status: "CANCELED",
+          receivedCents: 0,
+          balanceCents: 0,
+        },
+      });
+    }
+
+    if (fineCents > 0 && wasPaid) {
         // Já recebemos o valor da venda: retemos a multa e devolvemos o restante.
         cancelRefundCents = Math.max(0, Math.trunc(venda.totalCents) - fineCents);
-
-        // Lançamento de multa já quitada (retenção), sem vínculo com compra.
-        const divida = await prisma.dividaAReceber.create({
-          data: {
-            ownerId: session.id,
-            team: session.team,
-            debtorName: venda.cliente.nome,
-            debtorDoc: venda.cliente.cpfCnpj || null,
-            debtorPhone: venda.cliente.telefone || null,
-            title: fineTitle,
-            description: fineDesc,
-            category: "SERVICO",
-            method: "PIX",
-            totalCents: fineCents,
-            receivedCents: fineCents,
-            status: "PAID",
-            sourceLabel: `CANCEL-${venda.numero}`,
-          },
-        });
-        cancelFineDividaId = divida.id;
 
         if (cancelRefundCents > 0) {
           const debt = await prisma.debt.create({
@@ -178,27 +188,6 @@ export async function POST(req: Request) {
           });
           cancelRefundDebtId = debt.id;
         }
-      } else {
-        // Pendente: cancela a venda e cria multa a cobrar (sem vínculo com compra).
-        const divida = await prisma.dividaAReceber.create({
-          data: {
-            ownerId: session.id,
-            team: session.team,
-            debtorName: venda.cliente.nome,
-            debtorDoc: venda.cliente.cpfCnpj || null,
-            debtorPhone: venda.cliente.telefone || null,
-            title: fineTitle,
-            description: fineDesc,
-            category: "SERVICO",
-            method: "PIX",
-            totalCents: fineCents,
-            receivedCents: 0,
-            status: "OPEN",
-            sourceLabel: `CANCEL-${venda.numero}`,
-          },
-        });
-        cancelFineDividaId = divida.id;
-      }
     } else if (wasPaid) {
       // Pago sem multa: reembolso integral
       cancelRefundCents = Math.max(0, Math.trunc(venda.totalCents));

@@ -46,6 +46,8 @@ export async function PATCH(req: Request) {
         select: {
           id: true,
           totalCents: true,
+          paymentStatus: true,
+          cancelFineCents: true,
           receivableId: true,
           createdAt: true,
           date: true,
@@ -55,6 +57,29 @@ export async function PATCH(req: Request) {
       if (!sale) throw new Error("Venda não encontrada.");
 
       const now = new Date();
+      const unpaidCancelFine =
+        sale.paymentStatus === "CANCELED" && Math.max(0, sale.cancelFineCents || 0) > 0;
+
+      if (unpaidCancelFine && status === "PAID") {
+        if (sale.receivableId) {
+          await tx.receivable.update({
+            where: { id: sale.receivableId },
+            data: {
+              status: "RECEIVED",
+              receivedCents: sale.cancelFineCents,
+              balanceCents: 0,
+            },
+          });
+        }
+        return {
+          saleId,
+          status: "CANCELED" as PaymentStatus,
+          createdAt: sale.createdAt,
+          date: sale.date,
+          finalizedAt: sale.purchase?.finalizedAt ?? null,
+          cancelFinePaid: true,
+        };
+      }
 
       // Atualiza venda
       await tx.sale.update({
@@ -110,7 +135,13 @@ export async function PATCH(req: Request) {
       });
     }
 
-    return NextResponse.json({ ok: true, saleId: out.saleId, status: out.status, payoutAutoCompute });
+    return NextResponse.json({
+      ok: true,
+      saleId: out.saleId,
+      status: out.status,
+      cancelFinePaid: Boolean((out as { cancelFinePaid?: boolean }).cancelFinePaid),
+      payoutAutoCompute,
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Erro ao atualizar status" }, { status: 400 });
   }

@@ -19,3 +19,19 @@ export function computeCancelFineTotalCents(args: {
   const per = Math.max(0, Math.trunc(Number(args.perPaxCents) || 0));
   return per * pax;
 }
+
+type SaleFineLike = {
+  paymentStatus?: string | null;
+  cancelFineCents?: number | null;
+  receivable?: { status?: string | null; balanceCents?: number | null } | null;
+};
+
+export function saleHasUnpaidCancelFine(s: SaleFineLike) {
+  if (String(s.paymentStatus || "") !== "CANCELED") return false;
+  if (Math.max(0, Math.trunc(Number(s.cancelFineCents) || 0)) <= 0) return false;
+  const rec = s.receivable;
+  if (!rec) return true;
+  if (String(rec.status || "") === "RECEIVED") return false;
+  if (typeof rec.balanceCents === "number") return rec.balanceCents > 0;
+  return String(rec.status || "") === "OPEN";
+}

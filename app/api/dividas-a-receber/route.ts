@@ -74,7 +74,18 @@ function buildWhere(
   kind: "GERAL" | "FUNCIONARIO",
   employeeUserId?: string | null
 ) {
-  const where: Record<string, unknown> = { team: sessionTeam, kind };
+  const where: Record<string, unknown> = {
+    team: sessionTeam,
+    kind,
+    AND: [
+      {
+        OR: [
+          { sourceLabel: null },
+          { NOT: { sourceLabel: { startsWith: "CANCEL-" } } },
+        ],
+      },
+    ],
+  };
 
   if (kind === "FUNCIONARIO" && employeeUserId) {
     where.employeeUserId = employeeUserId;

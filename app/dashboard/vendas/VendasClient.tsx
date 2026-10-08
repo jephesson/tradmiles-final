@@ -20,6 +20,7 @@ import {
   cancelFinePaxCount,
   computeCancelFineTotalCents,
   defaultCancelFinePerPaxCents,
+  saleHasUnpaidCancelFine,
 } from "@/lib/vendas/cancelFine";
 
 const ACTION_BTN =
@@ -198,6 +199,7 @@ type SaleRow = {
   totalCents: number;
   paymentStatus: "PENDING" | "PAID" | "CANCELED";
   paidAt?: string | null;
+  cancelFineCents?: number;
   locator: string | null;
 
   // ✅ vem da API (aparece só no modal)
@@ -289,7 +291,12 @@ type StatusFilter = "ALL" | "PENDING" | "PAID" | "CANCELED";
 
 function pendingCentsOfSale(r: SaleRow) {
   if (r.paymentStatus === "PAID") return 0;
-  if (r.paymentStatus === "CANCELED") return 0;
+  if (r.paymentStatus === "CANCELED") {
+    if (!saleHasUnpaidCancelFine(r)) return 0;
+    if (typeof r.receivable?.balanceCents === "number")
+      return Math.max(0, r.receivable.balanceCents);
+    return Math.max(0, r.cancelFineCents || 0);
+  }
 
   if (typeof r.receivable?.balanceCents === "number")
     return Math.max(0, r.receivable.balanceCents);
@@ -409,7 +416,10 @@ export default function VendasClient() {
   const [lancSearching, setLancSearching] = useState(false);
 
   function openChargeMessage(r: SaleRow) {
-    const msg = buildClientChargeMessageFromSale(r);
+    const chargeCents = saleHasUnpaidCancelFine(r)
+      ? pendingCentsOfSale(r)
+      : r.totalCents;
+    const msg = buildClientChargeMessageFromSale({ ...r, totalCents: chargeCents });
     setChargeMsg(msg);
     setChargeMsgTitle(`${r.cliente.nome} · ${r.locator || r.numero}`);
     setChargeMsgOpen(true);
@@ -1020,8 +1030,12 @@ export default function VendasClient() {
       // 1) filtro cliente
       if (clientId !== "ALL" && r.cliente?.id !== clientId) return false;
 
-      // 2) filtro status
-      if (status !== "ALL" && r.paymentStatus !== status) return false;
+      // 2) filtro status — pendente inclui cancelado com multa em aberto
+      if (status === "PENDING") {
+        if (r.paymentStatus !== "PENDING" && !saleHasUnpaidCancelFine(r)) return false;
+      } else if (status !== "ALL" && r.paymentStatus !== status) {
+        return false;
+      }
 
       // 3) busca livre
       if (!s) return true;
@@ -1050,7 +1064,7 @@ export default function VendasClient() {
     let totalPago = 0;
 
     for (const r of filtered) {
-      totalGeral += r.totalCents || 0;
+      totalGeral += saleHasUnpaidCancelFine(r) ? pendingCentsOfSale(r) : r.totalCents || 0;
 
       const pend = pendingCentsOfSale(r);
       totalPend += pend;
@@ -1062,33 +1076,54 @@ export default function VendasClient() {
 
   async function togglePago(r: SaleRow) {
     if (updatingId) return;
-    if (r.paymentStatus === "CANCELED") return;
+    const payingCancelFine = saleHasUnpaidCancelFine(r);
+    if (r.paymentStatus === "CANCELED" && !payingCancelFine) return;
 
-    const next: "PENDING" | "PAID" = r.paymentStatus === "PAID" ? "PENDING" : "PAID";
+    const next: "PENDING" | "PAID" = payingCancelFine
+      ? "PAID"
+      : r.paymentStatus === "PAID"
+        ? "PENDING"
+        : "PAID";
 
     setUpdatingId(r.id);
     try {
-      await api<{ ok: true }>("/api/vendas/status", {
-        method: "PATCH",
-        // ✅ mando os dois nomes (status e paymentStatus) pra ser compatível
-        body: JSON.stringify({ saleId: r.id, status: next, paymentStatus: next }),
-      });
+      const out = await api<{ ok: true; status?: string; cancelFinePaid?: boolean }>(
+        "/api/vendas/status",
+        {
+          method: "PATCH",
+          // ✅ mando os dois nomes (status e paymentStatus) pra ser compatível
+          body: JSON.stringify({ saleId: r.id, status: next, paymentStatus: next }),
+        }
+      );
 
       setRows((prev) =>
         prev.map((x) =>
           x.id === r.id
-            ? {
-                ...x,
-                paymentStatus: next,
-                receivable: x.receivable
-                  ? {
-                      ...x.receivable,
-                      status: next === "PAID" ? "RECEIVED" : "OPEN",
-                      receivedCents: next === "PAID" ? x.totalCents : 0,
-                      balanceCents: next === "PAID" ? 0 : x.totalCents,
-                    }
-                  : x.receivable,
-              }
+            ? payingCancelFine || out.cancelFinePaid
+              ? {
+                  ...x,
+                  paymentStatus: "CANCELED",
+                  receivable: x.receivable
+                    ? {
+                        ...x.receivable,
+                        status: "RECEIVED",
+                        receivedCents: x.cancelFineCents || x.receivable.totalCents,
+                        balanceCents: 0,
+                      }
+                    : x.receivable,
+                }
+              : {
+                  ...x,
+                  paymentStatus: next,
+                  receivable: x.receivable
+                    ? {
+                        ...x.receivable,
+                        status: next === "PAID" ? "RECEIVED" : "OPEN",
+                        receivedCents: next === "PAID" ? x.totalCents : 0,
+                        balanceCents: next === "PAID" ? 0 : x.totalCents,
+                      }
+                    : x.receivable,
+                }
             : x
         )
       );
@@ -1103,7 +1138,7 @@ export default function VendasClient() {
    * Cancelar localizador:
    * - estorna pontos, CPF permanece queimado
    * - opcional: multa por passageiro (sem bebê)
-   * - pago → reembolso = total − multa; pendente → dívida a receber só da multa
+   * - pago → reembolso = total − multa; pendente → multa fica no localizador
    */
   async function confirmCancelSale() {
     const r = cancelTarget;
@@ -1137,7 +1172,7 @@ export default function VendasClient() {
       if (wasPaid) {
         lines.push(`• Reembolso: ${fmtMoneyBR(refundCents)} (total − multa).`);
       } else {
-        lines.push("• Cria item pendente só da multa (sem vínculo com compra).");
+        lines.push("• Fica no Painel de vendas como cancelado + pendente de multa.");
       }
     } else if (wasPaid) {
       lines.push(`• Reembolso integral: ${fmtMoneyBR(r.totalCents)}.`);
@@ -1167,12 +1202,19 @@ export default function VendasClient() {
             ? {
                 ...x,
                 paymentStatus: "CANCELED",
+                cancelFineCents: Math.max(0, out.fineCents || 0),
                 receivable: x.receivable
                   ? {
                       ...x.receivable,
-                      status: "CANCELED",
+                      status:
+                        !wasPaid && (out.fineCents || 0) > 0 ? "OPEN" : "CANCELED",
+                      totalCents:
+                        !wasPaid && (out.fineCents || 0) > 0
+                          ? out.fineCents || 0
+                          : x.receivable.totalCents,
                       receivedCents: 0,
-                      balanceCents: 0,
+                      balanceCents:
+                        !wasPaid && (out.fineCents || 0) > 0 ? out.fineCents || 0 : 0,
                     }
                   : x.receivable,
               }
@@ -1229,11 +1271,13 @@ export default function VendasClient() {
   }
 
   function statusBadge(r: SaleRow) {
-    return r.paymentStatus === "PAID"
-      ? "bg-emerald-50 border-emerald-200/80 text-emerald-800 ring-1 ring-emerald-200/70"
-      : r.paymentStatus === "CANCELED"
-        ? "bg-slate-100 border-slate-200/80 text-slate-700 ring-1 ring-slate-200/70"
-        : "bg-amber-50 border-amber-200/80 text-amber-900 ring-1 ring-amber-200/70";
+    if (r.paymentStatus === "PAID")
+      return "bg-emerald-50 border-emerald-200/80 text-emerald-800 ring-1 ring-emerald-200/70";
+    if (saleHasUnpaidCancelFine(r))
+      return "bg-amber-50 border-amber-200/80 text-amber-900 ring-1 ring-amber-200/70";
+    if (r.paymentStatus === "CANCELED")
+      return "bg-slate-100 border-slate-200/80 text-slate-700 ring-1 ring-slate-200/70";
+    return "bg-amber-50 border-amber-200/80 text-amber-900 ring-1 ring-amber-200/70";
   }
 
   function statusLabel(r: SaleRow) {
@@ -1241,7 +1285,11 @@ export default function VendasClient() {
       const paid = Math.max(0, r.totalCents || 0);
       return paid > 0 ? `Pago · ${fmtMoneyBR(paid)}` : "Pago";
     }
-    if (r.paymentStatus === "CANCELED") return "Cancelado";
+    if (saleHasUnpaidCancelFine(r)) return "Cancelado · Pendente de multa";
+    if (r.paymentStatus === "CANCELED") {
+      const fine = Math.max(0, r.cancelFineCents || 0);
+      return fine > 0 ? "Cancelado · Multa quitada" : "Cancelado";
+    }
     return "Pendente";
   }
 
@@ -1504,7 +1552,7 @@ export default function VendasClient() {
                     <td className="px-3 py-3">
                       <span
                         className={cn(
-                          "inline-flex max-w-[11rem] flex-wrap rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                          "inline-flex max-w-[16rem] flex-wrap rounded-full border px-2.5 py-1 text-[11px] font-semibold",
                           statusBadge(r)
                         )}
                       >
@@ -1576,16 +1624,30 @@ export default function VendasClient() {
                             </button>
                           </>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => revertSale(r)}
-                            disabled={isBusy}
-                            className={cn(ACTION_BTN, ACTION_BTN_REVERT)}
-                            title="Exclui a venda cancelada e regenera CPF"
-                          >
-                            <Undo2 className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-                            Reverter
-                          </button>
+                          <>
+                            {saleHasUnpaidCancelFine(r) ? (
+                              <button
+                                type="button"
+                                onClick={() => togglePago(r)}
+                                disabled={isBusy}
+                                className={cn(ACTION_BTN, ACTION_BTN_PAY)}
+                                title="Marcar multa de cancelamento como paga"
+                              >
+                                <CircleCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                                {isBusy ? "…" : "Pago"}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => revertSale(r)}
+                              disabled={isBusy}
+                              className={cn(ACTION_BTN, ACTION_BTN_REVERT)}
+                              title="Exclui a venda cancelada e regenera CPF"
+                            >
+                              <Undo2 className="h-3.5 w-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                              Reverter
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -2254,14 +2316,26 @@ export default function VendasClient() {
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => revertSale(details)}
-                    disabled={updatingId === details.id}
-                    className={cn(ACTION_BTN, ACTION_BTN_REVERT, "h-10 px-4 text-sm")}
-                  >
-                    <Undo2 className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-                    Reverter / excluir
-                  </button>
+                  <>
+                    {saleHasUnpaidCancelFine(details) ? (
+                      <button
+                        onClick={() => togglePago(details)}
+                        disabled={updatingId === details.id}
+                        className={cn(ACTION_BTN, ACTION_BTN_PAY, "h-10 px-4 text-sm")}
+                      >
+                        <CircleCheck className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                        {updatingId === details.id ? "Salvando..." : "Marcar multa paga"}
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() => revertSale(details)}
+                      disabled={updatingId === details.id}
+                      className={cn(ACTION_BTN, ACTION_BTN_REVERT, "h-10 px-4 text-sm")}
+                    >
+                      <Undo2 className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                      Reverter / excluir
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -2390,7 +2464,7 @@ export default function VendasClient() {
                           Gerar cobrança do CPF por passageiro
                         </span>
                         <span className="mt-0.5 block text-xs text-slate-500">
-                          Multa avulsa — não entra no lucro da venda e não vincula a compra.
+                          Fica no localizador, no Painel de vendas. Não entra no lucro nem em Dívidas a receber.
                         </span>
                       </span>
                     </label>
@@ -2425,14 +2499,14 @@ export default function VendasClient() {
                           Venda <b>paga</b>: reembolso = total − multa →{" "}
                           <b className="tabular-nums text-slate-900">{fmtMoneyBR(refund)}</b>
                           {fineTotal > 0
-                            ? " (multa retida como lançamento quitado)."
+                            ? " (multa retida nesta venda)."
                             : " (reembolso integral)."}
                         </>
                       ) : (
                         <>
-                          Venda <b>pendente</b>: cancela o recebível da venda
+                          Venda <b>pendente</b>: cancelada
                           {fineTotal > 0
-                            ? " e cria item pendente só da multa."
+                            ? ", com multa pendente no localizador (filtro Pendentes)."
                             : "."}
                         </>
                       )}

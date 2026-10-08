@@ -746,7 +746,7 @@ export default function LocalizadoresClient() {
                     <span>
                       <span className="font-semibold text-slate-900">Cobrar multa por CPF</span>
                       <span className="mt-0.5 block text-xs text-slate-500">
-                        Não entra no lucro da venda.
+                        Fica no localizador no Painel de vendas, não em Dívidas a receber.
                       </span>
                     </span>
                   </label>
