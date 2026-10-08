@@ -51,6 +51,19 @@ function monthLabel(ym: string) {
   );
 }
 
+function parseReaisToCents(input: string) {
+  const reais = Number(String(input).replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(reais) || reais <= 0) return 0;
+  return Math.round(reais * 100);
+}
+
+function addMonthsISO(iso: string, add: number) {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1 + add, d));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
 
 export default function DividasCartoesClient() {
   const [month, setMonth] = useState(currentMonthISORecife());
@@ -75,6 +88,8 @@ export default function DividasCartoesClient() {
   const [newCount, setNewCount] = useState("12");
   const [newDue, setNewDue] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [showPix, setShowPix] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
 
@@ -91,6 +106,10 @@ export default function DividasCartoesClient() {
     () => listed.filter((r) => selected[r.id] && r.status === "OPEN").reduce((s, r) => s + r.amountCents, 0),
     [listed, selected]
   );
+
+  const newInstallmentCents = useMemo(() => parseReaisToCents(newAmount), [newAmount]);
+  const newCountN = useMemo(() => Math.max(0, Math.trunc(Number(newCount) || 0)), [newCount]);
+  const newTotalCents = newInstallmentCents * newCountN;
 
   const groups = useMemo(() => {
     const map = new Map<string, { purchaseId: string; title: string; items: Row[] }>();
@@ -207,9 +226,17 @@ export default function DividasCartoesClient() {
     setConfirm({ ids, amountCents });
   }
 
+  function openCreateConfirm() {
+    if (!newTitle.trim()) return alert("Informe a descrição da compra.");
+    if (newInstallmentCents <= 0) return alert("Informe o valor da parcela.");
+    if (newCountN <= 0) return alert("Informe a quantidade de parcelas.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDue)) return alert("Informe a data da 1ª parcela.");
+    setConfirmNew(true);
+  }
+
   async function createPurchase() {
-    const reais = Number(String(newAmount).replace(/\./g, "").replace(",", "."));
-    const amountCents = Math.round(reais * 100);
+    if (creating) return;
+    setCreating(true);
     try {
       const res = await fetch("/api/dividas-cartoes", {
         method: "POST",
@@ -217,8 +244,8 @@ export default function DividasCartoesClient() {
         credentials: "include",
         body: JSON.stringify({
           title: newTitle,
-          amountCents,
-          count: Number(newCount),
+          amountCents: newInstallmentCents,
+          count: newCountN,
           firstDueDate: newDue,
         }),
       });
@@ -226,6 +253,7 @@ export default function DividasCartoesClient() {
       if (!json?.ok) throw new Error(json?.error || "Erro ao cadastrar.");
       setNewTitle("");
       setNewAmount("");
+      setConfirmNew(false);
       setShowNew(false);
       const dueMonth = newDue.slice(0, 7);
       if (/^\d{4}-\d{2}$/.test(dueMonth) && dueMonth !== month) {
@@ -236,6 +264,8 @@ export default function DividasCartoesClient() {
       await loadOpen();
     } catch (e: any) {
       alert(e?.message || "Erro");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -323,7 +353,8 @@ export default function DividasCartoesClient() {
         ) : null}
 
         {showNew ? (
-          <div className="mt-4 grid gap-2 rounded-xl border border-amber-100 bg-amber-50/50 p-3 sm:grid-cols-5">
+          <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+            <div className="grid gap-2 sm:grid-cols-5">
             <label className="block text-xs font-medium text-slate-600">
               Compra
               <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Descrição" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
@@ -340,9 +371,20 @@ export default function DividasCartoesClient() {
               Data da 1ª parcela
               <input className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" type="date" value={newDue} onChange={(e) => setNewDue(e.target.value)} />
             </label>
-            <button type="button" className="h-10 self-end rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white" onClick={() => void createPurchase()}>
+            <button type="button" className="h-10 self-end rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white" onClick={openCreateConfirm}>
               Cadastrar
             </button>
+            </div>
+            {newTotalCents > 0 ? (
+              <div className="rounded-xl border border-amber-200/80 bg-white px-3 py-2 text-sm text-slate-700">
+                Total da compra:{" "}
+                <b className="tabular-nums text-slate-900">{money(newTotalCents)}</b>
+                <span className="text-xs text-slate-500">
+                  {" "}
+                  ({newCountN} × {money(newInstallmentCents)})
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -562,6 +604,69 @@ export default function DividasCartoesClient() {
             >
               Pagar em 1 PIX
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmNew ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={() => !creating && setConfirmNew(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-bold tracking-tight text-slate-900">Confirmar compra</div>
+            <p className="mt-1 text-sm text-slate-500">Revise os dados antes de lançar as parcelas.</p>
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between gap-3 border-b border-slate-100 py-1.5">
+                <dt className="text-slate-500">Compra</dt>
+                <dd className="text-right font-medium text-slate-900">{newTitle.trim() || "—"}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-slate-100 py-1.5">
+                <dt className="text-slate-500">Parcela</dt>
+                <dd className="tabular-nums font-medium text-slate-900">{money(newInstallmentCents)}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-slate-100 py-1.5">
+                <dt className="text-slate-500">Parcelas</dt>
+                <dd className="tabular-nums font-medium text-slate-900">{newCountN}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-slate-100 py-1.5">
+                <dt className="text-slate-500">1ª parcela</dt>
+                <dd className="tabular-nums font-medium text-slate-900">{dateBR(newDue)}</dd>
+              </div>
+              {newCountN > 1 ? (
+                <div className="flex justify-between gap-3 border-b border-slate-100 py-1.5">
+                  <dt className="text-slate-500">Última parcela</dt>
+                  <dd className="tabular-nums font-medium text-slate-900">
+                    {dateBR(addMonthsISO(newDue, newCountN - 1))}
+                  </dd>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-3 py-1.5">
+                <dt className="font-semibold text-slate-700">Total</dt>
+                <dd className="tabular-nums text-base font-bold text-slate-900">{money(newTotalCents)}</dd>
+              </div>
+            </dl>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={creating}
+                onClick={() => setConfirmNew(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={creating}
+                onClick={() => void createPurchase()}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {creating ? "Cadastrando..." : "Confirmar"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
