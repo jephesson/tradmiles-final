@@ -9,7 +9,7 @@ type Row = {
   identificador: string;
   nomeCompleto: string;
   cpf: string;
-  minSellMilheiroCents?: number | null;
+  minSellPtsPerPax?: number | null;
   owner: { name: string; login: string };
 };
 
@@ -19,22 +19,15 @@ function fmtCpf(cpf: string) {
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
-function moneyToCentsBR(input: string) {
-  const s = (input || "").trim().replace(/\./g, "").replace(",", ".");
+function parsePts(input: string) {
+  const s = (input || "").trim().replace(/\./g, "").replace(/\s/g, "");
   const n = Number(s);
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
+  return Math.max(0, Math.trunc(n));
 }
 
-function moneyInputBR(cents: number) {
-  const n = Math.max(0, Math.trunc(cents || 0)) / 100;
-  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtMoneyBR(cents: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
-    (Number(cents) || 0) / 100
-  );
+function fmtPts(n: number) {
+  return Math.max(0, Math.trunc(n || 0)).toLocaleString("pt-BR");
 }
 
 export default function MinMilheiroClient() {
@@ -45,7 +38,7 @@ export default function MinMilheiroClient() {
   const [searchRows, setSearchRows] = useState<Row[]>([]);
   const [searching, setSearching] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [addMilheiroStr, setAddMilheiroStr] = useState("");
+  const [addPtsStr, setAddPtsStr] = useState("");
   const [editStr, setEditStr] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -58,7 +51,7 @@ export default function MinMilheiroClient() {
       const list = (json.rows || []) as Row[];
       setRows(list);
       const next: Record<string, string> = {};
-      for (const r of list) next[r.id] = moneyInputBR(r.minSellMilheiroCents || 0);
+      for (const r of list) next[r.id] = fmtPts(r.minSellPtsPerPax || 0);
       setEditStr(next);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar.");
@@ -93,7 +86,7 @@ export default function MinMilheiroClient() {
     return () => window.clearTimeout(t);
   }, [q]);
 
-  async function save(cedenteId: string, minSellMilheiroCents: number | null) {
+  async function save(cedenteId: string, minSellPtsPerPax: number | null) {
     setBusyId(cedenteId);
     setError(null);
     try {
@@ -101,16 +94,16 @@ export default function MinMilheiroClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          minSellMilheiroCents == null
+          minSellPtsPerPax == null
             ? { cedenteId, clear: true }
-            : { cedenteId, minSellMilheiroCents }
+            : { cedenteId, minSellPtsPerPax }
         ),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao salvar.");
       setQ("");
       setSearchRows([]);
-      setAddMilheiroStr("");
+      setAddPtsStr("");
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao salvar.");
@@ -128,9 +121,9 @@ export default function MinMilheiroClient() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Média mínima</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Defina o milheiro mínimo da conta. Ela <b>só aparece</b> em Efetuar venda se o
-            milheiro da emissão for igual ou acima disso, ou se for <b>MAX</b> (sobra até 2.000
-            pontos para esvaziar a conta).
+            Defina a <b>média mínima de pontos por CPF</b> da conta. Ela só aparece em
+            Efetuar venda se esta emissão usar pelo menos essa média (pontos ÷ passageiros),
+            ou se for <b>MAX</b> (sobra até 2.000 pontos para esvaziar a conta).
           </p>
         </div>
       </div>
@@ -158,14 +151,14 @@ export default function MinMilheiroClient() {
               className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none ring-slate-900/10 focus:ring-2"
             />
           </div>
-          <div className="flex items-center gap-2 sm:w-44">
-            <span className="text-xs text-slate-500">R$</span>
+          <div className="flex items-center gap-2 sm:w-52">
             <input
-              value={addMilheiroStr}
-              onChange={(e) => setAddMilheiroStr(e.target.value)}
-              placeholder="18,00"
+              value={addPtsStr}
+              onChange={(e) => setAddPtsStr(e.target.value)}
+              placeholder="18.000"
               className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-slate-900/10"
             />
+            <span className="shrink-0 text-xs text-slate-500">pts/CPF</span>
           </div>
         </div>
         {searching ? (
@@ -186,7 +179,7 @@ export default function MinMilheiroClient() {
                 <button
                   type="button"
                   disabled={busyId === r.id}
-                  onClick={() => void save(r.id, moneyToCentsBR(addMilheiroStr))}
+                  onClick={() => void save(r.id, parsePts(addPtsStr))}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                 >
                   {busyId === r.id ? (
@@ -226,7 +219,7 @@ export default function MinMilheiroClient() {
                   <th className="px-4 py-2.5">Cedente</th>
                   <th className="px-4 py-2.5">CPF</th>
                   <th className="px-4 py-2.5">Responsável</th>
-                  <th className="px-4 py-2.5">Milheiro mín.</th>
+                  <th className="px-4 py-2.5">Mín. pts/CPF</th>
                   <th className="px-4 py-2.5 w-40" />
                 </tr>
               </thead>
@@ -243,18 +236,15 @@ export default function MinMilheiroClient() {
                       <div className="text-xs text-slate-500">@{r.owner.login}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-slate-500">R$</span>
-                        <input
-                          value={editStr[r.id] ?? moneyInputBR(r.minSellMilheiroCents || 0)}
-                          onChange={(e) =>
-                            setEditStr((prev) => ({ ...prev, [r.id]: e.target.value }))
-                          }
-                          className="h-9 w-24 rounded-lg border border-slate-200 px-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-slate-900/10"
-                        />
-                      </div>
+                      <input
+                        value={editStr[r.id] ?? fmtPts(r.minSellPtsPerPax || 0)}
+                        onChange={(e) =>
+                          setEditStr((prev) => ({ ...prev, [r.id]: e.target.value }))
+                        }
+                        className="h-9 w-28 rounded-lg border border-slate-200 px-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-slate-900/10"
+                      />
                       <div className="mt-1 text-[11px] text-slate-500">
-                        agora {fmtMoneyBR(r.minSellMilheiroCents || 0)}
+                        agora {fmtPts(r.minSellPtsPerPax || 0)} pts
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -262,7 +252,7 @@ export default function MinMilheiroClient() {
                         <button
                           type="button"
                           disabled={busyId === r.id}
-                          onClick={() => void save(r.id, moneyToCentsBR(editStr[r.id] || ""))}
+                          onClick={() => void save(r.id, parsePts(editStr[r.id] || ""))}
                           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                         >
                           Salvar

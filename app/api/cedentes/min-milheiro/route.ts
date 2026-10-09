@@ -9,7 +9,7 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
-function cents(v: unknown) {
+function pts(v: unknown) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.trunc(n));
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       const rows = await prisma.cedente.findMany({
         where: {
           status: "APPROVED",
-          minSellMilheiroCents: null,
+          minSellPtsPerPax: null,
           OR: [
             { nomeCompleto: { contains: q, mode: "insensitive" } },
             { identificador: { contains: q, mode: "insensitive" } },
@@ -50,14 +50,14 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = await prisma.cedente.findMany({
-      where: { minSellMilheiroCents: { not: null } },
+      where: { minSellPtsPerPax: { not: null } },
       select: {
         id: true,
         identificador: true,
         nomeCompleto: true,
         cpf: true,
         status: true,
-        minSellMilheiroCents: true,
+        minSellPtsPerPax: true,
         owner: { select: { name: true, login: true } },
         updatedAt: true,
       },
@@ -79,11 +79,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const cedenteId = String(body?.cedenteId || "").trim();
     const clear = body?.clear === true;
-    const minSellMilheiroCents = clear ? null : cents(body?.minSellMilheiroCents);
+    const minSellPtsPerPax = clear ? null : pts(body?.minSellPtsPerPax);
 
     if (!cedenteId) return bad("cedenteId obrigatório.");
-    if (!clear && (minSellMilheiroCents == null || minSellMilheiroCents <= 0)) {
-      return bad("Informe o milheiro mínimo (maior que zero).");
+    if (!clear && (minSellPtsPerPax == null || minSellPtsPerPax <= 0)) {
+      return bad("Informe a média mínima de pontos por CPF (maior que zero).");
     }
 
     const ced = await prisma.cedente.findUnique({
@@ -97,13 +97,13 @@ export async function POST(req: NextRequest) {
 
     const updated = await prisma.cedente.update({
       where: { id: cedenteId },
-      data: { minSellMilheiroCents },
+      data: { minSellPtsPerPax },
       select: {
         id: true,
         identificador: true,
         nomeCompleto: true,
         cpf: true,
-        minSellMilheiroCents: true,
+        minSellPtsPerPax: true,
         owner: { select: { name: true, login: true } },
       },
     });
