@@ -251,6 +251,8 @@ function addBalcaoVolumeToEmp(
     return;
   }
 
+  if (!teamUsersById.has(id)) return;
+
   const base = teamUsersById.get(id);
   const cur =
     map.get(id) ||
@@ -460,11 +462,12 @@ export async function GET(req: NextRequest) {
     const notCanceled: Prisma.SaleWhereInput = { paymentStatus: { not: "CANCELED" as any } };
 
     const teamUsers = await prisma.user.findMany({
-      where: { team },
+      where: { team, role: { in: ["admin", "staff"] } },
       select: { id: true, name: true, login: true },
       orderBy: { name: "asc" },
     });
     const teamUsersById = new Map(teamUsers.map((u) => [u.id, u] as const));
+    const isOperatingUser = (id?: string | null) => Boolean(id && teamUsersById.has(id));
 
     // =========================
     // ✅ 0) HOJE (KPI) + HOJE POR FUNCIONÁRIO
@@ -513,6 +516,7 @@ export async function GET(req: NextRequest) {
       const u = s.seller;
 
       if (u?.id) {
+        if (!isOperatingUser(u.id)) continue;
         const cur =
           byEmpToday.get(u.id) || ({
             id: u.id,
@@ -530,6 +534,7 @@ export async function GET(req: NextRequest) {
       }
 
       if (s.sellerId) {
+        if (!isOperatingUser(s.sellerId)) continue;
         const base = teamUsersById.get(s.sellerId);
         const id = s.sellerId;
 
@@ -874,7 +879,7 @@ export async function GET(req: NextRequest) {
     for (const r of byDowArr) if (r.grossCents > best.grossCents) best = r;
 
     // =========================
-    // 4) VENDAS POR FUNCIONÁRIO (mês) — SEMPRE MOSTRA TODO MUNDO
+    // 4) VENDAS POR FUNCIONÁRIO (mês) — admin e staff; sócio fica de fora
     // =========================
     const byEmp = seedEmpMap(teamUsers);
 
@@ -886,6 +891,7 @@ export async function GET(req: NextRequest) {
       const sellerId = (s as any).sellerId as string | null;
 
       if (u?.id) {
+        if (!isOperatingUser(u.id)) continue;
         const cur =
           byEmp.get(u.id) || ({ id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 } as EmpRow);
         cur.grossCents += gross;
@@ -893,6 +899,7 @@ export async function GET(req: NextRequest) {
         cur.passengers += pax;
         byEmp.set(u.id, cur);
       } else if (sellerId) {
+        if (!isOperatingUser(sellerId)) continue;
         const base = teamUsersById.get(sellerId);
         const cur =
           byEmp.get(sellerId) ||
@@ -1291,14 +1298,16 @@ export async function GET(req: NextRequest) {
         balcaoByAirline.set(row.airline, airlineAgg);
 
         const empId = row.employee?.id || "__NO_EMPLOYEE__";
-        const empAgg = balcaoByEmployee.get(empId) || {
-          id: empId,
-          name: row.employee?.name || "Sem funcionário",
-          login: row.employee?.login || "—",
-          ...emptyBalcaoAgg(),
-        };
-        accumulateBalcao(empAgg, row, computed);
-        balcaoByEmployee.set(empId, empAgg);
+        if (!row.employee?.id || isOperatingUser(row.employee.id)) {
+          const empAgg = balcaoByEmployee.get(empId) || {
+            id: empId,
+            name: row.employee?.name || "Sem funcionário",
+            login: row.employee?.login || "—",
+            ...emptyBalcaoAgg(),
+          };
+          accumulateBalcao(empAgg, row, computed);
+          balcaoByEmployee.set(empId, empAgg);
+        }
       }
       if (inRange(row.createdAt, currentMonthStart, currentMonthEnd)) {
         accumulateBalcao(balcaoCurrentMonthAgg, row, computed);
