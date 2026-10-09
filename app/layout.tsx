@@ -37,14 +37,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <div className="min-h-screen flex flex-col">
-          <main className="flex-1">{children}</main>
-
-          {/* Rodapé global */}
-          <footer className="py-4 text-center text-xs text-neutral-500">
-            Desenvolvido por <strong>Dr. Jephesson Santos</strong>
-          </footer>
-        </div>
+        {children}
       </body>
     </html>
   );

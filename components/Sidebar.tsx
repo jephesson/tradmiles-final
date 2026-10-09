@@ -117,15 +117,6 @@ function accentStyle(accent?: Accent): CSSProperties {
   } as CSSProperties;
 }
 
-function userInitials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  const a = parts[0][0];
-  const b = parts[parts.length - 1][0];
-  return `${a}${b}`.toUpperCase();
-}
-
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -636,33 +627,7 @@ export default function Sidebar() {
    * UI
    * ========================= */
   return (
-    <aside className="flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 backdrop-blur-sm sm:w-64">
-      {session ? (
-        <div className="shrink-0 px-3 pb-2 pt-3">
-          <div className="flex items-start gap-3 rounded-2xl bg-white/90 p-3 shadow-md shadow-slate-900/[0.04] ring-1 ring-slate-200/65">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-[13px] font-bold tracking-tight text-white shadow-inner shadow-sky-900/20"
-              aria-hidden
-            >
-              {userInitials(session.name)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold leading-tight text-slate-900">
-                {session.name}
-              </div>
-              <div className="mt-1.5 space-y-0.5 text-[10px] leading-snug text-slate-500">
-                <div className="truncate">
-                  <span className="font-medium text-slate-600">@{session.login}</span>
-                </div>
-                <div className="truncate">{session.team}</div>
-                <div className="inline-flex items-center rounded-md bg-slate-100/90 px-1.5 py-0.5 font-medium capitalize text-slate-700 ring-1 ring-slate-200/80">
-                  {session.role}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+    <aside className="flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64">
 
       <div className="flex min-h-0 flex-1 flex-col">
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">

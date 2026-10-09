@@ -14,15 +14,13 @@ export default function DashboardLayout({
   return (
     <AuthGuard>
       <DashboardPresencePing />
-      <div className="flex h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-white text-slate-900">
-        <div className="flex min-h-0 flex-1">
+      <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-slate-100 text-slate-900">
+        <DashboardTopNav />
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <Sidebar />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <DashboardTopNav />
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain">
-              <div className="w-full px-4 py-6 sm:px-6 lg:px-8">{children}</div>
-            </main>
-          </div>
+          <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-[#f4f7fb]">
+            <div className="w-full px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+          </main>
         </div>
       </div>
     </AuthGuard>

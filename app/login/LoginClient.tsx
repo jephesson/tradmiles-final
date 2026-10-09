@@ -252,6 +252,10 @@ export default function LoginClient() {
             </footer>
           </form>
 
+          <p className="mt-8 text-center text-xs text-white/80">
+            Desenvolvido por <strong className="font-semibold text-white">Dr. Jephesson Santos</strong>
+          </p>
+
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <a
               href="https://instagram.com/viasaereastrip"

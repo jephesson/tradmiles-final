@@ -759,13 +759,13 @@ export default function EmailAlertasNav() {
               : "Configure um filtro de alerta na caixa de e-mail"
         }
         className={cn(
-          "relative inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-[13px] font-bold transition-all",
+          "relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-bold transition-all",
           hasAlerts
             ? cn(
-                "bg-amber-500 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-300/70",
+                "bg-amber-500 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-300/60",
                 "tm-pending-glow"
               )
-            : "bg-amber-50 text-amber-900 ring-1 ring-amber-200/90 hover:bg-amber-100"
+            : "bg-amber-400/20 text-amber-100 ring-1 ring-amber-300/25 hover:bg-amber-400/30"
         )}
       >
         <BellRing className="h-4 w-4 shrink-0" aria-hidden />
@@ -775,7 +775,7 @@ export default function EmailAlertasNav() {
             "inline-flex min-w-[1.35rem] items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums leading-none",
             hasAlerts
               ? "tm-badge-pop bg-white text-amber-800 shadow-sm"
-              : "bg-amber-100 text-amber-600"
+              : "bg-amber-300/20 text-amber-100"
           )}
         >
           {loading && count === 0 ? "…" : count}
