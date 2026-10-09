@@ -106,32 +106,35 @@ export default function DashboardInicialClient() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <div className="relative h-12 w-32 shrink-0 sm:h-14 sm:w-40">
-          <Image
-            src="/vias-aereas-logo.png"
-            alt="Vias Aéreas"
-            fill
-            className="object-contain object-left"
-            sizes="160px"
-            priority
-          />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-            Página inicial
-          </h1>
-          <p className="mt-0.5 text-sm text-slate-600">
-            {data ? (
-              <span className="capitalize">
-                {data.todayLabel} · {data.nowHHMM} (Recife)
-              </span>
-            ) : (
-              "Saldo do banco, ritmo do dia e equipe."
-            )}
-          </p>
-        </div>
+    <div className="relative isolate overflow-hidden">
+      <div
+        className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
+        aria-hidden
+      >
+        <Image
+          src="/vias-aereas-mark.png"
+          alt=""
+          width={1009}
+          height={1024}
+          priority
+          unoptimized
+          className="h-[min(78vh,44rem)] w-[min(90vw,44rem)] object-contain opacity-[0.16]"
+        />
+      </div>
+      <div className="relative z-10 space-y-6">
+      <div className="min-w-0">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          Página inicial
+        </h1>
+        <p className="mt-0.5 text-sm text-slate-600">
+          {data ? (
+            <span className="capitalize">
+              {data.todayLabel} · {data.nowHHMM} (Recife)
+            </span>
+          ) : (
+            "Saldo do banco, ritmo do dia e equipe."
+          )}
+        </p>
       </div>
 
       {error ? (
@@ -153,6 +156,7 @@ export default function DashboardInicialClient() {
 
         <AgendaPresenceCard data={data} />
       </div>
+      </div>
     </div>
   );
 }
@@ -165,7 +169,7 @@ function AgendaPresenceCard({ data }: { data: InicialData | null }) {
   );
 
   return (
-    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
@@ -375,7 +379,7 @@ function TodayPaceCard({
 }) {
   if (loading || !bonus) {
     return (
-      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
         <p className="mt-4 text-sm text-slate-500">Carregando…</p>
       </section>
@@ -388,7 +392,7 @@ function TodayPaceCard({
     bonus.todayBalcaoCount > 0 ? ` · ${bonus.todayBalcaoCount} no balcão` : "";
 
   return (
-    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
       <p className="mt-2 text-[15px] leading-snug text-slate-800">
         <b className="tabular-nums">{fmtMoney(bonus.todayRevenueCents)}</b>
@@ -434,7 +438,7 @@ function MonthGoalCard({
 }) {
   if (loading || !bonus) {
     return (
-      <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mês</div>
         <p className="mt-4 text-sm text-slate-500">Carregando…</p>
       </section>
@@ -453,7 +457,7 @@ function MonthGoalCard({
   }
   const remainingCents = Math.max(0, bonus.revenueGoalCents - bonus.revenueCents);
   return (
-    <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Mês · {bonus.monthLabel}
