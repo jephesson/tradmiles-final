@@ -163,11 +163,18 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/cedentes/novo");
 
   // ✅ Cadastro NÃO deve “pegar” Visualizar cedentes nem os itens movidos p/ Outros
+  const isAfiliadosRoute = pathname.startsWith("/dashboard/afiliados");
+
+  const isPendenciasRoute =
+    pathname.startsWith("/dashboard/cedentes/latam-pendente") ||
+    pathname.startsWith("/dashboard/cedentes/smiles-pendente") ||
+    pathname.startsWith("/dashboard/cedentes/livelo-pendente");
+
   const isCadastroRoute =
     (pathname.startsWith("/dashboard/cedentes") &&
       !isPontosVisualizarRoute &&
-      !isCedentesOutrosRoute) ||
-    pathname.startsWith("/dashboard/afiliados") ||
+      !isCedentesOutrosRoute &&
+      !isPendenciasRoute) ||
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
     pathname.startsWith("/dashboard/socios") ||
@@ -175,11 +182,6 @@ export default function Sidebar() {
 
   const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
   const isRedeRoute = pathname.startsWith("/dashboard/rede");
-
-  const isPendenciasRoute =
-    pathname.startsWith("/dashboard/cedentes/latam-pendente") ||
-    pathname.startsWith("/dashboard/cedentes/smiles-pendente") ||
-    pathname.startsWith("/dashboard/cedentes/livelo-pendente");
 
   const isComprasRoute = pathname.startsWith("/dashboard/compras");
   const isVendasRoute = pathname.startsWith("/dashboard/vendas");
@@ -362,7 +364,9 @@ export default function Sidebar() {
     isImportacoesEmissoesLatamRoute ||
     isProtocolosRoute ||
     isCedentesOutrosRoute ||
-    isIndicacoesRoute;
+    isIndicacoesRoute ||
+    isAfiliadosRoute ||
+    isPendenciasRoute;
 
   /* =========================
    * ACCORDIONS
@@ -390,9 +394,7 @@ export default function Sidebar() {
   const [openClientes, setOpenClientes] = useState(
     pathname.startsWith("/dashboard/clientes")
   );
-  const [openAfiliados, setOpenAfiliados] = useState(
-    pathname.startsWith("/dashboard/afiliados")
-  );
+  const [openAfiliados, setOpenAfiliados] = useState(isAfiliadosRoute);
 
   const [openGestaoPontos, setOpenGestaoPontos] = useState(isGestaoPontosRoute);
   const [openPontosVisualizar, setOpenPontosVisualizar] = useState(
@@ -496,8 +498,8 @@ export default function Sidebar() {
   }, [pathname]);
 
   useEffect(() => {
-    setOpenAfiliados(pathname.startsWith("/dashboard/afiliados"));
-  }, [pathname]);
+    setOpenAfiliados(isAfiliadosRoute);
+  }, [isAfiliadosRoute]);
 
   useEffect(
     () => setOpenGestaoPontos(isGestaoPontosRoute),
@@ -731,26 +733,6 @@ export default function Sidebar() {
             <NavLink href="/dashboard/clientes" exact>
               Visualizar clientes
             </NavLink>
-          </SubAccordion>
-
-          <SubAccordion
-            title="Afiliados"
-            open={openAfiliados}
-            onToggle={() => setOpenAfiliados((v) => !v)}
-          >
-            <NavLink href="/dashboard/afiliados" exact>
-              Gerenciar afiliados
-            </NavLink>
-          </SubAccordion>
-
-          <SubAccordion
-            title="Pendências"
-            open={openPendencias}
-            onToggle={() => setOpenPendencias((v) => !v)}
-          >
-            <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
-            <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
-            <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
           </SubAccordion>
         </Accordion>
 
@@ -1165,6 +1147,30 @@ export default function Sidebar() {
           >
             <NavLink href="/dashboard/indicacoes/codigos">Código cedente</NavLink>
             <NavLink href="/dashboard/indicacoes/historico">Histórico cedente</NavLink>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Afiliados"
+            open={openAfiliados}
+            onToggle={() => setOpenAfiliados((v) => !v)}
+            variant="nav"
+            active={isAfiliadosRoute}
+          >
+            <NavLink href="/dashboard/afiliados" exact>
+              Gerenciar afiliados
+            </NavLink>
+          </SubAccordion>
+
+          <SubAccordion
+            title="Pendências"
+            open={openPendencias}
+            onToggle={() => setOpenPendencias((v) => !v)}
+            variant="nav"
+            active={isPendenciasRoute}
+          >
+            <NavLink href="/dashboard/cedentes/latam-pendente">Latam pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/smiles-pendente">Smiles pendente</NavLink>
+            <NavLink href="/dashboard/cedentes/livelo-pendente">Livelo pendente</NavLink>
           </SubAccordion>
 
           <SubAccordion
