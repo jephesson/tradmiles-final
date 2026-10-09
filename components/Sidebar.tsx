@@ -1250,16 +1250,14 @@ export default function Sidebar() {
         )}
         </nav>
 
-        <div className="shrink-0 border-t border-slate-200/50 bg-gradient-to-t from-white to-slate-50/30 px-2.5 py-3">
-          <div className="flex justify-center rounded-xl bg-white/60 py-2 ring-1 ring-slate-200/40">
-            <Image
-              src="/vias-aereas-logo.png"
-              alt="Vias Aéreas — Conectando destinos, realizando sonhos"
-              width={200}
-              height={130}
-              className="h-auto max-h-[76px] w-full max-w-[168px] object-contain opacity-95"
-            />
-          </div>
+        <div className="shrink-0 border-t border-slate-200/50 px-2.5 py-3">
+          <Image
+            src="/vias-aereas-mark.png"
+            alt="Vias Aéreas — Conectando destinos, realizando sonhos"
+            width={200}
+            height={200}
+            className="mx-auto h-auto max-h-[88px] w-full max-w-[168px] object-contain opacity-90"
+          />
         </div>
       </div>
 

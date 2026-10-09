@@ -106,7 +106,7 @@ export default function DashboardInicialClient() {
   );
 
   return (
-    <div className="relative isolate overflow-hidden">
+    <div className="relative isolate flex min-h-full flex-1 flex-col">
       <div
         className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
         aria-hidden
@@ -118,7 +118,7 @@ export default function DashboardInicialClient() {
           height={1024}
           priority
           unoptimized
-          className="h-[min(78vh,44rem)] w-[min(90vw,44rem)] object-contain opacity-[0.16]"
+          className="h-[min(92%,52rem)] w-[min(92%,52rem)] object-contain opacity-[0.15]"
         />
       </div>
       <div className="relative z-10 space-y-6">

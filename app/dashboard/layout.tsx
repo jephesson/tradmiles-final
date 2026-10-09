@@ -18,8 +18,10 @@ export default function DashboardLayout({
         <DashboardTopNav />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <Sidebar />
-          <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-[#f4f7fb]">
-            <div className="w-full px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-[#f4f7fb]">
+            <div className="flex min-h-full w-full flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8">
+              {children}
+            </div>
           </main>
         </div>
       </div>
