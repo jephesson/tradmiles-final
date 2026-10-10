@@ -18,6 +18,15 @@ function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+function recifeDate(d: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 function payMonthFromOpen(
   requested: string,
   openByMonth: { month: string; count: number }[]
@@ -88,7 +97,7 @@ export async function GET(req: Request) {
 
   const monthRows = await prisma.cardDebtInstallment.findMany({
     where: { ...scope, dueDate: { gte: start, lt: end } },
-    include: { purchase: { select: { id: true, title: true } } },
+    include: { purchase: { select: { id: true, title: true, createdAt: true } } },
     orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
   });
 
@@ -110,6 +119,7 @@ export async function GET(req: Request) {
         id: r.id,
         purchaseId: r.purchaseId,
         title: r.purchase.title,
+        addedAt: recifeDate(r.purchase.createdAt),
         n: r.n,
         dueDate: isoDate(r.dueDate),
         amountCents: r.amountCents,

@@ -13,6 +13,7 @@ type Row = {
   id: string;
   purchaseId: string;
   title: string;
+  addedAt?: string | null;
   n: number;
   dueDate: string;
   amountCents: number;
@@ -112,9 +113,14 @@ export default function DividasCartoesClient() {
   const newTotalCents = newInstallmentCents * newCountN;
 
   const groups = useMemo(() => {
-    const map = new Map<string, { purchaseId: string; title: string; items: Row[] }>();
+    const map = new Map<string, { purchaseId: string; title: string; addedAt: string | null; items: Row[] }>();
     for (const r of listed) {
-      const cur = map.get(r.purchaseId) || { purchaseId: r.purchaseId, title: r.title, items: [] };
+      const cur = map.get(r.purchaseId) || {
+        purchaseId: r.purchaseId,
+        title: r.title,
+        addedAt: r.addedAt || null,
+        items: [],
+      };
       cur.items.push(r);
       map.set(r.purchaseId, cur);
     }
@@ -529,6 +535,8 @@ export default function DividasCartoesClient() {
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-slate-900">{g.title}</div>
                     <div className="text-xs text-slate-500">
+                      {g.addedAt ? `Adicionada em ${dateBR(g.addedAt)}` : null}
+                      {g.addedAt ? " · " : null}
                       {openItems.length ? `${openItems.length} em aberto · ${money(groupCents)}` : "Tudo pago neste recorte"}
                     </div>
                   </div>
