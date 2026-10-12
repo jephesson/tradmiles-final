@@ -39,6 +39,7 @@ import {
 import { DEFAULT_TARGET_MARKUP_CENTS } from "@/lib/purchases/purchaseDefaults";
 import { buildClientChargeMessage } from "@/lib/vendas/buildClientChargeMessage";
 import { saleMeetsCedenteMinPts } from "@/lib/vendas/cedenteMinPts";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type PointsMode = "TOTAL" | "POR_PAX";
@@ -3934,11 +3935,11 @@ export default function NovaVendaClient({
                   <>
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-600">Data ida</span>
-                      <b>{departureDate || "—"}</b>
+                      <b>{departureDate ? formatDateBR(departureDate) : "—"}</b>
                     </div>
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-600">Data volta</span>
-                      <b>{returnDate || "—"}</b>
+                      <b>{returnDate ? formatDateBR(returnDate) : "—"}</b>
                     </div>
                     {program === "LATAM" ? (
                       <div className="flex justify-between gap-3">

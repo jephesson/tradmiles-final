@@ -1,3 +1,5 @@
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
+
 export type UpcomingSmilesFlight = {
   saleId: string;
   numero: string;
@@ -11,9 +13,8 @@ export type UpcomingSmilesFlight = {
 
 function fmtDateBR(iso: string | null | undefined) {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  const out = formatDateBR(iso);
+  return out === "—" ? null : out;
 }
 
 export function formatUpcomingSmilesFlightsWarning(flights: UpcomingSmilesFlight[]): string {

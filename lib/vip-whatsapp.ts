@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { formatDateBR as formatDateDisplayBR } from "@/lib/dates/brazilCalendar";
 
 export const VIP_FIRST_MONTH_CENTS = 990;
 export const VIP_RECURRING_MONTH_CENTS = 1490;
@@ -25,9 +26,7 @@ export function formatMoneyBR(cents: number) {
 }
 
 export function formatDateBR(input: Date | string) {
-  const d = input instanceof Date ? input : new Date(input);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateDisplayBR(input);
 }
 
 export function nextRecurringDateFrom(adhesionDate: Date) {

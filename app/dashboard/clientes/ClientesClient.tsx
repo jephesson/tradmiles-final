@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type ClienteOrigem = "BALCAO_MILHAS" | "PARTICULAR" | "SITE" | "OUTROS";
 type ClienteTipo = "PESSOA" | "EMPRESA";
@@ -26,7 +27,7 @@ type ClienteRow = {
 };
 
 function dateBR(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function origemLabel(o: ClienteOrigem, desc?: string | null) {

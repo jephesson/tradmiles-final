@@ -14,6 +14,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import {
   cancelFinePaxCount,
@@ -130,12 +131,7 @@ function moneyInputBR(cents: number) {
 }
 
 function fmtDateBR(v: string | null | undefined) {
-  if (!v) return "—";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
-  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(v);
 }
 
 function statusLabel(s: PaymentStatus) {

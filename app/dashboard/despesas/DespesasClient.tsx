@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import { currentMonthISORecife, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type DespesaStatus = "PENDING" | "PAID" | "CANCELED";
 type DespesaCategoria =
@@ -66,10 +67,7 @@ function fmtMoney(cents: number) {
 }
 
 function fmtDateBR(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function fmtMonthLabel(ym: string) {

@@ -13,6 +13,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
 type TurboStatus = "PENDING" | "TRANSFERRED" | "SKIPPED";
@@ -91,9 +92,7 @@ function fmtInt(n: number) {
 }
 
 function dateBR(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function whatsappHref(telefone?: string | null) {

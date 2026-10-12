@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
+import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 
 type Payment = { id: string; amountCents: number; note?: string | null; paidAt: string };
 type Debt = {
@@ -48,14 +49,10 @@ function fmtMoney(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 function dateTimeBR(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString("pt-BR");
+  return formatDateTimeBR(iso);
 }
 function dateBR(iso?: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 function toISODateInput(v?: string | null) {
   if (!v) return "";

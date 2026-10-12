@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type UserLite = { id: string; name: string; login: string; role: string };
 
@@ -59,9 +60,8 @@ function addDaysISODate(days: number) {
 
 function fmtDateBR(isoOrDate?: string | null) {
   if (!isoOrDate) return "";
-  const d = new Date(isoOrDate);
-  if (Number.isNaN(d.getTime())) return String(isoOrDate);
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  const out = formatDateBR(isoOrDate);
+  return out === "—" ? String(isoOrDate) : out;
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {

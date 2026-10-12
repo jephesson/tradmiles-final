@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 
 type RateioResponse = {
   ok?: boolean;
@@ -64,9 +65,7 @@ function formatMoney(cents: number) {
 }
 
 function formatDateTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR");
+  return formatDateTimeBR(iso);
 }
 
 function monthNow() {
@@ -386,12 +385,7 @@ export default function GrupoVipRateioClient() {
               Pagamento previsto para este mês de referência:{" "}
               {settingData?.payoutDates?.length
                 ? settingData.payoutDates
-                    .map((value) => {
-                      const d = new Date(value);
-                      return Number.isNaN(d.getTime())
-                        ? "—"
-                        : d.toLocaleDateString("pt-BR");
-                    })
+                    .map((value) => formatDateBR(value))
                     .join(" • ")
                 : "—"}
             </div>

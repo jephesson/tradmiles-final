@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ProtocolStatus = "DRAFT" | "SENT" | "WAITING" | "RESOLVED" | "DENIED";
@@ -29,8 +30,7 @@ type ProtocolRow = {
 
 function fmtDate(iso: string) {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR").slice(0, 5);
+  return formatDateTimeBR(iso);
 }
 
 function StatusBadge({ status }: { status: ProtocolStatus }) {

@@ -1,16 +1,13 @@
 // app/api/clientes/export/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function dateBR(value: string | Date) {
-  try {
-    return new Date(value).toLocaleDateString("pt-BR");
-  } catch {
-    return String(value);
-  }
+  return formatDateBR(value);
 }
 
 function origemLabel(

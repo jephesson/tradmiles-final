@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type DryRunResp =
   | {
@@ -302,7 +303,7 @@ function DryRunView({ data }: { data: DryRunResp & { ok: true; dryRun: true } })
         <div className="flex flex-wrap gap-2">
           {data.monthsDetected.map((m, i) => (
             <Badge key={i}>
-              {m.label} → {new Date(m.issuedAt).toLocaleDateString("pt-BR")}
+              {m.label} → {formatDateBR(m.issuedAt)}
             </Badge>
           ))}
         </div>
@@ -319,7 +320,7 @@ function DryRunView({ data }: { data: DryRunResp & { ok: true; dryRun: true } })
                 <li key={i} className="flex justify-between gap-2">
                   <span className="truncate">{x.cedenteId.slice(0, 8)}…</span>
                   <span className="text-zinc-600">
-                    {new Date(x.issuedAt).toLocaleDateString("pt-BR")} • {x.passengersCount} pax
+                    {formatDateBR(x.issuedAt)} • {x.passengersCount} pax
                   </span>
                 </li>
               ))}

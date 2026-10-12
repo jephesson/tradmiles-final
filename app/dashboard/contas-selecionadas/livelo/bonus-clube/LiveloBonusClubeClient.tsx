@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Copy, Gift, KeyRound, PauseCircle, RefreshCw, Search, Users, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 import { liveloCycleBadgeClass } from "@/lib/livelo-clube";
 
 type Status = "ACTIVE" | "PAUSED" | "CANCELED";
@@ -48,9 +49,7 @@ function fmtInt(v: number) {
 
 function fmtDateBR(iso: string | null | undefined) {
   if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function statusClass(status: Status) {

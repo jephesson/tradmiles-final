@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type AffiliateRow = {
   id: string;
@@ -103,7 +104,7 @@ function formatMoney(cents: number) {
 }
 
 function dateBR(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function saleStatus(value: string) {

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type SaleRow = {
   id: string;
@@ -71,7 +72,7 @@ function fmtPercent(bps: number) {
 }
 
 function fmtDate(value: string) {
-  return new Date(value).toLocaleDateString("pt-BR");
+  return formatDateBR(value);
 }
 
 function statusLabel(value: string) {

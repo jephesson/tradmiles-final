@@ -15,6 +15,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
 import {
   cancelFinePaxCount,
@@ -75,27 +76,12 @@ function intFromBR(input: string) {
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
-// ✅ evita “voltar 1 dia” quando vier ISO em UTC
 function fmtDateBR(v: string) {
-  if (!v) return "—";
-  const s = String(v).trim();
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (m) {
-    const y = Number(m[1]);
-    const mm = Number(m[2]);
-    const d = Number(m[3]);
-    return new Date(y, mm - 1, d).toLocaleDateString("pt-BR");
-  }
-  const dt = new Date(s);
-  if (Number.isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("pt-BR");
+  return formatDateBR(v);
 }
 
 function fmtDateTimeBR(v: string) {
-  if (!v) return "—";
-  const dt = new Date(String(v));
-  if (Number.isNaN(dt.getTime())) return "—";
-  return dt.toLocaleString("pt-BR");
+  return formatDateTimeBR(v);
 }
 
 function ymdSaoPaulo(v: string | Date) {

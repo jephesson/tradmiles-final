@@ -12,6 +12,7 @@ import {
   Unlock,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 import {
   UNLOCK_BUFFER_DAYS,
   UNLOCK_WINDOW_DAYS,
@@ -59,10 +60,10 @@ function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
 }
 function dateTimeBR(iso: string) {
-  return new Date(iso).toLocaleString("pt-BR");
+  return formatDateTimeBR(iso);
 }
 function dateBR(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function recifeParts(d = new Date()) {

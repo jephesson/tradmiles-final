@@ -94,12 +94,48 @@ export function todayYmdSaoPaulo(now = new Date()): string {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
+const DATE_TZ = "America/Recife";
+
+function ymdToBr(y: string, m: string, d: string) {
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Exibição única no site: DD/MM/AAAA.
+ * YYYY-MM-DD (e meia-noite UTC de calendário) não desloca o dia.
+ * Timestamp real usa o fuso de Recife.
+ */
+export function formatDateBR(input: string | Date | null | undefined): string {
+  if (input == null || input === "") return "—";
+  if (input instanceof Date) {
+    if (Number.isNaN(input.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: DATE_TZ,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(input);
+  }
+  const s = String(input).trim();
+  const calendar = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.\d{1,3})?Z?)?$/.exec(s);
+  if (calendar) return ymdToBr(calendar[1], calendar[2], calendar[3]);
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (dmy) {
+    return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: DATE_TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
 /** Ex.: 07/08/2026 — data de calendário (UTC), não timestamp local. */
 export function formatCalendarDateBR(iso: string | null | undefined): string {
-  const ymd = calendarYmdFromIso(iso);
-  if (!ymd) return "—";
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("pt-BR");
+  return formatDateBR(calendarYmdFromIso(iso));
 }
 
 /** Ex.: "8 de junho" */
@@ -151,12 +187,24 @@ export function formatDateTimeBR(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  return d.toLocaleString("pt-BR", {
+    timeZone: DATE_TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function formatInstantDateBR(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: DATE_TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
 }

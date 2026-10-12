@@ -160,7 +160,12 @@ function fmtRelative(iso: string | null) {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} d`;
 
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return d.toLocaleDateString("pt-BR", {
+    timeZone: "America/Recife",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 function ProgramBadge({ program }: { program: Program | null }) {

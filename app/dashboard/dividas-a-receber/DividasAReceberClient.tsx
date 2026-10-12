@@ -3,6 +3,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Lock, Plus, RefreshCw, Wallet } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type ReceberStatus = "OPEN" | "PARTIAL" | "PAID" | "CANCELED";
 type ReceberCategoria = "EMPRESTIMO" | "CARTAO" | "PARCELAMENTO" | "SERVICO" | "OUTROS";
@@ -55,9 +56,7 @@ function fmtMoneyBR(cents: number) {
 }
 function fmtDateBR(iso: string | null | undefined) {
   if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 function toCentsFromInput(s: string) {
   const cleaned = (s || "").trim();
@@ -498,7 +497,7 @@ export default function DividasAReceberClient() {
                       ) : (
                         <td className="p-3">{fmtDateBR(r.dueDate)}</td>
                       )}
-                      {isEmployee ? <td className="p-3">{r.startsOn || "-"}</td> : null}
+                      {isEmployee ? <td className="p-3">{fmtDateBR(r.startsOn)}</td> : null}
                       <td className="p-3 tabular-nums">{fmtMoneyBR(r.totalCents)}</td>
                       <td className="p-3 tabular-nums">{fmtMoneyBR(r.receivedCents)}</td>
                       <td className="p-3 font-semibold tabular-nums">{fmtMoneyBR(saldo)}</td>
@@ -778,7 +777,7 @@ export default function DividasAReceberClient() {
                 {isEmployee ? (
                   <>
                     <div className="mt-2">Percentual: {bpsToPercent(detailRow.dailyProfitBps || 0)}%</div>
-                    <div>Início: {detailRow.startsOn || "-"}</div>
+                    <div>Início: {fmtDateBR(detailRow.startsOn)}</div>
                   </>
                 ) : (
                   <div>Vencimento: {fmtDateBR(detailRow.dueDate)}</div>
@@ -803,7 +802,7 @@ export default function DividasAReceberClient() {
                       <tbody>
                         {detailRow.dayCharges.map((c) => (
                           <tr key={c.id} className="border-t">
-                            <td className="py-1.5">{c.date}</td>
+                            <td className="py-1.5">{fmtDateBR(c.date)}</td>
                             <td className="py-1.5">{fmtMoneyBR(c.lucroBaseCents)}</td>
                             <td className="py-1.5 font-semibold">{fmtMoneyBR(c.amountCents)}</td>
                           </tr>

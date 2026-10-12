@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
@@ -282,10 +283,7 @@ function Portal({ children }: { children: ReactNode }) {
 }
 
 function fmtDateBR(iso?: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function PurchaseDetailPanel({
@@ -443,12 +441,12 @@ function PurchaseDetailPanel({
                     <>
                       Vigência{" "}
                       <span className="font-mono">
-                        {detail.plan.effectiveFrom ? detail.plan.effectiveFrom.slice(0, 10) : "—"}
+                        {detail.plan.effectiveFrom ? formatDateBR(detail.plan.effectiveFrom) : "—"}
                       </span>
                       {detail.plan.effectiveTo ? (
                         <>
                           {" "}
-                          → <span className="font-mono">{detail.plan.effectiveTo.slice(0, 10)}</span>
+                          → <span className="font-mono">{formatDateBR(detail.plan.effectiveTo)}</span>
                         </>
                       ) : (
                         <> → atual</>

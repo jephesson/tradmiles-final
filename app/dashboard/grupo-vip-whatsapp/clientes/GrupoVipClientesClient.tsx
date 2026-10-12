@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type ClientesOverviewResponse = {
   ok?: boolean;
@@ -44,9 +45,7 @@ function monthNow() {
 }
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function formatPercent(value: number) {

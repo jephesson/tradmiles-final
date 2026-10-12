@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 
@@ -47,8 +48,7 @@ function todayYYYYMMDD() {
 }
 
 function fmtDateBR(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function isoToYMD(iso: string) {
@@ -581,7 +581,7 @@ export default function EmissionsClient({
               <div className="text-sm font-medium">
                 {fmtDateBR(usage.windowStart)} → {fmtDateBR(usage.windowEnd)}
               </div>
-              <div className="mt-1 text-xs text-zinc-500">Baseado na data selecionada ({issuedDate})</div>
+              <div className="mt-1 text-xs text-zinc-500">Baseado na data selecionada ({formatDateBR(issuedDate)})</div>
             </div>
           </div>
         ) : (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Mode =
@@ -105,9 +106,7 @@ function fmtBirthDay(d: string | null | undefined) {
 
 function fmtDateBR(iso: string | null | undefined) {
   if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("pt-BR");
+  return formatDateBR(iso);
 }
 
 function normalizeScore(v: unknown) {

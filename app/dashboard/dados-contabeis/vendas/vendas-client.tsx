@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Download, RefreshCw, Receipt, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateBR } from "@/lib/dates/brazilCalendar";
 
 function fmtMoneyBRFromCents(cents: number) {
   return ((cents || 0) / 100).toLocaleString("pt-BR", {
@@ -400,7 +401,7 @@ export default function VendasDadosContabeisClient() {
         <div className="mt-3 text-xs text-slate-500">
           {selectedDateISO ? (
             <>
-              Filtrando por dia: <b className="text-slate-700">{selectedDateISO}</b>
+              Filtrando por dia: <b className="text-slate-700">{formatDateBR(selectedDateISO)}</b>
             </>
           ) : (
             <>
@@ -571,7 +572,7 @@ export default function VendasDadosContabeisClient() {
                   ))
                 : (rows as PreviewRowRaw[]).map((r) => (
                     <tr key={r.saleId} className="border-t border-slate-100 hover:bg-slate-50/60">
-                      <td className="px-5 py-3">{r.date}</td>
+                      <td className="px-5 py-3">{formatDateBR(r.date)}</td>
                       <td className="px-5 py-3 font-medium">{r.numero}</td>
                       <td className="px-5 py-3 text-xs text-slate-500">{r.paymentStatus}</td>
                       <td className="px-5 py-3">{r.cpfCnpj}</td>

@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 import { DEFAULT_TARGET_MARKUP_CENTS } from "@/lib/purchases/purchaseDefaults";
 
 type PurchaseStatus = "OPEN" | "DRAFT" | "READY" | "CLOSED" | "CANCELED";
@@ -98,9 +99,7 @@ function fmtMoneyBR(cents: number) {
 }
 
 function fmtDateBR(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("pt-BR");
+  return formatDateTimeBR(iso);
 }
 
 /**
