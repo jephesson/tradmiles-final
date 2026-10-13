@@ -16,6 +16,7 @@ import {
   readPending2faCookie,
   setSessionCookie,
 } from "@/lib/tm-session-cookie";
+import { touchWorkSession } from "@/lib/attendance/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ async function finishLogin(userId: string) {
     team: user.team,
     pages,
   });
+  await touchWorkSession(user.team, user.id);
   clearPending2faCookie(res);
   return res;
 }

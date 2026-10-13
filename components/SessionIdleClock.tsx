@@ -20,6 +20,24 @@ function formatRemaining(ms: number) {
   return `${m}:${pad(sec)}`;
 }
 
+function formatElapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${pad(m)}:${pad(sec)}`;
+  return `${m}:${pad(sec)}`;
+}
+
+function formatDeclaredMin(min: number) {
+  const n = Math.max(0, Math.round(min));
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (h <= 0) return `${m} min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${pad(m)}`;
+}
+
 function RecifeParts(now: Date) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ,
@@ -148,6 +166,8 @@ export default function SessionIdleClock() {
   const router = useRouter();
   const [now, setNow] = useState(() => new Date());
   const [remainingMs, setRemainingMs] = useState(SESSION_IDLE_MS);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [declaredMin, setDeclaredMin] = useState<number | null>(null);
 
   useEffect(() => {
     let lastActivity = Date.now();
@@ -167,6 +187,11 @@ export default function SessionIdleClock() {
         const res = await fetch("/api/auth/touch", { method: "POST", credentials: "include", cache: "no-store" });
         if (res.status === 401) {
           await expire();
+          return;
+        }
+        const json = await res.json().catch(() => null);
+        if (json?.ok && typeof json.startedAt === "number") {
+          setStartedAt(json.startedAt);
         }
       } catch {
         /* rede: o relógio local ainda encerra */
@@ -197,50 +222,74 @@ export default function SessionIdleClock() {
       if (left <= 0) void expire();
     }, 1000);
 
-    const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "mousemove", "scroll", "touchstart"];
+    const events: Array<keyof WindowEventMap> = ["click", "pointerdown", "touchstart"];
     events.forEach((ev) => window.addEventListener(ev, onActivity, { passive: true }));
-    const vis = () => {
-      if (document.visibilityState === "visible") onActivity();
-    };
-    document.addEventListener("visibilitychange", vis);
     void ping();
 
     return () => {
       window.clearInterval(tick);
       events.forEach((ev) => window.removeEventListener(ev, onActivity));
-      document.removeEventListener("visibilitychange", vis);
     };
   }, [router]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadWork() {
+      try {
+        const res = await fetch("/api/session/work", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive || !res.ok || !json?.ok) return;
+        if (typeof json.data?.startedAt === "number") setStartedAt(json.data.startedAt);
+        if (typeof json.data?.declaredMin === "number") setDeclaredMin(json.data.declaredMin);
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadWork();
+    const t = window.setInterval(loadWork, 5 * 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, []);
 
   const { hour, minute } = RecifeParts(now);
   const warn = remainingMs <= 10 * 60 * 1000;
   const danger = remainingMs <= 2 * 60 * 1000;
   const tone = danger ? "danger" : warn ? "warn" : "ok";
+  const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
 
   return (
     <div
       className="flex shrink-0 items-center gap-2.5 rounded-2xl bg-white/10 px-2 py-1 ring-1 ring-white/15"
-      title="Horário de Recife. A sessão encerra após 1 hora sem movimento; qualquer clique ou tecla reinicia o tempo."
+      title="Sessão: tempo desde o login. Resta: até expirar (1h sem clique em janela ou link). Declarado: turnos de hoje na agenda."
     >
       <AnalogClock
         now={now}
         remainingRatio={remainingMs / SESSION_IDLE_MS}
         tone={tone}
       />
-      <div className="min-w-[4.6rem] leading-tight">
+      <div className="min-w-[7.2rem] leading-tight">
         <div className="text-[13px] font-semibold tabular-nums tracking-wide text-white">
           {pad(hour)}:{pad(minute)}
         </div>
-        <div
-          className={
-            danger
-              ? "text-[10px] font-bold tabular-nums text-rose-300"
-              : warn
-                ? "text-[10px] font-semibold tabular-nums text-amber-300"
-                : "text-[10px] font-medium tabular-nums text-sky-200/80"
-          }
-        >
-          {formatRemaining(remainingMs)}
+        <div className="text-[10px] font-medium tabular-nums text-sky-100/90">
+          sessão {startedAt ? formatElapsed(elapsedMs) : "—"}
+          <span
+            className={
+              danger
+                ? "text-rose-300"
+                : warn
+                  ? "text-amber-300"
+                  : "text-sky-200/80"
+            }
+          >
+            {" "}
+            · resta {formatRemaining(remainingMs)}
+          </span>
+        </div>
+        <div className="text-[10px] font-medium tabular-nums text-white/70">
+          declarado {declaredMin == null ? "—" : formatDeclaredMin(declaredMin)}
         </div>
       </div>
     </div>

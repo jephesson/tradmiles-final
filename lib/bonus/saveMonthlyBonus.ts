@@ -126,4 +126,10 @@ export async function ensureDueMonthlyBonus(team: string, asOfISO: string) {
   if (!isFirstDayOfMonth(asOfISO) && last) return;
 
   await computeAndSaveMonthlyBonus(team, spendMonth);
+  try {
+    const { saveAttendanceAward } = await import("@/lib/attendance/load");
+    await saveAttendanceAward(team, spendMonth);
+  } catch {
+    /* apuração de assiduidade não bloqueia o bônus de meta */
+  }
 }

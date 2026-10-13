@@ -15,7 +15,7 @@ import {
 } from "@/lib/bonus/fetchMonthlyMetrics";
 import { ensureDueCardCashbacks } from "@/lib/card-cashback";
 import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
-import { fmtMin, gapsForRange, mondayISO, sundayISO } from "@/lib/agenda/shifts";
+import { addDaysISO, fmtMin, gapsForRange, mondayISO, sundayISO } from "@/lib/agenda/shifts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +84,8 @@ export async function GET() {
     const prevMonthKey = isFirstDayOfMonth(todayISO) ? previousMonthISO(bonusMonth) : null;
     const weekStartISO = mondayISO(todayISO);
     const weekEndISO = sundayISO(todayISO);
+    const alertEndISO = addDaysISO(todayISO, 6);
+    const fetchEndISO = weekEndISO > alertEndISO ? weekEndISO : alertEndISO;
 
     const [events, users, bonusSetting, bonusMetrics, todayRevenue, prevBonusSetting, prevBonusMetrics] =
       await Promise.all([
@@ -91,7 +93,7 @@ export async function GET() {
         where: {
           team: session.team,
           status: "ACTIVE",
-          dateISO: { gte: weekStartISO, lte: weekEndISO },
+          dateISO: { gte: weekStartISO, lte: fetchEndISO },
         },
         include: {
           user: { select: { id: true, name: true, login: true } },
@@ -145,8 +147,8 @@ export async function GET() {
     const agendaToday = agendaWeek.filter((e) => e.dateISO === todayISO);
 
     const agendaGaps = gapsForRange(
-      weekStartISO,
-      weekEndISO,
+      todayISO,
+      alertEndISO,
       events.filter((e) => e.type === "SHIFT")
     ).map((g) => ({
       dateISO: g.dateISO,

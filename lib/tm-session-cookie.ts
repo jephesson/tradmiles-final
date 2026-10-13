@@ -9,6 +9,7 @@ export type SessionCookie = {
   team: string;
   pages?: string[];
   last?: number;
+  started?: number;
 };
 
 function cookieBase(maxAge: number) {
@@ -29,13 +30,17 @@ function applyCookie(res: NextResponse, name: string, value: string, maxAge: num
 }
 
 export function setSessionCookie(res: NextResponse, payload: SessionCookie) {
+  const now = Date.now();
+  const started =
+    typeof payload.started === "number" && payload.started > 0 ? payload.started : now;
   const value = signSessionValue({
     id: payload.id,
     login: payload.login,
     role: payload.role,
     team: payload.team,
     pages: payload.pages || [],
-    last: Date.now(),
+    last: now,
+    started,
   });
   applyCookie(res, "tm.session", value, SESSION_IDLE_COOKIE_MAX_AGE);
 }

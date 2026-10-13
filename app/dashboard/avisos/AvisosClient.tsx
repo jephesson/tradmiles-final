@@ -267,10 +267,10 @@ export default function AvisosClient() {
 
       {agendaGaps.length > 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
-          <div className="font-semibold">Alerta: intervalos de horário vagos na agenda</div>
+          <div className="font-semibold">Alerta: intervalos de horário vagos (próximos 7 dias)</div>
           <p className="mt-0.5 text-xs text-amber-800">
-            Turnos sem cobertura nesta semana. 72h antes do dia, qualquer pessoa pode se escalar nas
-            vagas remanescentes.
+            Turnos sem cobertura nos próximos 7 dias. 72h antes do dia, qualquer pessoa pode se
+            escalar nas vagas remanescentes.
           </p>
           <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
             {agendaGaps.map((g, i) => (

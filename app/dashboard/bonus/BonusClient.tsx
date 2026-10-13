@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 import { monthLabelPT } from "@/lib/bonus/monthlyBonus";
+import AttendanceCard from "./AttendanceCard";
 
 type Preview = {
   month: string;
@@ -264,6 +265,8 @@ export default function BonusClient() {
         </div>
       ) : null}
 
+      <AttendanceCard month={month} />
+
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -290,6 +293,7 @@ export default function BonusClient() {
               hint="Mesmo total da Análise de dados (vendas do mês + balcão, após imposto e prejuízo debitado nas milhas)."
             />
           </div>
+
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4">

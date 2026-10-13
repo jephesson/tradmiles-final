@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import {
   SHIFT_WINDOWS,
   type ShiftKind,
+  addDaysISO,
   classifyShift,
   isWeekendISO,
 } from "@/lib/agenda/shifts";
@@ -328,6 +329,11 @@ export default function AgendaPage() {
   }, [ym]);
 
   const todayIso = todayISOBrLocal();
+  const alertEndIso = addDaysISO(todayIso, 6);
+  const alertGaps = useMemo(
+    () => gaps.filter((g) => g.dateISO >= todayIso && g.dateISO <= alertEndIso),
+    [gaps, todayIso, alertEndIso]
+  );
 
   return (
     <div className="min-h-0 space-y-6 bg-gradient-to-b from-slate-50/80 to-white p-4 sm:p-6 lg:p-8">
@@ -405,15 +411,15 @@ export default function AgendaPage() {
         </div>
       </div>
 
-      {gaps.length > 0 ? (
+      {alertGaps.length > 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
-          <div className="font-semibold">Alerta: intervalos de horário vagos</div>
+          <div className="font-semibold">Alerta: intervalos de horário vagos (próximos 7 dias)</div>
           <p className="mt-0.5 text-xs text-amber-800">
             Seg–sex: 2 manhãs, 2 tardes e 2 noites por pessoa. Fim de semana: 2 turnos entre os 6.
             72h antes do dia, qualquer um pode preencher vagas remanescentes. 00h–08h fica liberado.
           </p>
           <ul className="mt-2 max-h-56 space-y-0.5 overflow-y-auto text-xs [scrollbar-width:thin]">
-            {gaps.map((g, i) => (
+            {alertGaps.map((g, i) => (
               <li key={`${g.dateISO}-${g.kind}-${g.startHHMM}-${i}`}>
                 {g.dateBR} · {g.label} · {g.startHHMM}–{g.endHHMM}
               </li>

@@ -159,6 +159,11 @@ model User {
   /** Último ping de presença no dashboard (ex.: página inicial). */
   lastPresenceAt DateTime?
 
+  workSessions              WorkSession[]              @relation("WorkSessionUser")
+  attendanceEmissionCredits AttendanceEmissionCredit[] @relation("AttendanceCreditUser")
+  attendanceAwards          AttendanceAward[]          @relation("AttendanceAwardUser")
+  attendanceAwardsPaid      AttendanceAward[]          @relation("AttendanceAwardPaidBy")
+
   // Cedentes em que o usuário é o "responsável" (owner)
   cedentesOwned Cedente[] @relation("CedenteOwner")
 
@@ -2414,6 +2419,87 @@ model Aviso {
  * ✅ BÔNUS MENSAL
  * =========================
  */
+model WorkSession {
+  id     String @id @default(cuid())
+  team   String
+  userId String
+  user   User   @relation("WorkSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  startedAt      DateTime
+  lastActivityAt DateTime
+  endedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, userId, startedAt])
+  @@index([team, userId, endedAt])
+  @@map("work_sessions")
+}
+
+model AttendancePeriodSetting {
+  id   String @id @default(cuid())
+  team String
+  month String
+
+  startISO       String
+  endISO         String
+  weeklyHoursMin Float @default(20)
+  bonusCents     Int   @default(20000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month], map: "uniq_attendance_period_team_month")
+  @@index([team, month])
+  @@map("attendance_period_settings")
+}
+
+model AttendanceEmissionCredit {
+  id     String @id @default(cuid())
+  team   String
+  userId String
+  user   User   @relation("AttendanceCreditUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  saleId String @unique
+  dateISO String
+  hours  Float  @default(1)
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([team, userId, dateISO])
+  @@map("attendance_emission_credits")
+}
+
+model AttendanceAward {
+  id     String @id @default(cuid())
+  team   String
+  month  String
+  userId String
+  user   User   @relation("AttendanceAwardUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  score           Float
+  declaredHours   Float
+  fulfilledHours  Float
+  creditHours     Float
+  attendance      Float
+  bonusCents      Int
+  breakdown       Json?
+
+  computedAt DateTime @default(now())
+  paidAt     DateTime?
+  paidById   String?
+  paidBy     User?     @relation("AttendanceAwardPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month], map: "uniq_attendance_award_team_month")
+  @@index([team, month])
+  @@map("attendance_awards")
+}
+
 model BonusMonthSetting {
   id   String @id @default(cuid())
   team String

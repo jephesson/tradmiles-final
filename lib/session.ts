@@ -9,6 +9,8 @@ export type Sess = {
   team: string;
   pages?: string[];
   last?: number;
+  /** Início desta sessão (não renova no touch). */
+  started?: number;
   name?: string;
   email?: string | null;
 };

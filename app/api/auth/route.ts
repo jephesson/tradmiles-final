@@ -9,6 +9,9 @@ import {
   setPending2faCookie,
   clearPending2faCookie,
 } from "@/lib/tm-session-cookie";
+import { cookies } from "next/headers";
+import { readSessionCookie } from "@/lib/session";
+import { endWorkSession, touchWorkSession } from "@/lib/attendance/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,6 +215,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         team: dbUser.team,
         pages,
       });
+      await touchWorkSession(dbUser.team, dbUser.id);
       return res;
     }
 
@@ -236,6 +240,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     if (raw.action === "logout") {
+      try {
+        const jar = await cookies();
+        const sess = readSessionCookie(jar.get("tm.session")?.value);
+        if (sess?.id && sess.team) await endWorkSession(sess.team, sess.id);
+      } catch {
+        /* ignore */
+      }
       const res = NextResponse.json({ ok: true }, { headers: noCacheHeaders() });
       clearSessionCookie(res);
       clearPending2faCookie(res);

@@ -337,7 +337,7 @@ function AgendaWeekCard({ data }: { data: InicialData | null }) {
 
       {gaps.length > 0 ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
-          <div className="font-semibold">Alerta: intervalos de horário vagos nesta semana</div>
+          <div className="font-semibold">Alerta: intervalos de horário vagos (próximos 7 dias)</div>
           <ul className="mt-1 max-h-56 space-y-0.5 overflow-y-auto text-xs text-amber-900 [scrollbar-width:thin]">
             {gaps.map((g, i) => (
               <li key={`${g.dateISO}-${g.kind}-${g.startHHMM}-${i}`}>
@@ -347,7 +347,7 @@ function AgendaWeekCard({ data }: { data: InicialData | null }) {
           </ul>
         </div>
       ) : (
-        <p className="mt-3 text-xs text-emerald-700">Semana coberta nos três turnos.</p>
+        <p className="mt-3 text-xs text-emerald-700">Próximos 7 dias cobertos nos três turnos.</p>
       )}
 
       {!data ? (
