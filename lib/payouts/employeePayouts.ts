@@ -9,6 +9,7 @@ import {
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
 import { bonusMetaMilheiroFromPurchase } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 type SessionLike = { userId: string; team: string; role?: string };
 
@@ -120,9 +121,10 @@ export function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
 export function commission1Fallback(
   pointsValueNoFeeCents: number,
   c1Bps = DEFAULT_EMPLOYEE_C1_BPS,
-  saleDate?: Date | string | null
+  saleDate?: Date | string | null,
+  holidayISOs?: ReadonlySet<string> | null
 ) {
-  return commission1FromPvCents(pointsValueNoFeeCents, c1Bps, saleDate);
+  return commission1FromPvCents(pointsValueNoFeeCents, c1Bps, saleDate, holidayISOs);
 }
 
 /** bônus sobre excedente acima do milheiro de meta (C2) */
@@ -153,11 +155,16 @@ export function chooseC1(
   points: number,
   c1Db: number,
   pvNoFee: number,
-  opts?: { c1Bps?: number; saleDate?: Date | string | null }
+  opts?: { c1Bps?: number; saleDate?: Date | string | null; holidayISOs?: ReadonlySet<string> | null }
 ) {
   if ((c1Db ?? 0) > 0) return c1Db;
   if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0)
-    return commission1Fallback(pvNoFee, opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS, opts?.saleDate);
+    return commission1Fallback(
+      pvNoFee,
+      opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS,
+      opts?.saleDate,
+      opts?.holidayISOs
+    );
   return 0;
 }
 
@@ -210,6 +217,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
   });
   const c1Bps = resolveEmployeeC1Bps(settings);
   const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
+  const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
   const sales = await prisma.sale.findMany({
     where: {
@@ -286,7 +294,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvNoFee);
 
     // ✅ C1: % do PV sem taxa (configurável)
-    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps, saleDate: s.date });
+    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps, saleDate: s.date, holidayISOs });
 
     const meta = bonusMetaMilheiroFromPurchase(s.purchase?.metaMilheiroCents);
 

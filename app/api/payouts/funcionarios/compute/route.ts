@@ -16,6 +16,7 @@ import {
   resolveC3RateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { day1BonusByUser, ensureDueCardCashbacks } from "@/lib/card-cashback";
 import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
 
@@ -201,6 +202,7 @@ export async function POST(req: Request) {
     const isAdmin = role === "admin";
 
     if (!team || !meId) return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
+    const holidayISOs = await loadValidatedHolidayISOs(team);
 
     const body = await req.json().catch(() => ({}));
     const date = String(body?.date || "").trim();
@@ -545,7 +547,7 @@ export async function POST(req: Request) {
 
         const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
-        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps, s.date);
+        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps, s.date, holidayISOs);
         const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
         const c2 = bonusAboveMetaFromSale(
           {

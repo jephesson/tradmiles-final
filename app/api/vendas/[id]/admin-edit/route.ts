@@ -19,6 +19,7 @@ import {
   resolveEmployeeC1Bps,
   weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -191,6 +192,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     });
     const employeeC1Bps = resolveEmployeeC1Bps(commissionSettings);
     const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+    const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
@@ -276,7 +278,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
       const nextPointsValueCents = calcPointsValueCents(nextPoints, nextMilheiroCents);
       const nextTotalCents = nextPointsValueCents + sale.embarqueFeeCents;
-      const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps, sale.date);
+      const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps, sale.date, holidayISOs);
       const nextBonusCents = calcBonusCents(
         nextPoints,
         nextMilheiroCents,
@@ -374,7 +376,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         pointsValueCents: nextPointsValueCents,
         points: nextPoints,
         costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
-        bonusCents: nextBonusCents + weekendC1ExtraCents(nextPointsValueCents, employeeC1Bps, sale.date),
+        bonusCents: nextBonusCents + weekendC1ExtraCents(nextPointsValueCents, employeeC1Bps, sale.date, holidayISOs),
       });
 
       if (sale.affiliateCommission?.status === "PAID") {

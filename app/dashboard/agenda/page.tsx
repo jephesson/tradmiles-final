@@ -17,6 +17,7 @@ import {
   classifyShift,
   isWeekendISO,
 } from "@/lib/agenda/shifts";
+import { officialHolidayName } from "@/lib/agenda/holidays";
 
 type ViewMode = "MES" | "SEMANA" | "DIA";
 
@@ -38,6 +39,13 @@ type AgendaEvent = {
   endHHMM: string;
   note: string;
   user: { id: string; name: string; login: string };
+};
+
+type AgendaHoliday = {
+  dateISO: string;
+  dateBR: string;
+  name: string;
+  validated: boolean;
 };
 
 type AgendaGap = {
@@ -113,6 +121,8 @@ export default function AgendaPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [events, setEvents] = useState<AgendaEvent[]>([]);
   const [gaps, setGaps] = useState<AgendaGap[]>([]);
+  const [holidays, setHolidays] = useState<AgendaHoliday[]>([]);
+  const [canValidateHolidays, setCanValidateHolidays] = useState(false);
 
   const [selectedISO, setSelectedISO] = useState<string>(() => {
     const now = new Date();
@@ -141,6 +151,8 @@ export default function AgendaPage() {
       setMembers(json.data.members || []);
       setEvents(json.data.events || []);
       setGaps(json.data.gaps || []);
+      setHolidays(json.data.holidays || []);
+      setCanValidateHolidays(!!json.data.canValidateHolidays);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
     } finally {
@@ -183,6 +195,27 @@ export default function AgendaPage() {
     for (const u of members) m.set(u.id, u.colorHex);
     return m;
   }, [members]);
+
+  const holidayByISO = useMemo(() => {
+    const m = new Map<string, AgendaHoliday>();
+    for (const h of holidays) m.set(h.dateISO, h);
+    return m;
+  }, [holidays]);
+
+  async function toggleHoliday(iso: string, validated: boolean) {
+    try {
+      const res = await fetch("/api/agenda/holidays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateISO: iso, validated }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Falha ao validar feriado.");
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Falha ao validar feriado.");
+    }
+  }
 
   const gapsByISO = useMemo(() => {
     const map = new Map<string, AgendaGap[]>();
@@ -460,6 +493,9 @@ export default function AgendaPage() {
       {/* Views */}
       {view === "MES" && (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm shadow-slate-200/30 sm:p-5">
+          <p className="mb-3 text-xs text-slate-500">
+            Fim de semana em lilás. Feriado nacional oficial em azul — o admin valida o dia para liberar C1 +50%.
+          </p>
           <div className="grid grid-cols-7 gap-1.5 pb-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:gap-2 sm:text-xs">
             <div>Dom</div>
             <div>Seg</div>
@@ -486,6 +522,9 @@ export default function AgendaPage() {
               const isSelected = selectedISO === c.iso;
               const isToday = c.iso === todayIso;
               const weekend = isWeekendISO(c.iso);
+              const holiday = holidayByISO.get(c.iso!) || (officialHolidayName(c.iso!)
+                ? { dateISO: c.iso!, dateBR: brFromISO(c.iso!), name: officialHolidayName(c.iso!), validated: false }
+                : null);
 
               return (
                 <div
@@ -493,11 +532,13 @@ export default function AgendaPage() {
                   className={cn(
                     "flex min-h-[9.5rem] flex-col rounded-xl border p-1.5 shadow-sm transition sm:min-h-[11rem] sm:p-2",
                     "cursor-pointer hover:border-slate-300",
-                    weekend
+                    holiday
+                      ? "border-sky-300 bg-sky-100/90 hover:bg-sky-100"
+                      : weekend
                       ? "border-violet-200/90 bg-violet-50/80 hover:bg-violet-50"
                       : "border-slate-200/70 bg-white hover:bg-slate-50/40",
                     isSelected && "ring-2 ring-teal-500/90 ring-offset-2 ring-offset-white",
-                    isToday && !isSelected && !weekend && "border-teal-200/80 bg-teal-50/30"
+                    isToday && !isSelected && !weekend && !holiday && "border-teal-200/80 bg-teal-50/30"
                   )}
                   onClick={() => setSelectedISO(c.iso!)}
                 >
@@ -505,7 +546,7 @@ export default function AgendaPage() {
                     <div
                       className={cn(
                         "flex h-6 min-w-[1.5rem] items-center justify-center rounded-lg text-xs font-bold tabular-nums",
-                        isToday ? "bg-teal-600 text-white" : "text-slate-700"
+                        isToday ? "bg-teal-600 text-white" : holiday ? "text-sky-900" : "text-slate-700"
                       )}
                     >
                       {c.day}
@@ -525,6 +566,32 @@ export default function AgendaPage() {
                   </div>
 
                   <div className="min-h-0 flex-1 space-y-1 overflow-y-auto [scrollbar-width:thin]">
+                    {holiday ? (
+                      <div className="space-y-1">
+                        <div
+                          className="truncate rounded bg-sky-200/80 px-1 py-0.5 text-[10px] font-semibold text-sky-950"
+                          title={holiday.name}
+                        >
+                          {holiday.name}
+                          {holiday.validated ? " · C1 +50%" : ""}
+                        </div>
+                        {canValidateHolidays ? (
+                          <button
+                            type="button"
+                            className="w-full rounded border border-sky-400/80 bg-white px-1 py-0.5 text-[10px] font-semibold text-sky-900 hover:bg-sky-50"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleHoliday(c.iso!, !holiday.validated);
+                            }}
+                          >
+                            {holiday.validated ? "Remover validação" : "Validar C1 +50%"}
+                          </button>
+                        ) : holiday.validated ? null : (
+                          <div className="text-[10px] font-medium text-sky-800/80">Aguardando admin</div>
+                        )}
+                      </div>
+                    ) : null}
                     {dayEvents.map((ev) => {
                       const color = memberColor.get(ev.user.id) || "#111827";
                       const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
@@ -582,7 +649,25 @@ export default function AgendaPage() {
                   ? `Semana que contém ${brFromISO(selectedISO)}`
                   : brFromISO(selectedISO)}
               </div>
+              {view === "DIA" && holidayByISO.get(selectedISO) ? (
+                <div className="mt-1 text-xs font-semibold text-sky-800">
+                  Feriado: {holidayByISO.get(selectedISO)!.name}
+                  {holidayByISO.get(selectedISO)!.validated ? " · C1 +50% validado" : " · aguardando validação"}
+                </div>
+              ) : null}
             </div>
+            <div className="flex flex-wrap gap-2">
+              {view === "DIA" && canValidateHolidays && holidayByISO.get(selectedISO) ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+                  onClick={() =>
+                    toggleHoliday(selectedISO, !holidayByISO.get(selectedISO)!.validated)
+                  }
+                >
+                  {holidayByISO.get(selectedISO)!.validated ? "Remover validação" : "Validar C1 +50%"}
+                </button>
+              ) : null}
             <button
               type="button"
               className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 sm:self-auto"
@@ -591,6 +676,7 @@ export default function AgendaPage() {
               <Plus className="h-4 w-4" aria-hidden />
               Cadastrar
             </button>
+            </div>
           </div>
 
           {/* MVP: lista por dia (semana) ou lista do dia */}
@@ -600,6 +686,7 @@ export default function AgendaPage() {
               events={eventsByISO.get(selectedISO) || []}
               gaps={gapsByISO.get(selectedISO) || []}
               memberColor={memberColor}
+              holiday={!!holidayByISO.get(selectedISO)}
               onPick={(ev) => setActiveEvent(ev)}
             />
           ) : (
@@ -608,6 +695,7 @@ export default function AgendaPage() {
               eventsByISO={eventsByISO}
               gapsByISO={gapsByISO}
               memberColor={memberColor}
+              holidayByISO={holidayByISO}
               onPick={(ev) => setActiveEvent(ev)}
               onJump={(iso) => {
                 setSelectedISO(iso);
@@ -880,19 +968,21 @@ function DayHourGrid({
   events,
   gaps,
   memberColor,
+  holiday,
   onPick,
 }: {
   iso: string;
   events: AgendaEvent[];
   gaps: AgendaGap[];
   memberColor: Map<string, string>;
+  holiday?: boolean;
   onPick: (ev: AgendaEvent) => void;
 }) {
   const hours = [0, 1, 2, 3, 4, 5, 6, 7, ...Array.from({ length: 16 }, (_, i) => i + 8)]; // 00–23, depois 00h do fim da noite
   const weekend = isWeekendISO(iso);
 
   return (
-    <div className={cn("overflow-hidden rounded-xl border", weekend ? "border-violet-200 bg-violet-50/40" : "border-slate-200")}>
+    <div className={cn("overflow-hidden rounded-xl border", holiday ? "border-sky-300 bg-sky-50/70" : weekend ? "border-violet-200 bg-violet-50/40" : "border-slate-200")}>
       {gaps.length > 0 ? (
         <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           <span className="font-semibold">Intervalos vagos: </span>
@@ -948,6 +1038,7 @@ function WeekHourGrid({
   eventsByISO,
   gapsByISO,
   memberColor,
+  holidayByISO,
   onPick,
   onJump,
 }: {
@@ -955,6 +1046,7 @@ function WeekHourGrid({
   eventsByISO: Map<string, AgendaEvent[]>;
   gapsByISO: Map<string, AgendaGap[]>;
   memberColor: Map<string, string>;
+  holidayByISO: Map<string, AgendaHoliday>;
   onPick: (ev: AgendaEvent) => void;
   onJump: (iso: string) => void;
 }) {
@@ -981,12 +1073,17 @@ function WeekHourGrid({
           const list = eventsByISO.get(iso) || [];
           const dayGaps = gapsByISO.get(iso) || [];
           const weekend = isWeekendISO(iso);
+          const holiday = holidayByISO.get(iso);
           return (
             <div
               key={iso}
               className={cn(
                 "rounded-xl border p-2",
-                weekend ? "border-violet-200 bg-violet-50/80" : "border-slate-200 bg-slate-50/40"
+                holiday
+                  ? "border-sky-300 bg-sky-100/90"
+                  : weekend
+                  ? "border-violet-200 bg-violet-50/80"
+                  : "border-slate-200 bg-slate-50/40"
               )}
             >
               <button
@@ -996,6 +1093,11 @@ function WeekHourGrid({
               >
                 {brFromISO(iso)}
               </button>
+              {holiday ? (
+                <div className="mt-1 text-[10px] font-semibold leading-tight text-sky-900">
+                  {holiday.name}
+                </div>
+              ) : null}
               <div className="mt-2 space-y-2">
                 {bands.map((b) => {
                   const w = SHIFT_WINDOWS[b.kind];

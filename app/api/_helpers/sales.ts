@@ -55,9 +55,10 @@ export function calcPointsValueCents(points: number, milheiroCents: number) {
 export function calcCommissionCents(
   pointsValueCents: number,
   c1Bps = DEFAULT_EMPLOYEE_C1_BPS,
-  saleDate?: Date | string | null
+  saleDate?: Date | string | null,
+  holidayISOs?: ReadonlySet<string> | null
 ) {
-  return commission1FromPvCents(pointsValueCents, c1Bps, saleDate);
+  return commission1FromPvCents(pointsValueCents, c1Bps, saleDate, holidayISOs);
 }
 
 export function calcBonusCents(

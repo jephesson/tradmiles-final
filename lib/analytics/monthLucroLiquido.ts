@@ -7,6 +7,7 @@ import {
 import { calendarMonthBoundsUTC } from "@/lib/dates/brazilCalendar";
 import type { Prisma } from "@prisma/client";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -90,6 +91,7 @@ function saleTeamWhere(team: string): Prisma.SaleWhereInput {
  */
 export async function fetchMonthConsolidatedLucroLiquido(team: string, month: string) {
   const { start, end } = calendarMonthBoundsUTC(month);
+  const holidayISOs = await loadValidatedHolidayISOs(team);
 
   const settings = await prisma.settings.upsert({
     where: { key: "default" },
@@ -257,7 +259,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
       if (p) {
         const mil = milheiroFrom(points, pvCents);
         cur.bonusCents += bonus30(points, mil, safeInt(p.metaMilheiroCents, 0));
-        cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
+        cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date, holidayISOs);
       }
       lossAgg.set(pid, cur);
     }

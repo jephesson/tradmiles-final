@@ -28,6 +28,7 @@ import {
 import {
   bonusAboveMetaFromSale,
   commission1FromPvCents,
+  qualifiesC1BonusDate,
   qualifiesWeekendC1Bonus,
   weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
@@ -583,6 +584,16 @@ export default function NovaVendaClient({
 
   // campos venda
   const [dateISO, setDateISO] = useState(isoToday());
+  const [validatedHolidayISOs, setValidatedHolidayISOs] = useState<string[]>([]);
+  const holidayISOs = useMemo(() => new Set(validatedHolidayISOs), [validatedHolidayISOs]);
+  useEffect(() => {
+    fetch("/api/agenda/holidays", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok && Array.isArray(j.data?.validated)) setValidatedHolidayISOs(j.data.validated);
+      })
+      .catch(() => {});
+  }, []);
   const [milheiroStr, setMilheiroStr] = useState("0,00");
   const [embarqueStr, setEmbarqueStr] = useState("0,00");
   const [locator, setLocator] = useState("");
@@ -626,12 +637,12 @@ export default function NovaVendaClient({
     [pointsValueCents, embarqueFeeCents]
   );
   const commissionCents = useMemo(
-    () => commission1FromPvCents(pointsValueCents, employeeC1Bps, dateISO),
-    [pointsValueCents, employeeC1Bps, dateISO]
+    () => commission1FromPvCents(pointsValueCents, employeeC1Bps, dateISO, holidayISOs),
+    [pointsValueCents, employeeC1Bps, dateISO, holidayISOs]
   );
   const weekendC1Extra = useMemo(
-    () => weekendC1ExtraCents(pointsValueCents, employeeC1Bps, dateISO),
-    [pointsValueCents, employeeC1Bps, dateISO]
+    () => weekendC1ExtraCents(pointsValueCents, employeeC1Bps, dateISO, holidayISOs),
+    [pointsValueCents, employeeC1Bps, dateISO, holidayISOs]
   );
 
   // encontra pela compra.numero (ID00018)
@@ -3578,7 +3589,11 @@ export default function NovaVendaClient({
               <div className="flex justify-between">
                 <span className="text-slate-600">
                   Comissão C1
-                  {qualifiesWeekendC1Bonus(dateISO) ? " (+50% sábado/domingo)" : ""}
+                  {qualifiesWeekendC1Bonus(dateISO)
+                    ? " (+50% sábado/domingo)"
+                    : qualifiesC1BonusDate(dateISO, holidayISOs)
+                    ? " (+50% feriado)"
+                    : ""}
                 </span>
                 <b>{fmtMoneyBR(commissionCents)}</b>
               </div>

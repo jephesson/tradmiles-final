@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { readSessionCookie } from "@/lib/session";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
 
     const session = await getServerSession();
     if (!session?.id) return bad("Não autenticado", 401);
+    const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
     const { searchParams } = new URL(req.url);
     const q = String(searchParams.get("q") || "").trim();
@@ -273,7 +275,7 @@ export async function GET(req: NextRequest) {
         const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
         const b = bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
         cur.bonusCents += b;
-        cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
+        cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date, holidayISOs);
       }
     }
 

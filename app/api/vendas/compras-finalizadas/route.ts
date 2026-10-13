@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
 import { aggregatePurchaseFinalizeMetrics } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+  const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") || "").trim();
@@ -179,7 +181,9 @@ export async function GET(req: Request) {
       })),
       purchaseTotalCents,
       purchaseMeta,
-      bonusAboveMetaBps
+      bonusAboveMetaBps,
+      undefined,
+      holidayISOs
     );
 
     const salesTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);

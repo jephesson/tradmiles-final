@@ -10,6 +10,7 @@ import {
 import { requireSession } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -454,6 +455,7 @@ export async function GET() {
     if (!team) {
       return NextResponse.json({ ok: false, error: "TIME_NOT_FOUND" }, { status: 400 });
     }
+    const holidayISOs = await loadValidatedHolidayISOs(team);
 
     const notCanceled: Prisma.SaleWhereInput = { paymentStatus: { not: "CANCELED" } };
 
@@ -799,7 +801,7 @@ export async function GET() {
       const p = purchaseById.get(pid);
       if (p) {
         cur.bonusCents += bonus30(points, milheiroFrom(points, pv), safeInt(p.metaMilheiroCents, 0));
-        cur.bonusCents += weekendC1ExtraCents(pv, DEFAULT_EMPLOYEE_C1_BPS, s.date);
+        cur.bonusCents += weekendC1ExtraCents(pv, DEFAULT_EMPLOYEE_C1_BPS, s.date, holidayISOs);
       }
 
       purchaseSalesAgg.set(pid, cur);

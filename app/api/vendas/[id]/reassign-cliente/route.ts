@@ -8,6 +8,7 @@ import {
 } from "@/lib/affiliates/commission";
 import { clampInt } from "@/app/api/_helpers/sales";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,6 +115,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   if (!saleId) {
     return NextResponse.json({ ok: false, error: "ID da venda inválido." }, { status: 400 });
   }
+  const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const newClienteId = String(body.newClienteId || "").trim();
@@ -221,7 +223,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
             bonusCents:
               clampInt(sale.bonusCents) +
-              weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date),
+              weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date, holidayISOs),
           });
           const commissionBps = clampInt(nextCliente.affiliate.commissionBps);
           const amountCents = affiliateCommissionCents({
@@ -251,7 +253,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
           bonusCents:
             clampInt(sale.bonusCents) +
-            weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date),
+            weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date, holidayISOs),
         });
         const commissionBps = clampInt(nextCliente.affiliate.commissionBps);
         const amountCents = affiliateCommissionCents({

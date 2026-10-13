@@ -34,6 +34,7 @@ import {
   usesRateioSnapshot,
 } from "@/lib/payouts/purchaseRateio";
 import { readSessionCookie } from "@/lib/session";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -300,6 +301,8 @@ export async function POST(req: Request) {
   if (!userId || !sessionTeam) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+
+  const holidayISOs = await loadValidatedHolidayISOs(sessionTeam);
 
   const body = await req.json().catch(() => ({}));
 
@@ -592,7 +595,7 @@ export async function POST(req: Request) {
       const milheiroFinal = norm.milheiroFinal;
 
       // ✅ comissão e bônus SEM taxa (percentuais configuráveis em Configurações)
-      const commissionCents = calcCommissionCents(pointsValueCents, employeeC1Bps, date);
+      const commissionCents = calcCommissionCents(pointsValueCents, employeeC1Bps, date, holidayISOs);
       const bonusCents = calcBonusCents(points, milheiroFinal, metaMilheiroCents, employeeBonusAboveMetaBps);
 
       const n = await nextCounter(tx, "SALE");
@@ -675,7 +678,7 @@ export async function POST(req: Request) {
           pointsValueCents,
           points,
           costPerKiloCents: clampInt(purchase.custoMilheiroCents),
-          bonusCents: bonusCents + weekendC1ExtraCents(pointsValueCents, employeeC1Bps, date),
+          bonusCents: bonusCents + weekendC1ExtraCents(pointsValueCents, employeeC1Bps, date, holidayISOs),
         });
         const amountCents = affiliateCommissionCents({
           profitCents: commissionBase.profitCents,

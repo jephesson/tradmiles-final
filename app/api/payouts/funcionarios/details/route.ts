@@ -19,6 +19,7 @@ import {
   purchaseNumeroVariants,
   pvSemTaxaFromSaleFields,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -188,6 +189,7 @@ function resolveFeePayerFromLabel(
 
 export async function GET(req: NextRequest) {
   const session = await requireSession();
+  const holidayISOs = await loadValidatedHolidayISOs(session.team);
   const url = new URL(req.url);
 
   const date = String(url.searchParams.get("date") || "").trim(); // sempre obrigatório (pra UX do front)
@@ -418,7 +420,7 @@ export async function GET(req: NextRequest) {
     const c1 = isSeller
       ? safeInt(s.commissionCents, 0) > 0
         ? safeInt(s.commissionCents, 0)
-        : commission1FromPvCents(pvSemTaxa, c1Bps, s.date)
+        : commission1FromPvCents(pvSemTaxa, c1Bps, s.date, holidayISOs)
       : 0;
     const c2 = isSeller
       ? bonusAboveMetaFromSale(

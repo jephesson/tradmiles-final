@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
 import { aggregatePurchaseFinalizeMetrics, buildPurchaseSaleReports, purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { buildFinalRateioBreakdown } from "@/lib/payouts/purchaseRateio";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -29,6 +30,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!session?.id) {
     return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
   }
+  const holidayISOs = await loadValidatedHolidayISOs(session.team);
 
   const { id } = await ctx.params;
   const purchaseId = String(id || "").trim();
@@ -131,7 +133,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     })),
     purchaseMeta,
     custoMilheiroCents,
-    bonusAboveMetaBps
+    bonusAboveMetaBps,
+    undefined,
+    holidayISOs
   );
 
   const metrics = aggregatePurchaseFinalizeMetrics(
@@ -147,7 +151,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     })),
     purchaseTotalCents,
     purchaseMeta,
-    bonusAboveMetaBps
+    bonusAboveMetaBps,
+    undefined,
+    holidayISOs
   );
 
   const salesTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);

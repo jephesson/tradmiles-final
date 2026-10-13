@@ -9,6 +9,7 @@ import {
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -412,6 +413,7 @@ export async function GET(req: NextRequest) {
     if (!team) {
       return NextResponse.json({ ok: false, error: "Não autenticado" }, { status: 401 });
     }
+    const holidayISOs = await loadValidatedHolidayISOs(team);
 
     const { searchParams } = new URL(req.url);
 
@@ -1041,7 +1043,7 @@ export async function GET(req: NextRequest) {
         if (p) {
           const mil = milheiroFrom(points, pvCents);
           cur.bonusCents += bonus30(points, mil, safeInt(p.metaMilheiroCents, 0));
-          cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
+          cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date, holidayISOs);
         }
 
         lossAgg.set(pid, cur);

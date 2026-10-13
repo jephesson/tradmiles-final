@@ -58,6 +58,16 @@ export function qualifiesWeekendC1Bonus(date: Date | string | null | undefined) 
   return isWeekendSaleDate(iso);
 }
 
+export function qualifiesC1BonusDate(
+  date: Date | string | null | undefined,
+  holidayISOs?: ReadonlySet<string> | null
+) {
+  if (qualifiesWeekendC1Bonus(date)) return true;
+  const iso = saleCalendarISO(date);
+  if (!iso || iso < C1_WEEKEND_BONUS_FROM_ISO) return false;
+  return !!holidayISOs?.has(iso);
+}
+
 function baseCommission1Cents(pointsValueNoFeeCents: number, c1Bps: number) {
   const bps = clampBps(c1Bps, 10000);
   return Math.round(Math.max(0, pointsValueNoFeeCents) * (bps / 10000));
@@ -66,9 +76,10 @@ function baseCommission1Cents(pointsValueNoFeeCents: number, c1Bps: number) {
 export function weekendC1ExtraCents(
   pointsValueNoFeeCents: number,
   c1Bps: number,
-  saleDate?: Date | string | null
+  saleDate?: Date | string | null,
+  holidayISOs?: ReadonlySet<string> | null
 ) {
-  if (!qualifiesWeekendC1Bonus(saleDate)) return 0;
+  if (!qualifiesC1BonusDate(saleDate, holidayISOs)) return 0;
   const base = baseCommission1Cents(pointsValueNoFeeCents, c1Bps);
   return Math.round(base * 0.5);
 }
@@ -76,10 +87,11 @@ export function weekendC1ExtraCents(
 export function commission1FromPvCents(
   pointsValueNoFeeCents: number,
   c1Bps: number,
-  saleDate?: Date | string | null
+  saleDate?: Date | string | null,
+  holidayISOs?: ReadonlySet<string> | null
 ) {
   const base = baseCommission1Cents(pointsValueNoFeeCents, c1Bps);
-  return base + weekendC1ExtraCents(pointsValueNoFeeCents, c1Bps, saleDate);
+  return base + weekendC1ExtraCents(pointsValueNoFeeCents, c1Bps, saleDate, holidayISOs);
 }
 
 /**

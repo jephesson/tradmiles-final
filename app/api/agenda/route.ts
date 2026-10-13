@@ -9,6 +9,8 @@ import {
   parseEndHHMM,
   parseHHMM as parseShiftHHMM,
 } from "@/lib/agenda/shifts";
+import { officialHolidaysInRange } from "@/lib/agenda/holidays";
+import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,7 +231,7 @@ export async function GET(req: NextRequest) {
       return bad("Informe 'mes=MM/AAAA' OU 'de=DD/MM/AAAA&ate=DD/MM/AAAA'.");
     }
 
-    const [members, events] = await Promise.all([
+    const [members, events, holidayRows] = await Promise.all([
       getMembersWithColors(session.team),
       prisma.agendaEvent.findMany({
         where: {
@@ -242,6 +244,10 @@ export async function GET(req: NextRequest) {
           createdBy: { select: { id: true, name: true, login: true } },
         },
         orderBy: [{ dateISO: "asc" }, { startMin: "asc" }],
+      }),
+      prisma.agendaHoliday.findMany({
+        where: { team: session.team, dateISO: { gte: startISO, lte: endISO } },
+        select: { dateISO: true },
       }),
     ]);
 
@@ -272,7 +278,20 @@ export async function GET(req: NextRequest) {
       dateBR: isoToBR(g.dateISO),
     }));
 
-    return ok({ members, events: eventsOut, gaps });
+    const validated = new Set(holidayRows.map((h) => h.dateISO));
+    const holidays = officialHolidaysInRange(startISO, endISO).map((h) => ({
+      ...h,
+      dateBR: isoToBR(h.dateISO),
+      validated: validated.has(h.dateISO),
+    }));
+
+    return ok({
+      members,
+      events: eventsOut,
+      gaps,
+      holidays,
+      canValidateHolidays: isAdminRole(session.role),
+    });
   } catch (e: any) {
     return bad(e?.message || "Erro interno.", 500);
   }

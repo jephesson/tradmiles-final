@@ -6,6 +6,7 @@ import {
   type PurchaseSaleRow,
   purchaseNumeroVariants,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 /** Compras finalizadas antes desta data (Recife) mantêm C3 legado; a partir dela, rateio gravado na finalização. */
 export const RATEIO_SNAPSHOT_EFFECTIVE_FROM = "2026-06-07";
@@ -175,11 +176,14 @@ export async function buildPurchaseFinalizeSnapshot(
     refDate: Date;
   }
 ): Promise<PurchaseFinalizeSnapshot> {
+  const holidayISOs = await loadValidatedHolidayISOs(args.team);
   const metrics = aggregatePurchaseFinalizeMetrics(
     args.sales,
     args.purchaseTotalCents,
     args.purchaseMetaMilheiroCents,
-    args.bonusAboveMetaBps
+    args.bonusAboveMetaBps,
+    undefined,
+    holidayISOs
   );
 
   const finalRateioBreakdown =

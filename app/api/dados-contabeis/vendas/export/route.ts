@@ -10,6 +10,7 @@ import {
 import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
 import { sumDespesasMonthCents } from "@/lib/despesas";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -282,6 +283,7 @@ function monthBoundsISO(ym: string) {
 async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: string) {
   const mb = monthBoundsISO(scopeMonth);
   if (!mb) return 0;
+  const holidayISOs = await loadValidatedHolidayISOs(team);
 
   const start = new Date(`${mb.startISO}T00:00:00.000Z`);
   const end = new Date(`${mb.endISO}T00:00:00.000Z`);
@@ -414,7 +416,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     if (p) {
       const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
       cur.bonusCents += bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
-      cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
+      cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date, holidayISOs);
     }
 
     agg.set(pid, cur);
