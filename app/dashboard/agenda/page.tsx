@@ -412,13 +412,12 @@ export default function AgendaPage() {
             Seg–sex: 2 manhãs, 2 tardes e 2 noites por pessoa. Fim de semana: 2 turnos entre os 6.
             72h antes do dia, qualquer um pode preencher vagas remanescentes. 00h–08h fica liberado.
           </p>
-          <ul className="mt-2 max-h-28 space-y-0.5 overflow-y-auto text-xs">
-            {gaps.slice(0, 24).map((g, i) => (
+          <ul className="mt-2 max-h-56 space-y-0.5 overflow-y-auto text-xs [scrollbar-width:thin]">
+            {gaps.map((g, i) => (
               <li key={`${g.dateISO}-${g.kind}-${g.startHHMM}-${i}`}>
                 {g.dateBR} · {g.label} · {g.startHHMM}–{g.endHHMM}
               </li>
             ))}
-            {gaps.length > 24 ? <li>+{gaps.length - 24} outros intervalos vagos…</li> : null}
           </ul>
         </div>
       ) : null}
@@ -471,7 +470,7 @@ export default function AgendaPage() {
                 return (
                   <div
                     key={idx}
-                    className="min-h-[7.5rem] rounded-xl bg-slate-50/40 sm:min-h-[8.5rem]"
+                    className="min-h-[9.5rem] rounded-xl bg-slate-50/40 sm:min-h-[11rem]"
                   />
                 );
               }
@@ -486,7 +485,7 @@ export default function AgendaPage() {
                 <div
                   key={c.iso}
                   className={cn(
-                    "flex min-h-[7.5rem] flex-col rounded-xl border p-1.5 shadow-sm transition sm:min-h-[8.5rem] sm:p-2",
+                    "flex min-h-[9.5rem] flex-col rounded-xl border p-1.5 shadow-sm transition sm:min-h-[11rem] sm:p-2",
                     "cursor-pointer hover:border-slate-300",
                     weekend
                       ? "border-violet-200/90 bg-violet-50/80 hover:bg-violet-50"
@@ -519,8 +518,8 @@ export default function AgendaPage() {
                     </button>
                   </div>
 
-                  <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
-                    {dayEvents.slice(0, 4).map((ev) => {
+                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto [scrollbar-width:thin]">
+                    {dayEvents.map((ev) => {
                       const color = memberColor.get(ev.user.id) || "#111827";
                       const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
                       const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
@@ -548,17 +547,15 @@ export default function AgendaPage() {
                       );
                     })}
 
-                    {dayEvents.length > 4 && (
-                      <div className="truncate px-0.5 text-[10px] font-medium text-slate-500 sm:text-[11px]">
-                        +{dayEvents.length - 4} mais…
+                    {dayGaps.map((g, i) => (
+                      <div
+                        key={`${g.kind}-${g.startHHMM}-${i}`}
+                        className="truncate rounded bg-amber-100/90 px-1 py-0.5 text-[10px] font-semibold text-amber-900"
+                        title={`${g.label} ${g.startHHMM}–${g.endHHMM}`}
+                      >
+                        Vago {g.label} {g.startHHMM}–{g.endHHMM}
                       </div>
-                    )}
-                    {dayGaps.length > 0 && (
-                      <div className="truncate rounded bg-amber-100/90 px-1 py-0.5 text-[10px] font-semibold text-amber-900">
-                        Vago {dayGaps[0].startHHMM}–{dayGaps[0].endHHMM}
-                        {dayGaps.length > 1 ? ` +${dayGaps.length - 1}` : ""}
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               );

@@ -213,7 +213,9 @@ export function gapsForRange(
     byDay.set(s.dateISO, arr);
   }
   const out: Gap[] = [];
-  for (let iso = startISO; iso <= endISO; iso = addDaysISO(iso, 1)) {
+  const fromISO = startISO < AGENDA_RESET_FROM_ISO ? AGENDA_RESET_FROM_ISO : startISO;
+  if (fromISO > endISO) return out;
+  for (let iso = fromISO; iso <= endISO; iso = addDaysISO(iso, 1)) {
     const dayCov = byDay.get(iso) || [];
     for (const kind of SCHEDULED_SHIFTS) {
       const w = SHIFT_WINDOWS[kind];

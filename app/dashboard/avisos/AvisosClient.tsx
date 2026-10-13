@@ -272,7 +272,7 @@ export default function AvisosClient() {
             Turnos sem cobertura nesta semana. 72h antes do dia, qualquer pessoa pode se escalar nas
             vagas remanescentes.
           </p>
-          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
+          <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
             {agendaGaps.map((g, i) => (
               <li key={`${g.dateISO}-${g.startHHMM}-${i}`}>
                 {g.dateBR || fmtDateBR(g.dateISO)} · {g.label} · {g.startHHMM}–{g.endHHMM}
