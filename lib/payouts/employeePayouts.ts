@@ -117,8 +117,12 @@ export function milheiroNoFeeFromPv(points: number, pvNoFeeCents: number) {
   return Math.round((pvNoFeeCents ?? 0) / denom);
 }
 
-export function commission1Fallback(pointsValueNoFeeCents: number, c1Bps = DEFAULT_EMPLOYEE_C1_BPS) {
-  return commission1FromPvCents(pointsValueNoFeeCents, c1Bps);
+export function commission1Fallback(
+  pointsValueNoFeeCents: number,
+  c1Bps = DEFAULT_EMPLOYEE_C1_BPS,
+  saleDate?: Date | string | null
+) {
+  return commission1FromPvCents(pointsValueNoFeeCents, c1Bps, saleDate);
 }
 
 /** bônus sobre excedente acima do milheiro de meta (C2) */
@@ -149,11 +153,11 @@ export function chooseC1(
   points: number,
   c1Db: number,
   pvNoFee: number,
-  opts?: { c1Bps?: number }
+  opts?: { c1Bps?: number; saleDate?: Date | string | null }
 ) {
   if ((c1Db ?? 0) > 0) return c1Db;
   if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0)
-    return commission1Fallback(pvNoFee, opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS);
+    return commission1Fallback(pvNoFee, opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS, opts?.saleDate);
   return 0;
 }
 
@@ -282,7 +286,7 @@ export async function computeEmployeePayoutDay(session: SessionLike, date: strin
     const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvNoFee);
 
     // ✅ C1: % do PV sem taxa (configurável)
-    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps });
+    const c1 = chooseC1(s.points, s.commissionCents, pvNoFee, { c1Bps, saleDate: s.date });
 
     const meta = bonusMetaMilheiroFromPurchase(s.purchase?.metaMilheiroCents);
 

@@ -28,6 +28,8 @@ import {
 import {
   bonusAboveMetaFromSale,
   commission1FromPvCents,
+  qualifiesWeekendC1Bonus,
+  weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
@@ -624,8 +626,12 @@ export default function NovaVendaClient({
     [pointsValueCents, embarqueFeeCents]
   );
   const commissionCents = useMemo(
-    () => commission1FromPvCents(pointsValueCents, employeeC1Bps),
-    [pointsValueCents, employeeC1Bps]
+    () => commission1FromPvCents(pointsValueCents, employeeC1Bps, dateISO),
+    [pointsValueCents, employeeC1Bps, dateISO]
+  );
+  const weekendC1Extra = useMemo(
+    () => weekendC1ExtraCents(pointsValueCents, employeeC1Bps, dateISO),
+    [pointsValueCents, employeeC1Bps, dateISO]
   );
 
   // encontra pela compra.numero (ID00018)
@@ -672,9 +678,9 @@ export default function NovaVendaClient({
         pointsValueCents,
         points: pointsTotal,
         costPerKiloCents: compraMilheiroCents,
-        bonusCents,
+        bonusCents: bonusCents + weekendC1Extra,
       }),
-    [pointsValueCents, pointsTotal, compraMilheiroCents, bonusCents]
+    [pointsValueCents, pointsTotal, compraMilheiroCents, bonusCents, weekendC1Extra]
   );
   const affiliateCommissionPreviewCents = useMemo(() => {
     if (!selectedAffiliate) return 0;
@@ -3570,7 +3576,10 @@ export default function NovaVendaClient({
 
               <div className="h-px bg-slate-200 my-2" />
               <div className="flex justify-between">
-                <span className="text-slate-600">Comissão (1%)</span>
+                <span className="text-slate-600">
+                  Comissão C1
+                  {qualifiesWeekendC1Bonus(dateISO) ? " (+50% sábado/domingo)" : ""}
+                </span>
                 <b>{fmtMoneyBR(commissionCents)}</b>
               </div>
               <div className="flex justify-between">

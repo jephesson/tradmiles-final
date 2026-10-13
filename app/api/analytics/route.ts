@@ -8,6 +8,7 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
+import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1004,6 +1005,7 @@ export async function GET(req: NextRequest) {
           totalCents: true,
           pointsValueCents: true,
           embarqueFeeCents: true,
+          date: true,
         },
       });
 
@@ -1039,6 +1041,7 @@ export async function GET(req: NextRequest) {
         if (p) {
           const mil = milheiroFrom(points, pvCents);
           cur.bonusCents += bonus30(points, mil, safeInt(p.metaMilheiroCents, 0));
+          cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
         }
 
         lossAgg.set(pid, cur);

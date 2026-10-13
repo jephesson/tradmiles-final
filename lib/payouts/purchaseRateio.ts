@@ -215,6 +215,7 @@ export type SaleForRateioBackfill = {
   milheiroCents: number;
   metaMilheiroCents: number;
   affiliateCommissionCents?: number;
+  date?: Date | string | null;
 };
 
 /** Calcula rateio na hora (sem gravar) — usado para compras anteriores à vigência. */
@@ -258,6 +259,7 @@ export async function computeRateioBreakdownForPurchase(
       embarqueFeeCents: s.embarqueFeeCents,
       milheiroCents: s.milheiroCents,
       bonusCents: null,
+      date: s.date,
       affiliateCommissionCents: safeInt(s.affiliateCommissionCents, 0),
     })),
     purchaseTotalCents: args.purchase.totalCents || 0,

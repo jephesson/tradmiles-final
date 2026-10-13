@@ -22,10 +22,64 @@ export function resolveEmployeeBonusAboveMetaBps(
   return clampBps(Number(raw), 10000);
 }
 
-/** C1 = PV sem taxa × (c1Bps / 10_000). */
-export function commission1FromPvCents(pointsValueNoFeeCents: number, c1Bps: number) {
+/** Primeiro sábado com C1 +50%. Fins de semana anteriores não entram. */
+export const C1_WEEKEND_BONUS_FROM_ISO = "2026-10-17";
+
+export function saleCalendarISO(date: Date | string | null | undefined) {
+  if (date == null || date === "") return "";
+  if (typeof date === "string") {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(date.trim());
+    if (m) return m[1];
+  }
+  const dt = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(dt.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(dt);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+  const iso = `${get("year")}-${get("month")}-${get("day")}`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : "";
+}
+
+/** Sábado/domingo no calendário de Recife. */
+export function isWeekendSaleDate(date: Date | string | null | undefined) {
+  const iso = saleCalendarISO(date);
+  if (!iso) return false;
+  const wd = new Date(`${iso}T12:00:00.000Z`).getUTCDay();
+  return wd === 0 || wd === 6;
+}
+
+export function qualifiesWeekendC1Bonus(date: Date | string | null | undefined) {
+  const iso = saleCalendarISO(date);
+  if (!iso || iso < C1_WEEKEND_BONUS_FROM_ISO) return false;
+  return isWeekendSaleDate(iso);
+}
+
+function baseCommission1Cents(pointsValueNoFeeCents: number, c1Bps: number) {
   const bps = clampBps(c1Bps, 10000);
   return Math.round(Math.max(0, pointsValueNoFeeCents) * (bps / 10000));
+}
+
+export function weekendC1ExtraCents(
+  pointsValueNoFeeCents: number,
+  c1Bps: number,
+  saleDate?: Date | string | null
+) {
+  if (!qualifiesWeekendC1Bonus(saleDate)) return 0;
+  const base = baseCommission1Cents(pointsValueNoFeeCents, c1Bps);
+  return Math.round(base * 0.5);
+}
+
+export function commission1FromPvCents(
+  pointsValueNoFeeCents: number,
+  c1Bps: number,
+  saleDate?: Date | string | null
+) {
+  const base = baseCommission1Cents(pointsValueNoFeeCents, c1Bps);
+  return base + weekendC1ExtraCents(pointsValueNoFeeCents, c1Bps, saleDate);
 }
 
 /**

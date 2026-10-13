@@ -26,6 +26,7 @@ import { DEFAULT_VENDOR_COMMISSION_BPS } from "@/lib/purchases/vendorCommission"
 import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
+  weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import {
   buildPurchaseFinalizeSnapshot,
@@ -591,7 +592,7 @@ export async function POST(req: Request) {
       const milheiroFinal = norm.milheiroFinal;
 
       // ✅ comissão e bônus SEM taxa (percentuais configuráveis em Configurações)
-      const commissionCents = calcCommissionCents(pointsValueCents, employeeC1Bps);
+      const commissionCents = calcCommissionCents(pointsValueCents, employeeC1Bps, date);
       const bonusCents = calcBonusCents(points, milheiroFinal, metaMilheiroCents, employeeBonusAboveMetaBps);
 
       const n = await nextCounter(tx, "SALE");
@@ -674,7 +675,7 @@ export async function POST(req: Request) {
           pointsValueCents,
           points,
           costPerKiloCents: clampInt(purchase.custoMilheiroCents),
-          bonusCents,
+          bonusCents: bonusCents + weekendC1ExtraCents(pointsValueCents, employeeC1Bps, date),
         });
         const amountCents = affiliateCommissionCents({
           profitCents: commissionBase.profitCents,
@@ -739,6 +740,7 @@ export async function POST(req: Request) {
               embarqueFeeCents,
               milheiroCents: milheiroFinal,
               bonusCents,
+              date,
               affiliateCommissionCents: affiliateAmountCents,
             },
           ],

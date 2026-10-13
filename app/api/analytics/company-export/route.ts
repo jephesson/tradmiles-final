@@ -9,6 +9,7 @@ import {
 } from "@/lib/balcao-commission";
 import { requireSession } from "@/lib/auth-server";
 import { prisma } from "@/lib/prisma";
+import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -798,6 +799,7 @@ export async function GET() {
       const p = purchaseById.get(pid);
       if (p) {
         cur.bonusCents += bonus30(points, milheiroFrom(points, pv), safeInt(p.metaMilheiroCents, 0));
+        cur.bonusCents += weekendC1ExtraCents(pv, DEFAULT_EMPLOYEE_C1_BPS, s.date);
       }
 
       purchaseSalesAgg.set(pid, cur);

@@ -1,6 +1,8 @@
 import {
   bonusAboveMetaFromSale,
   DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+  DEFAULT_EMPLOYEE_C1_BPS,
+  weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import { milheiroNoFeeFromPv } from "@/lib/payouts/employeePayouts";
 
@@ -44,6 +46,7 @@ export type PurchaseSaleRow = {
   metaMilheiroCents?: number;
   bonusCents?: number | null;
   affiliateCommissionCents?: number;
+  date?: Date | string | null;
 };
 
 export function chooseMetaMilheiro(metaSaleOrPurchase: number | null | undefined) {
@@ -60,7 +63,8 @@ export function aggregatePurchaseFinalizeMetrics(
   sales: PurchaseSaleRow[],
   purchaseTotalCents: number,
   purchaseMetaMilheiroCents: number,
-  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS
+  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+  employeeC1Bps = DEFAULT_EMPLOYEE_C1_BPS
 ) {
   let soldPoints = 0;
   let pax = 0;
@@ -93,6 +97,7 @@ export function aggregatePurchaseFinalizeMetrics(
       { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: purchaseMeta },
       bonusAboveMetaBps
     );
+    bonusCents += weekendC1ExtraCents(pvSemTaxa, employeeC1Bps, s.date);
   }
 
   const cost = safeInt(purchaseTotalCents, 0);
@@ -155,7 +160,8 @@ export function buildPurchaseSaleReports(
   }>,
   purchaseMetaMilheiroCents: number,
   custoMilheiroCents: number,
-  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS
+  bonusAboveMetaBps = DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
+  employeeC1Bps = DEFAULT_EMPLOYEE_C1_BPS
 ): PurchaseSaleReportRow[] {
   const purchaseMeta = chooseMetaMilheiro(purchaseMetaMilheiroCents);
   const costMil = safeInt(custoMilheiroCents, 0);
@@ -171,10 +177,11 @@ export function buildPurchaseSaleReports(
     });
     const milheiroNoFee = milheiroNoFeeFromPv(points, pvSemTaxa);
     const costCents = costMil > 0 && points > 0 ? Math.round((points * costMil) / 1000) : 0;
-    const bonusCents = bonusAboveMetaFromSale(
-      { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: purchaseMeta },
-      bonusAboveMetaBps
-    );
+    const bonusCents =
+      bonusAboveMetaFromSale(
+        { points, milheiroNoFeeCents: milheiroNoFee, metaMilheiroCents: purchaseMeta },
+        bonusAboveMetaBps
+      ) + weekendC1ExtraCents(pvSemTaxa, employeeC1Bps, s.date);
     const affiliateCommissionCents = safeInt(s.affiliateCommissionCents, 0);
     const profitBrutoCents = pvSemTaxa - costCents;
     const profitLiquidoCents = profitBrutoCents - bonusCents - affiliateCommissionCents;

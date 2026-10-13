@@ -9,6 +9,7 @@ import {
 } from "@/lib/balcao-commission";
 import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
 import { sumDespesasMonthCents } from "@/lib/despesas";
+import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -353,6 +354,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
       pointsValueCents: true,
       embarqueFeeCents: true,
       passengers: true,
+      date: true,
       affiliateCommission: { select: { amountCents: true } },
     },
     take: 20000,
@@ -412,6 +414,7 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     if (p) {
       const mil = milheiroFrom(safeInt(s.points, 0), pvCents);
       cur.bonusCents += bonus30(safeInt(s.points, 0), mil, safeInt(p.metaMilheiroCents, 0));
+      cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
     }
 
     agg.set(pid, cur);

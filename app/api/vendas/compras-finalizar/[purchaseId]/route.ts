@@ -87,6 +87,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           embarqueFeeCents: true,
           milheiroCents: true,
           metaMilheiroCents: true,
+          date: true,
         },
       });
 

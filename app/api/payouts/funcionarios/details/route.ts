@@ -418,7 +418,7 @@ export async function GET(req: NextRequest) {
     const c1 = isSeller
       ? safeInt(s.commissionCents, 0) > 0
         ? safeInt(s.commissionCents, 0)
-        : commission1FromPvCents(pvSemTaxa, c1Bps)
+        : commission1FromPvCents(pvSemTaxa, c1Bps, s.date)
       : 0;
     const c2 = isSeller
       ? bonusAboveMetaFromSale(

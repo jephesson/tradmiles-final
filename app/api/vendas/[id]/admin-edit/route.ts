@@ -17,6 +17,7 @@ import {
 import {
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
+  weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
@@ -197,6 +198,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         select: {
           id: true,
           numero: true,
+          date: true,
           program: true,
           points: true,
           passengers: true,
@@ -274,7 +276,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
       const nextPointsValueCents = calcPointsValueCents(nextPoints, nextMilheiroCents);
       const nextTotalCents = nextPointsValueCents + sale.embarqueFeeCents;
-      const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps);
+      const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps, sale.date);
       const nextBonusCents = calcBonusCents(
         nextPoints,
         nextMilheiroCents,
@@ -372,7 +374,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         pointsValueCents: nextPointsValueCents,
         points: nextPoints,
         costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
-        bonusCents: nextBonusCents,
+        bonusCents: nextBonusCents + weekendC1ExtraCents(nextPointsValueCents, employeeC1Bps, sale.date),
       });
 
       if (sale.affiliateCommission?.status === "PAID") {

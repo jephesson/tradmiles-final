@@ -142,6 +142,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       pointsValueCents: safeInt(s.pointsValueCents, 0),
       embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
       milheiroCents: safeInt(s.milheiroCents, 0),
+      date: s.date,
       affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
     })),
     purchaseTotalCents,

@@ -7,6 +7,7 @@ import {
   affiliateProfitBaseCents,
 } from "@/lib/affiliates/commission";
 import { clampInt } from "@/app/api/_helpers/sales";
+import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -129,6 +130,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         select: {
           id: true,
           numero: true,
+          date: true,
           points: true,
           pointsValueCents: true,
           bonusCents: true,
@@ -217,7 +219,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             pointsValueCents: clampInt(sale.pointsValueCents),
             points: sale.points,
             costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
-            bonusCents: clampInt(sale.bonusCents),
+            bonusCents:
+              clampInt(sale.bonusCents) +
+              weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date),
           });
           const commissionBps = clampInt(nextCliente.affiliate.commissionBps);
           const amountCents = affiliateCommissionCents({
@@ -245,7 +249,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           pointsValueCents: clampInt(sale.pointsValueCents),
           points: sale.points,
           costPerKiloCents: clampInt(sale.purchase?.custoMilheiroCents),
-          bonusCents: clampInt(sale.bonusCents),
+          bonusCents:
+            clampInt(sale.bonusCents) +
+            weekendC1ExtraCents(clampInt(sale.pointsValueCents), DEFAULT_EMPLOYEE_C1_BPS, sale.date),
         });
         const commissionBps = clampInt(nextCliente.affiliate.commissionBps);
         const amountCents = affiliateCommissionCents({

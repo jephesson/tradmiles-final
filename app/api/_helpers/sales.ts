@@ -52,8 +52,12 @@ export function calcPointsValueCents(points: number, milheiroCents: number) {
   return Math.round(denom * milheiroCents);
 }
 
-export function calcCommissionCents(pointsValueCents: number, c1Bps = DEFAULT_EMPLOYEE_C1_BPS) {
-  return commission1FromPvCents(pointsValueCents, c1Bps);
+export function calcCommissionCents(
+  pointsValueCents: number,
+  c1Bps = DEFAULT_EMPLOYEE_C1_BPS,
+  saleDate?: Date | string | null
+) {
+  return commission1FromPvCents(pointsValueCents, c1Bps, saleDate);
 }
 
 export function calcBonusCents(

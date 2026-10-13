@@ -6,6 +6,7 @@ import {
 } from "@/lib/balcao-commission";
 import { calendarMonthBoundsUTC } from "@/lib/dates/brazilCalendar";
 import type { Prisma } from "@prisma/client";
+import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -215,6 +216,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
         totalCents: true,
         pointsValueCents: true,
         embarqueFeeCents: true,
+        date: true,
       },
     });
 
@@ -255,6 +257,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
       if (p) {
         const mil = milheiroFrom(points, pvCents);
         cur.bonusCents += bonus30(points, mil, safeInt(p.metaMilheiroCents, 0));
+        cur.bonusCents += weekendC1ExtraCents(pvCents, DEFAULT_EMPLOYEE_C1_BPS, s.date);
       }
       lossAgg.set(pid, cur);
     }

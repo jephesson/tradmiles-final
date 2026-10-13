@@ -8,7 +8,11 @@ import {
   affiliateProfitBaseCents,
 } from "@/lib/affiliates/commission";
 import { calcBonusCents, clampInt, pointsField } from "@/app/api/_helpers/sales";
-import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
+import {
+  resolveEmployeeBonusAboveMetaBps,
+  resolveEmployeeC1Bps,
+  weekendC1ExtraCents,
+} from "@/lib/payouts/employeeCommissionRates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -195,9 +199,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       where: { key: "default" },
       create: { key: "default" },
       update: {},
-      select: { employeeBonusAboveMetaBps: true },
+      select: { employeeBonusAboveMetaBps: true, employeeC1Bps: true },
     });
     const employeeBonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(commissionSettings);
+    const employeeC1Bps = resolveEmployeeC1Bps(commissionSettings);
 
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
@@ -205,6 +210,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         select: {
           id: true,
           numero: true,
+          date: true,
           program: true,
           points: true,
           milheiroCents: true,
@@ -388,7 +394,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           pointsValueCents: clampInt(sale.pointsValueCents),
           points: pts,
           costPerKiloCents: purchaseRow ? clampInt(purchaseRow.custoMilheiroCents) : 0,
-          bonusCents: nextBonusCents,
+          bonusCents:
+            nextBonusCents +
+            weekendC1ExtraCents(clampInt(sale.pointsValueCents), employeeC1Bps, sale.date),
         });
 
         const nextAmountCents = affiliateCommissionCents({

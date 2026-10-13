@@ -373,6 +373,7 @@ export async function POST(req: Request) {
 
               metaMilheiroCents: true,
               sellerId: true,
+              date: true,
 
               affiliateCommission: { select: { amountCents: true } },
 
@@ -416,6 +417,7 @@ export async function POST(req: Request) {
       metaMilheiroCents: number;
       sellerId: string | null;
       purchaseMetaMilheiroCents: number;
+      date: Date | string | null;
     };
 
     let salesForCommission: SaleForCommission[] = [];
@@ -442,6 +444,7 @@ export async function POST(req: Request) {
           metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
           sellerId: s.sellerId ?? null,
           purchaseMetaMilheiroCents: purchaseMeta,
+          date: s.date ?? s.createdAt ?? null,
         };
       });
     } else {
@@ -468,6 +471,7 @@ export async function POST(req: Request) {
 
           metaMilheiroCents: true,
           sellerId: true,
+          date: true,
         },
       });
 
@@ -520,6 +524,7 @@ export async function POST(req: Request) {
           metaMilheiroCents: safeInt(s.metaMilheiroCents, 0),
           sellerId: s.sellerId ?? null,
           purchaseMetaMilheiroCents: safeInt(p.metaMilheiroCents, 0),
+          date: s.date ?? s.createdAt ?? null,
         });
       }
     }
@@ -540,7 +545,7 @@ export async function POST(req: Request) {
 
         const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
-        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps);
+        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps, s.date);
         const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
         const c2 = bonusAboveMetaFromSale(
           {
@@ -603,6 +608,7 @@ export async function POST(req: Request) {
           metaMilheiroCents:
             safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
           affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
+          date: s.date ?? s.createdAt ?? null,
         })),
         bonusAboveMetaBps,
         refDate: p.finalizedAt ?? start,
