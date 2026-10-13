@@ -18,10 +18,19 @@ import { cn } from "@/lib/cn";
 type AgendaRow = {
   id: string;
   type: "SHIFT" | "ABSENCE";
+  dateISO?: string;
   startHHMM: string;
   endHHMM: string;
   note: string;
   user: { id: string; name: string; login: string };
+};
+
+type AgendaGap = {
+  dateISO: string;
+  kind: string;
+  label: string;
+  startHHMM: string;
+  endHHMM: string;
 };
 
 type PresenceRow = {
@@ -62,11 +71,32 @@ type InicialData = {
   todayISO: string;
   todayLabel: string;
   nowHHMM: string;
+  weekStartISO?: string;
+  weekEndISO?: string;
   agendaToday: AgendaRow[];
+  agendaWeek?: AgendaRow[];
+  agendaGaps?: AgendaGap[];
   expectedShiftEventIds: string[];
   teamPresence: PresenceRow[];
   bonusProgress: BonusProgress | null;
 };
+
+function brFromISO(iso: string) {
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+function weekdayShort(iso: string) {
+  const dt = new Date(`${iso}T12:00:00.000Z`);
+  return new Intl.DateTimeFormat("pt-BR", { weekday: "short", timeZone: "UTC" }).format(dt);
+}
+
+function addDaysISO(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function fmtMoney(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -156,6 +186,8 @@ export default function DashboardInicialClient() {
 
         <AgendaPresenceCard data={data} />
       </div>
+
+      <AgendaWeekCard data={data} />
       </div>
     </div>
   );
@@ -241,6 +273,21 @@ function AgendaPresenceCard({ data }: { data: InicialData | null }) {
         </ul>
       )}
 
+      {(data?.agendaGaps || []).filter((g) => g.dateISO === data?.todayISO).length > 0 ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+          <div className="font-semibold">Alerta: intervalo de horário vago hoje</div>
+          <ul className="mt-1 space-y-0.5 text-xs text-amber-900">
+            {(data?.agendaGaps || [])
+              .filter((g) => g.dateISO === data?.todayISO)
+              .map((g, i) => (
+                <li key={`${g.kind}-${g.startHHMM}-${i}`}>
+                  {g.label}: {g.startHHMM}–{g.endHHMM}
+                </li>
+              ))}
+          </ul>
+        </div>
+      ) : null}
+
       {data && extrasOnline.length > 0 ? (
         <div className="mt-4 border-t border-slate-100 pt-3">
           <div className="flex items-center gap-2">
@@ -268,6 +315,90 @@ function AgendaPresenceCard({ data }: { data: InicialData | null }) {
           </ul>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function AgendaWeekCard({ data }: { data: InicialData | null }) {
+  const start = data?.weekStartISO || data?.todayISO;
+  const days = start ? Array.from({ length: 7 }, (_, i) => addDaysISO(start, i)) : [];
+  const week = data?.agendaWeek || [];
+  const gaps = data?.agendaGaps || [];
+
+  return (
+    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
+          <h2 className="text-sm font-semibold text-slate-900">Agenda da semana</h2>
+        </div>
+        <p className="text-[11px] text-slate-500">Turnos 08–13 · 13–18 · 18–00</p>
+      </div>
+
+      {gaps.length > 0 ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+          <div className="font-semibold">Alerta: intervalos de horário vagos nesta semana</div>
+          <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto text-xs text-amber-900">
+            {gaps.map((g, i) => (
+              <li key={`${g.dateISO}-${g.kind}-${g.startHHMM}-${i}`}>
+                {weekdayShort(g.dateISO)} {brFromISO(g.dateISO)} · {g.label} · {g.startHHMM}–{g.endHHMM}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-emerald-700">Semana coberta nos três turnos.</p>
+      )}
+
+      {!data ? (
+        <p className="mt-3 text-sm text-slate-500">Carregando…</p>
+      ) : (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+          {days.map((iso) => {
+            const list = week.filter((e) => e.dateISO === iso);
+            const dayGaps = gaps.filter((g) => g.dateISO === iso);
+            const weekend = (() => {
+              const d = new Date(`${iso}T12:00:00.000Z`).getUTCDay();
+              return d === 0 || d === 6;
+            })();
+            return (
+              <div
+                key={iso}
+                className={cn(
+                  "rounded-xl border p-2.5 text-xs",
+                  weekend ? "border-violet-200 bg-violet-50/70" : "border-slate-100 bg-white",
+                  iso === data.todayISO && "ring-1 ring-teal-400"
+                )}
+              >
+                <div className="font-semibold capitalize text-slate-800">
+                  {weekdayShort(iso)} {brFromISO(iso).slice(0, 5)}
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  {list.length === 0 && dayGaps.length === 0 ? (
+                    <div className="text-slate-400">Sem registros</div>
+                  ) : null}
+                  {list.map((e) => (
+                    <div key={e.id} className="rounded-md bg-white/80 px-1.5 py-1 leading-tight">
+                      <span className="font-medium text-slate-800">{e.user.name.split(" ")[0]}</span>
+                      <span className="ml-1 tabular-nums text-slate-600">
+                        {e.startHHMM}–{e.endHHMM}
+                      </span>
+                    </div>
+                  ))}
+                  {dayGaps.map((g, i) => (
+                    <div
+                      key={`${g.kind}-${i}`}
+                      className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-amber-900"
+                    >
+                      Vago {g.label} {g.startHHMM}–{g.endHHMM}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

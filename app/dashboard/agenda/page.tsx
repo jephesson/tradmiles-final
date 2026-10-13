@@ -10,6 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  SHIFT_WINDOWS,
+  type ShiftKind,
+  classifyShift,
+  isWeekendISO,
+} from "@/lib/agenda/shifts";
 
 type ViewMode = "MES" | "SEMANA" | "DIA";
 
@@ -31,6 +37,17 @@ type AgendaEvent = {
   endHHMM: string;
   note: string;
   user: { id: string; name: string; login: string };
+};
+
+type AgendaGap = {
+  dateISO: string;
+  dateBR: string;
+  kind: "MANHA" | "TARDE" | "NOITE";
+  startMin: number;
+  endMin: number;
+  startHHMM: string;
+  endHHMM: string;
+  label: string;
 };
 
 function pad2(n: number) {
@@ -94,6 +111,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [gaps, setGaps] = useState<AgendaGap[]>([]);
 
   const [selectedISO, setSelectedISO] = useState<string>(() => {
     const now = new Date();
@@ -103,12 +121,25 @@ export default function AgendaPage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/agenda?mes=${encodeURIComponent(mesBR)}`, { cache: "no-store" });
+      const [y, m] = ym.split("-").map(Number);
+      const first = isoFromYMD(y, m, 1);
+      const last = isoFromYMD(y, m, daysInYM(ym));
+      const deDt = new Date(`${first}T12:00:00.000Z`);
+      deDt.setUTCDate(deDt.getUTCDate() - 7);
+      const ateDt = new Date(`${last}T12:00:00.000Z`);
+      ateDt.setUTCDate(ateDt.getUTCDate() + 7);
+      const de = brFromISO(deDt.toISOString().slice(0, 10));
+      const ate = brFromISO(ateDt.toISOString().slice(0, 10));
+      const res = await fetch(
+        `/api/agenda?de=${encodeURIComponent(de)}&ate=${encodeURIComponent(ate)}`,
+        { cache: "no-store" }
+      );
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao carregar agenda.");
 
       setMembers(json.data.members || []);
       setEvents(json.data.events || []);
+      setGaps(json.data.gaps || []);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
     } finally {
@@ -152,13 +183,33 @@ export default function AgendaPage() {
     return m;
   }, [members]);
 
+  const gapsByISO = useMemo(() => {
+    const map = new Map<string, AgendaGap[]>();
+    for (const g of gaps) {
+      const arr = map.get(g.dateISO) || [];
+      arr.push(g);
+      map.set(g.dateISO, arr);
+    }
+    return map;
+  }, [gaps]);
+
+  function applyShift(kind: ShiftKind) {
+    const w = SHIFT_WINDOWS[kind];
+    setFormShift(kind);
+    const start = `${String(Math.floor(w.startMin / 60)).padStart(2, "0")}:${String(w.startMin % 60).padStart(2, "0")}`;
+    const end = w.endMin === 1440 ? "00:00" : `${String(Math.floor(w.endMin / 60)).padStart(2, "0")}:${String(w.endMin % 60).padStart(2, "0")}`;
+    setFormStart(start);
+    setFormEnd(end);
+  }
+
   // ===== Modal cadastro =====
   const [modalOpen, setModalOpen] = useState(false);
   const [formType, setFormType] = useState<"SHIFT" | "ABSENCE">("SHIFT");
   const [formDateBR, setFormDateBR] = useState(() => brFromISO(selectedISO));
   const [formAllDay, setFormAllDay] = useState(false);
-  const [formStart, setFormStart] = useState("07:00");
-  const [formEnd, setFormEnd] = useState("12:00");
+  const [formShift, setFormShift] = useState<ShiftKind>("MANHA");
+  const [formStart, setFormStart] = useState("08:00");
+  const [formEnd, setFormEnd] = useState("13:00");
   const [formNote, setFormNote] = useState("");
 
   // para troca/editar/excluir
@@ -173,8 +224,9 @@ export default function AgendaPage() {
     setFormDateBR(brFromISO(dateISO));
     setFormType("SHIFT");
     setFormAllDay(false);
-    setFormStart("07:00");
-    setFormEnd("12:00");
+    setFormShift("MANHA");
+    setFormStart("08:00");
+    setFormEnd("13:00");
     setFormNote("");
     setModalOpen(true);
   }
@@ -353,6 +405,24 @@ export default function AgendaPage() {
         </div>
       </div>
 
+      {gaps.length > 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+          <div className="font-semibold">Alerta: intervalos de horário vagos</div>
+          <p className="mt-0.5 text-xs text-amber-800">
+            Seg–sex: 2 manhãs, 2 tardes e 2 noites por pessoa. Fim de semana: 2 turnos entre os 6.
+            72h antes do dia, qualquer um pode preencher vagas remanescentes. 00h–08h fica liberado.
+          </p>
+          <ul className="mt-2 max-h-28 space-y-0.5 overflow-y-auto text-xs">
+            {gaps.slice(0, 24).map((g, i) => (
+              <li key={`${g.dateISO}-${g.kind}-${g.startHHMM}-${i}`}>
+                {g.dateBR} · {g.label} · {g.startHHMM}–{g.endHHMM}
+              </li>
+            ))}
+            {gaps.length > 24 ? <li>+{gaps.length - 24} outros intervalos vagos…</li> : null}
+          </ul>
+        </div>
+      ) : null}
+
       {/* Cores por funcionário */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/30 sm:p-5">
         <div className="text-sm font-semibold text-slate-900">Cores na agenda</div>
@@ -407,17 +477,22 @@ export default function AgendaPage() {
               }
 
               const dayEvents = eventsByISO.get(c.iso) || [];
+              const dayGaps = gapsByISO.get(c.iso) || [];
               const isSelected = selectedISO === c.iso;
               const isToday = c.iso === todayIso;
+              const weekend = isWeekendISO(c.iso);
 
               return (
                 <div
                   key={c.iso}
                   className={cn(
-                    "flex min-h-[7.5rem] flex-col rounded-xl border border-slate-200/70 bg-white p-1.5 shadow-sm transition sm:min-h-[8.5rem] sm:p-2",
-                    "cursor-pointer hover:border-slate-300 hover:bg-slate-50/40",
+                    "flex min-h-[7.5rem] flex-col rounded-xl border p-1.5 shadow-sm transition sm:min-h-[8.5rem] sm:p-2",
+                    "cursor-pointer hover:border-slate-300",
+                    weekend
+                      ? "border-violet-200/90 bg-violet-50/80 hover:bg-violet-50"
+                      : "border-slate-200/70 bg-white hover:bg-slate-50/40",
                     isSelected && "ring-2 ring-teal-500/90 ring-offset-2 ring-offset-white",
-                    isToday && !isSelected && "border-teal-200/80 bg-teal-50/30"
+                    isToday && !isSelected && !weekend && "border-teal-200/80 bg-teal-50/30"
                   )}
                   onClick={() => setSelectedISO(c.iso!)}
                 >
@@ -478,6 +553,12 @@ export default function AgendaPage() {
                         +{dayEvents.length - 4} mais…
                       </div>
                     )}
+                    {dayGaps.length > 0 && (
+                      <div className="truncate rounded bg-amber-100/90 px-1 py-0.5 text-[10px] font-semibold text-amber-900">
+                        Vago {dayGaps[0].startHHMM}–{dayGaps[0].endHHMM}
+                        {dayGaps.length > 1 ? ` +${dayGaps.length - 1}` : ""}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -511,19 +592,24 @@ export default function AgendaPage() {
 
           {/* MVP: lista por dia (semana) ou lista do dia */}
           {view === "DIA" ? (
-            <DayList
+            <DayHourGrid
               iso={selectedISO}
               events={eventsByISO.get(selectedISO) || []}
+              gaps={gapsByISO.get(selectedISO) || []}
               memberColor={memberColor}
               onPick={(ev) => setActiveEvent(ev)}
             />
           ) : (
-            <WeekList
+            <WeekHourGrid
               selectedISO={selectedISO}
               eventsByISO={eventsByISO}
+              gapsByISO={gapsByISO}
               memberColor={memberColor}
               onPick={(ev) => setActiveEvent(ev)}
-              onJump={(iso) => setSelectedISO(iso)}
+              onJump={(iso) => {
+                setSelectedISO(iso);
+                setView("DIA");
+              }}
             />
           )}
         </div>
@@ -598,37 +684,37 @@ export default function AgendaPage() {
             {!(formType === "ABSENCE" && formAllDay) && (
               <>
                 {formType === "SHIFT" && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50/50"
-                      onClick={() => {
-                        setFormStart("07:00");
-                        setFormEnd("12:00");
-                      }}
-                    >
-                      Manhã (07–12)
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50/50"
-                      onClick={() => {
-                        setFormStart("12:00");
-                        setFormEnd("17:00");
-                      }}
-                    >
-                      Tarde (12–17)
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50/50"
-                      onClick={() => {
-                        setFormStart("17:00");
-                        setFormEnd("22:00");
-                      }}
-                    >
-                      Noite (17–22)
-                    </button>
+                  <div className="mt-4 space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Turno
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          ["MANHA", "Manhã 08–13"],
+                          ["TARDE", "Tarde 13–18"],
+                          ["NOITE", "Noite 18–00"],
+                          ["LIVRE", "Madrugada 00–08"],
+                        ] as const
+                      ).map(([k, label]) => (
+                        <button
+                          key={k}
+                          type="button"
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-xs font-semibold transition",
+                            formShift === k
+                              ? "border-teal-400 bg-teal-50 text-teal-900"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50/50"
+                          )}
+                          onClick={() => applyShift(k)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500">
+                      Escolha o turno e ajuste o intervalo em que você ficará online dentro dele.
+                    </p>
                   </div>
                 )}
 
@@ -639,7 +725,7 @@ export default function AgendaPage() {
                       value={formStart}
                       onChange={(e) => setFormStart(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
-                      placeholder="07:00"
+                      placeholder="08:00"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -648,13 +734,14 @@ export default function AgendaPage() {
                       value={formEnd}
                       onChange={(e) => setFormEnd(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-500/20"
-                      placeholder="12:00"
+                      placeholder="13:00"
                     />
                   </div>
                 </div>
 
                 <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-                  Trabalho: blocos de 5h ou de 1h. Ausência: intervalo livre ou dia inteiro.
+                  O intervalo precisa caber no turno. Seg–sex: 2 manhãs + 2 tardes + 2 noites. Fim de
+                  semana: 2 turnos. 72h antes, vagas remanescentes ficam liberadas para qualquer um.
                 </p>
               </>
             )}
@@ -780,129 +867,181 @@ export default function AgendaPage() {
   );
 }
 
-function DayList({
+function hourLabel(h: number) {
+  if (h >= 24) return "00:00";
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+function DayHourGrid({
   iso,
   events,
+  gaps,
   memberColor,
   onPick,
 }: {
   iso: string;
   events: AgendaEvent[];
+  gaps: AgendaGap[];
   memberColor: Map<string, string>;
   onPick: (ev: AgendaEvent) => void;
 }) {
+  const hours = [0, 1, 2, 3, 4, 5, 6, 7, ...Array.from({ length: 16 }, (_, i) => i + 8)]; // 00–23, depois 00h do fim da noite
+  const weekend = isWeekendISO(iso);
+
   return (
-    <div className="space-y-2">
-      {events.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-sm text-slate-500">
-          Sem registros para {brFromISO(iso)}.
+    <div className={cn("overflow-hidden rounded-xl border", weekend ? "border-violet-200 bg-violet-50/40" : "border-slate-200")}>
+      {gaps.length > 0 ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          <span className="font-semibold">Intervalos vagos: </span>
+          {gaps.map((g) => `${g.label} ${g.startHHMM}–${g.endHHMM}`).join(" · ")}
         </div>
-      )}
-
-      {events.map((ev) => {
-        const color = memberColor.get(ev.user.id) || "#111827";
-        const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
-        const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
-
-        return (
-          <button
-            key={ev.id}
-            type="button"
-            className="w-full rounded-xl border p-4 text-left shadow-sm transition hover:brightness-[0.99]"
-            style={{ borderColor: bd, backgroundColor: bg }}
-            onClick={() => onPick(ev)}
-          >
-            <div className="text-sm font-bold text-slate-900">
-              {ev.type === "ABSENCE" ? "Ausência" : "Trabalho"} • {ev.user.name}
+      ) : null}
+      <div className="divide-y divide-slate-100">
+        {hours.map((h) => {
+          const start = h * 60;
+          const end = (h + 1) * 60;
+          const slotEvents = events.filter((ev) => ev.startMin < end && ev.endMin > start);
+          const slotGaps = gaps.filter((g) => g.startMin < end && g.endMin > start);
+          return (
+            <div key={h} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 px-2 py-1.5 sm:px-3">
+              <div className="tabular-nums text-xs font-semibold text-slate-500">{hourLabel(h)}</div>
+              <div className="min-h-[2.25rem] space-y-1">
+                {slotEvents.map((ev) => {
+                  const color = memberColor.get(ev.user.id) || "#111827";
+                  const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
+                  const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
+                  return (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      className="w-full rounded-lg border px-2 py-1 text-left text-xs font-medium"
+                      style={{ borderColor: bd, backgroundColor: bg }}
+                      onClick={() => onPick(ev)}
+                    >
+                      {ev.startHHMM}–{ev.endHHMM} · {ev.user.name}
+                      {ev.type === "ABSENCE" ? " · Ausência" : ""}
+                    </button>
+                  );
+                })}
+                {slotGaps.map((g, i) => (
+                  <div
+                    key={`${g.kind}-${i}`}
+                    className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-900"
+                  >
+                    Vago {g.startHHMM}–{g.endHHMM}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="mt-0.5 text-sm text-slate-700">
-              {ev.type === "ABSENCE" && ev.startMin === 0 && ev.endMin === 1440
-                ? "Dia inteiro"
-                : `${ev.startHHMM}–${ev.endHHMM}`}
-            </div>
-            {ev.note && <div className="mt-2 text-xs leading-relaxed text-slate-600">{ev.note}</div>}
-          </button>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function WeekList({
+function WeekHourGrid({
   selectedISO,
   eventsByISO,
+  gapsByISO,
   memberColor,
   onPick,
   onJump,
 }: {
   selectedISO: string;
   eventsByISO: Map<string, AgendaEvent[]>;
+  gapsByISO: Map<string, AgendaGap[]>;
   memberColor: Map<string, string>;
   onPick: (ev: AgendaEvent) => void;
   onJump: (iso: string) => void;
 }) {
-  // domingo da semana do selectedISO
   const dt = new Date(`${selectedISO}T12:00:00.000Z`);
-  const sunShift = dt.getUTCDay(); // 0..6 (dom..sab)
-  dt.setUTCDate(dt.getUTCDate() - sunShift);
-
+  const day = dt.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setUTCDate(dt.getUTCDate() + diff);
   const days = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date(dt.getTime());
     d.setUTCDate(dt.getUTCDate() + i);
-    const iso = d.toISOString().slice(0, 10);
-    return iso;
+    return d.toISOString().slice(0, 10);
   });
 
+  const bands: Array<{ kind: ShiftKind; label: string }> = [
+    { kind: "MANHA", label: "Manhã 08–13" },
+    { kind: "TARDE", label: "Tarde 13–18" },
+    { kind: "NOITE", label: "Noite 18–00" },
+  ];
+
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {days.map((iso) => {
-        const list = eventsByISO.get(iso) || [];
-        return (
-          <div
-            key={iso}
-            className="rounded-xl border border-slate-200/80 bg-slate-50/30 p-3 shadow-sm sm:p-4"
-          >
-            <button
-              type="button"
-              className="text-sm font-bold text-teal-800 underline-offset-2 hover:underline"
-              onClick={() => onJump(iso)}
-            >
-              {brFromISO(iso)}
-            </button>
-
-            <div className="mt-3 space-y-2">
-              {list.length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-200/90 bg-white/60 px-3 py-4 text-center text-xs text-slate-500">
-                  Sem registros.
-                </div>
+    <div className="overflow-x-auto">
+      <div className="grid min-w-[56rem] grid-cols-7 gap-2">
+        {days.map((iso) => {
+          const list = eventsByISO.get(iso) || [];
+          const dayGaps = gapsByISO.get(iso) || [];
+          const weekend = isWeekendISO(iso);
+          return (
+            <div
+              key={iso}
+              className={cn(
+                "rounded-xl border p-2",
+                weekend ? "border-violet-200 bg-violet-50/80" : "border-slate-200 bg-slate-50/40"
               )}
-              {list.map((ev) => {
-                const color = memberColor.get(ev.user.id) || "#111827";
-                const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
-                const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
-
-                const label =
-                  ev.type === "ABSENCE"
-                    ? `Ausência • ${ev.user.name}`
-                    : `${ev.startHHMM}–${ev.endHHMM} • ${ev.user.name}`;
-
-                return (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    className="w-full rounded-lg border px-3 py-2 text-left text-sm shadow-sm transition hover:brightness-[0.99]"
-                    style={{ borderColor: bd, backgroundColor: bg }}
-                    onClick={() => onPick(ev)}
-                  >
-                    <div className="font-semibold text-slate-900">{label}</div>
-                    {ev.note && <div className="mt-1 text-xs leading-relaxed text-slate-600">{ev.note}</div>}
-                  </button>
-                );
-              })}
+            >
+              <button
+                type="button"
+                className="text-sm font-bold text-teal-800 underline-offset-2 hover:underline"
+                onClick={() => onJump(iso)}
+              >
+                {brFromISO(iso)}
+              </button>
+              <div className="mt-2 space-y-2">
+                {bands.map((b) => {
+                  const w = SHIFT_WINDOWS[b.kind];
+                  const inBand = list.filter(
+                    (ev) =>
+                      ev.type === "ABSENCE" ||
+                      classifyShift(ev.startMin, ev.endMin) === b.kind ||
+                      (ev.startMin < w.endMin && ev.endMin > w.startMin)
+                  );
+                  const gBand = dayGaps.filter((g) => g.kind === b.kind);
+                  return (
+                    <div key={b.kind} className="rounded-lg bg-white/80 p-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        {b.label}
+                      </div>
+                      <div className="mt-1 space-y-1">
+                        {inBand.map((ev) => {
+                          const color = memberColor.get(ev.user.id) || "#111827";
+                          const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
+                          const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
+                          return (
+                            <button
+                              key={ev.id}
+                              type="button"
+                              className="w-full rounded border px-1.5 py-1 text-left text-[11px] font-medium"
+                              style={{ borderColor: bd, backgroundColor: bg }}
+                              onClick={() => onPick(ev)}
+                            >
+                              {ev.startHHMM}–{ev.endHHMM} · {ev.user.name.split(" ")[0]}
+                            </button>
+                          );
+                        })}
+                        {gBand.map((g, i) => (
+                          <div
+                            key={`${g.startHHMM}-${i}`}
+                            className="rounded border border-dashed border-amber-300 bg-amber-50 px-1.5 py-1 text-[10px] text-amber-900"
+                          >
+                            Vago {g.startHHMM}–{g.endHHMM}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

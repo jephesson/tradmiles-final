@@ -81,6 +81,9 @@ export default function AvisosClient() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [agendaGaps, setAgendaGaps] = useState<
+    Array<{ dateISO: string; dateBR?: string; label: string; startHHMM: string; endHHMM: string }>
+  >([]);
 
   // formulário
   const [titulo, setTitulo] = useState("");
@@ -109,6 +112,13 @@ export default function AvisosClient() {
       setRows((json.rows || []) as Row[]);
       setMembers((json.members || []) as Member[]);
       setMeId(String(json?.me?.id || ""));
+      try {
+        const g = await fetch("/api/agenda/gaps", { cache: "no-store" });
+        const gj = await g.json().catch(() => null);
+        if (g.ok && gj?.ok) setAgendaGaps(gj.data?.gaps || []);
+      } catch {
+        /* ignore */
+      }
     } catch (e: any) {
       setError(e?.message || "Erro ao carregar dados.");
     } finally {
@@ -254,6 +264,23 @@ export default function AvisosClient() {
           </button>
         </div>
       </div>
+
+      {agendaGaps.length > 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
+          <div className="font-semibold">Alerta: intervalos de horário vagos na agenda</div>
+          <p className="mt-0.5 text-xs text-amber-800">
+            Turnos sem cobertura nesta semana. 72h antes do dia, qualquer pessoa pode se escalar nas
+            vagas remanescentes.
+          </p>
+          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
+            {agendaGaps.map((g, i) => (
+              <li key={`${g.dateISO}-${g.startHHMM}-${i}`}>
+                {g.dateBR || fmtDateBR(g.dateISO)} · {g.label} · {g.startHHMM}–{g.endHHMM}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* Novo aviso */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

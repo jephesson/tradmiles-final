@@ -15,6 +15,7 @@ import {
 } from "@/lib/bonus/fetchMonthlyMetrics";
 import { ensureDueCardCashbacks } from "@/lib/card-cashback";
 import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
+import { fmtMin, gapsForRange, mondayISO, sundayISO } from "@/lib/agenda/shifts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,12 +54,6 @@ function nowMinutesRecife(): number {
   return hh * 60 + mm;
 }
 
-function fmtMin(min: number) {
-  const hh = String(Math.floor(min / 60)).padStart(2, "0");
-  const m = String(min % 60).padStart(2, "0");
-  return `${hh}:${m}`;
-}
-
 function isoToLongLabel(iso: string) {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return iso;
@@ -87,6 +82,8 @@ export async function GET() {
 
     const bonusMonth = currentMonthISORecife();
     const prevMonthKey = isFirstDayOfMonth(todayISO) ? previousMonthISO(bonusMonth) : null;
+    const weekStartISO = mondayISO(todayISO);
+    const weekEndISO = sundayISO(todayISO);
 
     const [events, users, bonusSetting, bonusMetrics, todayRevenue, prevBonusSetting, prevBonusMetrics] =
       await Promise.all([
@@ -94,7 +91,7 @@ export async function GET() {
         where: {
           team: session.team,
           status: "ACTIVE",
-          dateISO: todayISO,
+          dateISO: { gte: weekStartISO, lte: weekEndISO },
         },
         include: {
           user: { select: { id: true, name: true, login: true } },
@@ -133,15 +130,30 @@ export async function GET() {
 
     const now = Date.now();
 
-    const agendaToday = events.map((e) => ({
+    const agendaWeek = events.map((e) => ({
       id: e.id,
       type: e.type as "SHIFT" | "ABSENCE",
+      dateISO: e.dateISO,
       startHHMM: fmtMin(e.startMin),
       endHHMM: fmtMin(e.endMin),
       startMin: e.startMin,
       endMin: e.endMin,
       note: e.note || "",
       user: e.user,
+    }));
+
+    const agendaToday = agendaWeek.filter((e) => e.dateISO === todayISO);
+
+    const agendaGaps = gapsForRange(
+      weekStartISO,
+      weekEndISO,
+      events.filter((e) => e.type === "SHIFT")
+    ).map((g) => ({
+      dateISO: g.dateISO,
+      kind: g.kind,
+      label: g.label,
+      startHHMM: g.startHHMM,
+      endHHMM: g.endHHMM,
     }));
 
     const byUser = new Map<string, typeof agendaToday>();
@@ -220,7 +232,11 @@ export async function GET() {
           todayISO,
           todayLabel: isoToLongLabel(todayISO),
           nowHHMM: fmtMin(nowMin),
+          weekStartISO,
+          weekEndISO,
           agendaToday,
+          agendaWeek,
+          agendaGaps,
           expectedShiftEventIds,
           teamPresence,
           bonusProgress: {

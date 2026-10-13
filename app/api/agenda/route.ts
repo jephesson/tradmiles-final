@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import {
+  assertCanTakeShift,
+  classifyShift,
+  fmtMin as fmtShiftMin,
+  gapsForRange,
+  parseEndHHMM,
+  parseHHMM as parseShiftHHMM,
+} from "@/lib/agenda/shifts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,18 +79,10 @@ function daysInMonthYM(ym: string) {
 }
 
 function parseHHMM(s: string) {
-  const m = /^(\d{2}):(\d{2})$/.exec(String(s || "").trim());
-  if (!m) return NaN;
-  const hh = Number(m[1]),
-    mm = Number(m[2]);
-  if (hh < 0 || hh > 23) return NaN;
-  if (mm < 0 || mm > 59) return NaN;
-  return hh * 60 + mm;
+  return parseShiftHHMM(s);
 }
 function fmtMin(min: number) {
-  const hh = String(Math.floor(min / 60)).padStart(2, "0");
-  const mm = String(min % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
+  return fmtShiftMin(min);
 }
 
 function todayRecifeISO(): string {
@@ -128,29 +128,37 @@ function intervalRule(
   if (startMin < 0 || endMin > 1440 || startMin >= endMin)
     return "Intervalo inválido.";
 
-  // ausência dia inteiro
   if (type === "ABSENCE" && startMin === 0 && endMin === 1440) return null;
 
-  const OPEN = 7 * 60;
-  const CLOSE = 22 * 60;
-  if (startMin < OPEN || endMin > CLOSE)
-    return "Fora do horário (07:00–22:00).";
-
-  if (type === "SHIFT") {
-    const dur = endMin - startMin;
-    const isFive =
-      (startMin === 7 * 60 && endMin === 12 * 60) ||
-      (startMin === 12 * 60 && endMin === 17 * 60) ||
-      (startMin === 17 * 60 && endMin === 22 * 60);
-    const isOne = dur === 60;
-
-    if (!isFive && !isOne) {
-      return "Turno deve ser bloco de 5h (07–12, 12–17, 17–22) ou bloco de 1h.";
-    }
+  if (type === "ABSENCE") {
+    if (startMin < 0 || endMin > 1440) return "Intervalo inválido.";
+    return null;
   }
 
-  // ausência: aceita qualquer intervalo, mas sugiro 1h em 1h (UI resolve)
+  const kind = classifyShift(startMin, endMin);
+  if (!kind) {
+    return "O intervalo precisa caber em um turno: 08:00–13:00 (manhã), 13:00–18:00 (tarde), 18:00–00:00 (noite) ou 00:00–08:00 (liberado).";
+  }
   return null;
+}
+
+async function loadTeamShifts(team: string, dateISO: string, excludeId?: string) {
+  const d = new Date(`${dateISO}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() - 7);
+  const start = d.toISOString().slice(0, 10);
+  const e = new Date(`${dateISO}T12:00:00.000Z`);
+  e.setUTCDate(e.getUTCDate() + 7);
+  const end = e.toISOString().slice(0, 10);
+  return prisma.agendaEvent.findMany({
+    where: {
+      team,
+      status: "ACTIVE",
+      type: "SHIFT",
+      dateISO: { gte: start, lte: end },
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    select: { userId: true, dateISO: true, startMin: true, endMin: true, type: true },
+  });
 }
 
 async function getMembersWithColors(team: string) {
@@ -255,7 +263,16 @@ export async function GET(req: NextRequest) {
       updatedAt: e.updatedAt,
     }));
 
-    return ok({ members, events: eventsOut });
+    const gaps = gapsForRange(
+      startISO,
+      endISO,
+      events.filter((e) => e.type === "SHIFT")
+    ).map((g) => ({
+      ...g,
+      dateBR: isoToBR(g.dateISO),
+    }));
+
+    return ok({ members, events: eventsOut, gaps });
   } catch (e: any) {
     return bad(e?.message || "Erro interno.", 500);
   }
@@ -292,11 +309,24 @@ export async function POST(req: NextRequest) {
       endMin = 1440;
     } else {
       startMin = parseHHMM(String(body.start || "").trim());
-      endMin = parseHHMM(String(body.end || "").trim());
+      endMin = parseEndHHMM(String(body.end || "").trim(), startMin);
     }
 
     const ruleErr = intervalRule(type, startMin, endMin);
     if (ruleErr) return bad(ruleErr);
+
+    if (type === "SHIFT") {
+      const teamShifts = await loadTeamShifts(session.team, dateISO);
+      const quotaErr = assertCanTakeShift({
+        userId,
+        dateISO,
+        startMin,
+        endMin,
+        type,
+        teamShifts,
+      });
+      if (quotaErr) return bad(quotaErr);
+    }
 
     // conflitos (mesmo user + mesma data)
     const existing = await prisma.agendaEvent.findMany({
@@ -396,6 +426,19 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
+      if (existing.type === "SHIFT") {
+        const teamShifts = await loadTeamShifts(session.team, existing.dateISO, existing.id);
+        const quotaErr = assertCanTakeShift({
+          userId: toUserId,
+          dateISO: existing.dateISO,
+          startMin: existing.startMin,
+          endMin: existing.endMin,
+          type: "SHIFT",
+          teamShifts,
+        });
+        if (quotaErr) return bad(quotaErr);
+      }
+
       await prisma.agendaEvent.update({
         where: { id },
         data: {
@@ -432,11 +475,24 @@ export async function PATCH(req: NextRequest) {
       nextEnd = 1440;
     } else {
       if (body.start) nextStart = parseHHMM(String(body.start));
-      if (body.end) nextEnd = parseHHMM(String(body.end));
+      if (body.end) nextEnd = parseEndHHMM(String(body.end), nextStart);
     }
 
     const ruleErr = intervalRule(existing.type as any, nextStart, nextEnd);
     if (ruleErr) return bad(ruleErr);
+
+    if (existing.type === "SHIFT") {
+      const teamShifts = await loadTeamShifts(session.team, existing.dateISO, existing.id);
+      const quotaErr = assertCanTakeShift({
+        userId: existing.userId,
+        dateISO: existing.dateISO,
+        startMin: nextStart,
+        endMin: nextEnd,
+        type: "SHIFT",
+        teamShifts,
+      });
+      if (quotaErr) return bad(quotaErr);
+    }
 
     // conflito com outros eventos do próprio user (exclui ele mesmo)
     const conflicts = await prisma.agendaEvent.findMany({
