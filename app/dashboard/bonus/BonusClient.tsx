@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Calculator,
+  ChevronRight,
+  Clock,
   Loader2,
   RefreshCw,
   Settings,
@@ -125,12 +127,16 @@ function GoalCard({
   );
 }
 
+type Section = "attendance" | "meta";
+
 export default function BonusClient() {
   const [month, setMonth] = useState(currentMonthInput());
+  const [section, setSection] = useState<Section | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attendanceKey, setAttendanceKey] = useState(0);
   const isAdmin = getSession()?.role === "admin";
 
   const load = useCallback(async () => {
@@ -153,8 +159,9 @@ export default function BonusClient() {
   }, [month]);
 
   useEffect(() => {
+    if (section !== "meta") return;
     load();
-  }, [load]);
+  }, [load, section]);
 
   async function computeBonus() {
     if (!confirm("Calcular e salvar o bônus deste mês?")) return;
@@ -207,11 +214,10 @@ export default function BonusClient() {
           </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-              Bônus mensal
+              Bônus
             </h1>
             <p className="text-sm text-slate-500">
-              Válido do 1º ao último dia do mês. Distribuído se a meta de
-              faturamento for batida.
+              Escolha o que deseja ver: assiduidade ou bônus de meta do mês.
             </p>
           </div>
         </div>
@@ -225,49 +231,110 @@ export default function BonusClient() {
           />
           <button
             type="button"
-            onClick={load}
+            onClick={() => {
+              if (section === "meta") load();
+              else if (section === "attendance") setAttendanceKey((k) => k + 1);
+            }}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" aria-hidden />
             Atualizar
           </button>
-          {isAdmin ? (
-            <>
-              <Link
-                href="/dashboard/configuracoes"
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <Settings className="h-4 w-4" aria-hidden />
-                Metas
-              </Link>
-              <button
-                type="button"
-                onClick={computeBonus}
-                disabled={computing || !preview?.isActive}
-                className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-              >
-                {computing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Calculator className="h-4 w-4" aria-hidden />
-                )}
-                Calcular bônus
-              </button>
-            </>
-          ) : null}
         </div>
       </div>
 
-      {!preview?.isActive ? (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setSection((s) => (s === "attendance" ? null : "attendance"))}
+          className={cn(
+            "flex items-start gap-4 rounded-2xl border bg-white p-5 text-left shadow-sm transition",
+            section === "attendance"
+              ? "border-teal-400 ring-2 ring-teal-500/30"
+              : "border-slate-200 hover:border-teal-200 hover:bg-teal-50/40"
+          )}
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+            <Clock className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-semibold text-slate-900">Assiduidade</div>
+            <p className="mt-1 text-sm leading-snug text-slate-500">
+              Horas declaradas e cumpridas, ranking e extrato. Bônus de R$ 200 no dia 1.
+            </p>
+          </div>
+          <ChevronRight
+            className={cn(
+              "mt-1 h-5 w-5 shrink-0 text-slate-400 transition",
+              section === "attendance" && "rotate-90 text-teal-600"
+            )}
+            aria-hidden
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => setSection((s) => (s === "meta" ? null : "meta"))}
+          className={cn(
+            "flex items-start gap-4 rounded-2xl border bg-white p-5 text-left shadow-sm transition",
+            section === "meta"
+              ? "border-violet-400 ring-2 ring-violet-500/30"
+              : "border-slate-200 hover:border-violet-200 hover:bg-violet-50/40"
+          )}
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
+            <Trophy className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-semibold text-slate-900">Bônus de meta</div>
+            <p className="mt-1 text-sm leading-snug text-slate-500">
+              Faturamento, lucro líquido e distribuição se a meta do mês for batida.
+            </p>
+          </div>
+          <ChevronRight
+            className={cn(
+              "mt-1 h-5 w-5 shrink-0 text-slate-400 transition",
+              section === "meta" && "rotate-90 text-violet-600"
+            )}
+            aria-hidden
+          />
+        </button>
+      </div>
+
+      {section === "attendance" ? <AttendanceCard key={`${month}-${attendanceKey}`} month={month} /> : null}
+
+      {section === "meta" && isAdmin ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/dashboard/configuracoes"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <Settings className="h-4 w-4" aria-hidden />
+            Metas
+          </Link>
+          <button
+            type="button"
+            onClick={computeBonus}
+            disabled={computing || !preview?.isActive}
+            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+          >
+            {computing ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Calculator className="h-4 w-4" aria-hidden />
+            )}
+            Calcular bônus
+          </button>
+        </div>
+      ) : null}
+
+      {section === "meta" && preview && !preview.isActive ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Bônus de <b>{monthLabelPT(month)}</b> não está ativo. Configure e ative
           em <Link href="/dashboard/configuracoes" className="underline">Configurações</Link>.
         </div>
       ) : null}
 
-      <AttendanceCard month={month} />
-
-      {loading ? (
+      {section !== "meta" ? null : loading ? (
         <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Carregando...
