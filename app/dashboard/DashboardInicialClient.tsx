@@ -130,6 +130,42 @@ export default function DashboardInicialClient() {
     return () => window.clearInterval(t);
   }, [load]);
 
+  const [takingGap, setTakingGap] = useState<string | null>(null);
+
+  async function takeGap(g: AgendaGap) {
+    const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
+    if (takingGap) return;
+    if (
+      !confirm(
+        `Pegar ${g.label} ${g.startHHMM}–${g.endHHMM} em ${brFromISO(g.dateISO)}?`
+      )
+    ) {
+      return;
+    }
+    setTakingGap(key);
+    try {
+      const res = await fetch("/api/agenda", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "SHIFT",
+          date: brFromISO(g.dateISO),
+          start: g.startHHMM,
+          end: g.endHHMM,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Não foi possível pegar este horário.");
+      }
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erro ao pegar horário.");
+    } finally {
+      setTakingGap(null);
+    }
+  }
+
   const bonus = data?.bonusProgress || null;
   const showCelebration = Boolean(
     bonus?.revenueGoalMet || (bonus?.isRenewalDay && bonus.previousMonth?.revenueGoalMet)
@@ -184,16 +220,24 @@ export default function DashboardInicialClient() {
           </div>
         </div>
 
-        <AgendaPresenceCard data={data} />
+        <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
       </div>
 
-      <AgendaWeekCard data={data} />
+      <AgendaWeekCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
       </div>
     </div>
   );
 }
 
-function AgendaPresenceCard({ data }: { data: InicialData | null }) {
+function AgendaPresenceCard({
+  data,
+  takingGap,
+  onTakeGap,
+}: {
+  data: InicialData | null;
+  takingGap: string | null;
+  onTakeGap: (g: AgendaGap) => void;
+}) {
   const presenceById = new Map((data?.teamPresence || []).map((m) => [m.id, m]));
   const agendaUserIds = new Set((data?.agendaToday || []).map((e) => e.user.id));
   const extrasOnline = (data?.teamPresence || []).filter(
@@ -279,11 +323,22 @@ function AgendaPresenceCard({ data }: { data: InicialData | null }) {
           <ul className="mt-1 space-y-0.5 text-xs text-amber-900">
             {(data?.agendaGaps || [])
               .filter((g) => g.dateISO === data?.todayISO)
-              .map((g, i) => (
+              .map((g, i) => {
+                const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
+                return (
                 <li key={`${g.kind}-${g.startHHMM}-${i}`}>
-                  {g.label}: {g.startHHMM}–{g.endHHMM}
+                  <button
+                    type="button"
+                    disabled={!!takingGap}
+                    title="Clique para pegar este horário"
+                    onClick={() => onTakeGap(g)}
+                    className="text-left font-medium underline-offset-2 hover:underline disabled:opacity-60"
+                  >
+                    {takingGap === key ? "Pegando…" : `${g.label}: ${g.startHHMM}–${g.endHHMM} · pegar`}
+                  </button>
                 </li>
-              ))}
+                );
+              })}
           </ul>
         </div>
       ) : null}
@@ -319,7 +374,15 @@ function AgendaPresenceCard({ data }: { data: InicialData | null }) {
   );
 }
 
-function AgendaWeekCard({ data }: { data: InicialData | null }) {
+function AgendaWeekCard({
+  data,
+  takingGap,
+  onTakeGap,
+}: {
+  data: InicialData | null;
+  takingGap: string | null;
+  onTakeGap: (g: AgendaGap) => void;
+}) {
   const start = data?.weekStartISO || data?.todayISO;
   const days = start ? Array.from({ length: 7 }, (_, i) => addDaysISO(start, i)) : [];
   const week = data?.agendaWeek || [];
@@ -370,14 +433,23 @@ function AgendaWeekCard({ data }: { data: InicialData | null }) {
                       </span>
                     </div>
                   ))}
-                  {dayGaps.map((g, i) => (
-                    <div
+                  {dayGaps.map((g, i) => {
+                    const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
+                    return (
+                    <button
                       key={`${g.kind}-${i}`}
-                      className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-amber-900"
+                      type="button"
+                      disabled={!!takingGap}
+                      title="Clique para pegar este horário"
+                      onClick={() => onTakeGap(g)}
+                      className="w-full rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-left text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:opacity-60"
                     >
-                      Vago {g.label} {g.startHHMM}–{g.endHHMM}
-                    </div>
-                  ))}
+                      {takingGap === key
+                        ? "Pegando…"
+                        : `Vago ${g.label} ${g.startHHMM}–${g.endHHMM}`}
+                    </button>
+                    );
+                  })}
                 </div>
               </div>
             );
