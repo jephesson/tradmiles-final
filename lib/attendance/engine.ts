@@ -145,6 +145,13 @@ export type LedgerLine = {
   saleId?: string;
 };
 
+export type DayAttendance = {
+  dateISO: string;
+  declaredHours: number;
+  fulfilledHours: number;
+  attendance: number;
+};
+
 export type PersonAttendance = {
   userId: string;
   name: string;
@@ -157,6 +164,7 @@ export type PersonAttendance = {
   creditCount: number;
   adjustedHours: number;
   attendance: number;
+  days: DayAttendance[];
   minHours: number;
   eligible: boolean;
   ineligibleReason: string | null;
@@ -169,6 +177,13 @@ export type PersonAttendance = {
 export function attendanceRatio(fulfilledHours: number, declaredHours: number) {
   if (declaredHours <= 0) return 0;
   return fulfilledHours / declaredHours;
+}
+
+/** Média simples da assiduidade dos dias que tiveram hora declarada. */
+export function averageDayAttendance(days: DayAttendance[]) {
+  const counted = days.filter((day) => day.declaredHours > 0);
+  if (!counted.length) return 0;
+  return counted.reduce((sum, day) => sum + day.attendance, 0) / counted.length;
 }
 
 export function attendanceScore(args: {
@@ -302,22 +317,6 @@ export function computeAttendance(args: {
       });
     }
     const creditHours = creditLines.length;
-    const A = attendanceRatio(fulfilledHours, declaredHours);
-    const eligibleHours = fulfilledHours + 1e-12 >= period.minHours;
-    const eligibleA = A > 0.9;
-    let ineligibleReason: string | null = null;
-    if (declaredHours <= 0) ineligibleReason = "Sem horas declaradas no período";
-    else if (!eligibleA) ineligibleReason = "Assiduidade igual ou inferior a 90%";
-    else if (!eligibleHours) ineligibleReason = "Carga horária mínima não atingida";
-    const eligible = !ineligibleReason;
-    const score = eligible
-      ? attendanceScore({
-          attendance: A,
-          fulfilledHours,
-          creditHours,
-          minHours: period.minHours,
-        })
-      : null;
 
     const ledger: LedgerLine[] = [];
     for (const iv of mergeIntervals(ownShifts)) {
@@ -341,6 +340,39 @@ export function computeAttendance(args: {
     ledger.push(...creditLines);
     ledger.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.startHHMM.localeCompare(b.startHHMM));
 
+    const byDay = new Map<string, { declaredHours: number; fulfilledHours: number }>();
+    for (const line of ledger) {
+      if (line.origin === "CREDIT") continue;
+      const current = byDay.get(line.dateISO) || { declaredHours: 0, fulfilledHours: 0 };
+      current.declaredHours += line.declaredHours;
+      current.fulfilledHours += line.fulfilledHours;
+      byDay.set(line.dateISO, current);
+    }
+    const daysAttendance: DayAttendance[] = [...byDay.entries()]
+      .map(([dateISO, hours]) => ({
+        dateISO,
+        declaredHours: hours.declaredHours,
+        fulfilledHours: hours.fulfilledHours,
+        attendance: attendanceRatio(hours.fulfilledHours, hours.declaredHours),
+      }))
+      .sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+    const A = averageDayAttendance(daysAttendance);
+    const eligibleHours = fulfilledHours + 1e-12 >= period.minHours;
+    const eligibleA = A > 0.9;
+    let ineligibleReason: string | null = null;
+    if (declaredHours <= 0) ineligibleReason = "Sem horas declaradas no período";
+    else if (!eligibleA) ineligibleReason = "Assiduidade igual ou inferior a 90%";
+    else if (!eligibleHours) ineligibleReason = "Carga horária mínima não atingida";
+    const eligible = !ineligibleReason;
+    const score = eligible
+      ? attendanceScore({
+          attendance: A,
+          fulfilledHours,
+          creditHours,
+          minHours: period.minHours,
+        })
+      : null;
+
     return {
       userId: u.id,
       name: u.name,
@@ -353,6 +385,7 @@ export function computeAttendance(args: {
       creditCount: creditLines.length,
       adjustedHours: fulfilledHours + creditHours,
       attendance: A,
+      days: daysAttendance,
       minHours: period.minHours,
       eligible,
       ineligibleReason,

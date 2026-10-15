@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
         creditCount: p.creditCount,
         adjustedHours: p.adjustedHours,
         attendance: p.attendance,
+        days: p.days,
         minHours: p.minHours,
         eligible: p.eligible,
         ineligibleReason: p.ineligibleReason,

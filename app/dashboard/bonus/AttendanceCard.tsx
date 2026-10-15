@@ -16,6 +16,13 @@ type LedgerLine = {
   note: string;
 };
 
+type DayAttendance = {
+  dateISO: string;
+  declaredHours: number;
+  fulfilledHours: number;
+  attendance: number;
+};
+
 type Person = {
   userId: string;
   name: string;
@@ -28,6 +35,7 @@ type Person = {
   creditCount: number;
   adjustedHours: number;
   attendance: number;
+  days: DayAttendance[];
   minHours: number;
   eligible: boolean;
   ineligibleReason: string | null;
@@ -39,6 +47,10 @@ type Person = {
 
 function fmtH(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " h";
+}
+
+function fmtPct(n: number) {
+  return (n * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
 }
 
 function fmtDateBR(iso: string) {
@@ -138,8 +150,9 @@ export default function AttendanceCard({ month }: { month: string }) {
             <Stat label="Cumpridas" value={fmtH(focus.fulfilledHours)} />
             <Stat label="Não cumpridas" value={fmtH(focus.missedHours)} />
             <Stat
-              label="Assiduidade"
-              value={`${(focus.attendance * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`}
+              label="Média dos dias"
+              value={fmtPct(focus.attendance)}
+              hint="Assiduidade de cada dia, na média"
             />
             <Stat label="Emissões extras" value={String(focus.creditCount)} hint="1h de crédito cada" />
             <Stat label="Crédito (pontuação)" value={fmtH(focus.creditHours)} hint="Não é hora trabalhada" />
@@ -174,7 +187,7 @@ export default function AttendanceCard({ month }: { month: string }) {
               <th className="py-2 pr-3 text-left">Ranking</th>
               <th className="py-2 px-2 text-right">Decl.</th>
               <th className="py-2 px-2 text-right">Cump.</th>
-              <th className="py-2 px-2 text-right">A</th>
+              <th className="py-2 px-2 text-right">Média</th>
               <th className="py-2 px-2 text-right">Crédito</th>
               <th className="py-2 pl-2 text-right">S</th>
             </tr>
@@ -196,9 +209,7 @@ export default function AttendanceCard({ month }: { month: string }) {
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums">{fmtH(p.declaredHours)}</td>
                 <td className="py-2 px-2 text-right tabular-nums">{fmtH(p.fulfilledHours)}</td>
-                <td className="py-2 px-2 text-right tabular-nums">
-                  {(p.attendance * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
-                </td>
+                <td className="py-2 px-2 text-right tabular-nums">{fmtPct(p.attendance)}</td>
                 <td className="py-2 px-2 text-right tabular-nums">{fmtH(p.creditHours)}</td>
                 <td className="py-2 pl-2 text-right tabular-nums font-semibold">
                   {p.score == null ? "—" : p.score.toFixed(2)}
@@ -213,7 +224,9 @@ export default function AttendanceCard({ month }: { month: string }) {
         .filter((p) => p.userId === (openUser || me?.userId))
         .map((p) => (
           <div key={p.userId} className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
-            <div className="text-xs font-semibold text-slate-700">Extrato · {p.name}</div>
+            <div className="text-xs font-semibold text-slate-700">Por dia · {p.name}</div>
+            <DayTable days={p.days || []} />
+            <div className="mt-3 text-xs font-semibold text-slate-700">Extrato · {p.name}</div>
             <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
               {p.ledger.length === 0 ? (
                 <li className="text-slate-500">Sem lançamentos ainda neste período.</li>
@@ -239,6 +252,36 @@ export default function AttendanceCard({ month }: { month: string }) {
             </ul>
           </div>
         ))}
+    </div>
+  );
+}
+
+function DayTable({ days }: { days: DayAttendance[] }) {
+  if (!days.length) {
+    return <p className="mt-3 text-xs text-slate-500">Nenhum dia com horário neste período.</p>;
+  }
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="min-w-full text-xs">
+        <thead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="py-1.5 pr-3 text-left">Dia</th>
+            <th className="py-1.5 px-2 text-right">Declaradas</th>
+            <th className="py-1.5 px-2 text-right">Cumpridas</th>
+            <th className="py-1.5 pl-2 text-right">Assiduidade</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {days.map((day) => (
+            <tr key={day.dateISO}>
+              <td className="py-1.5 pr-3 text-slate-800">{fmtDateBR(day.dateISO)}</td>
+              <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.declaredHours)}</td>
+              <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.fulfilledHours)}</td>
+              <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">{fmtPct(day.attendance)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

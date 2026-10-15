@@ -182,6 +182,34 @@ describe("regras de horas", () => {
     assert.equal(p.creditHours, 1);
     assert.equal(p.attendance, 1.5 / 2);
     assert.equal(p.adjustedHours, 2.5);
+    assert.equal(p.days.length, 1);
+    assert.equal(p.days[0].attendance, 1.5 / 2);
+  });
+
+  it("18. a assiduidade é a média dos dias, não o total de horas", () => {
+    const r = computeAttendance({
+      period,
+      users,
+      shifts: [
+        { userId: "a", dateISO: "2026-10-20", startMin: 8 * 60, endMin: 16 * 60 },
+        { userId: "a", dateISO: "2026-10-21", startMin: 8 * 60, endMin: 10 * 60 },
+      ],
+      sessions: [
+        {
+          userId: "a",
+          startedAt: at("2026-10-20", "08:00"),
+          lastActivityAt: at("2026-10-20", "15:00"),
+        },
+      ],
+      sales: [],
+    });
+    const p = r.people.find((x) => x.userId === "a")!;
+    assert.equal(p.days.length, 2);
+    assert.equal(p.days[0].attendance, 1);
+    assert.equal(p.days[1].attendance, 0);
+    assert.equal(p.attendance, 0.5);
+    assert.equal(p.declaredHours, 10);
+    assert.equal(p.fulfilledHours, 8);
   });
 
   it("14. intervalos simultâneos não duplicam", () => {
