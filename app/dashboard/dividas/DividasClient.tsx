@@ -24,6 +24,8 @@ type Debt = {
 };
 
 type LinkableUser = { id: string; name: string; login: string; role: string };
+type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
+type CreditorPix = { pixTipo: PixTipo | null; chavePix: string | null };
 
 type CreditorGroup = {
   key: string;
@@ -35,6 +37,7 @@ type CreditorGroup = {
   openCount: number;
   nextDueDate: string | null;
   linkedUser: LinkableUser | null;
+  pix: CreditorPix | null;
 };
 
 function linkRoleLabel(role: string) {
@@ -134,6 +137,9 @@ export default function DividasClient() {
   const [loading, setLoading] = useState(false);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [people, setPeople] = useState<LinkableUser[]>([]);
+  const [pixByName, setPixByName] = useState<Record<string, CreditorPix>>({});
+  const [pixDraft, setPixDraft] = useState<Record<string, { pixTipo: PixTipo; chavePix: string }>>({});
+  const [pixSavingKey, setPixSavingKey] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -172,6 +178,8 @@ export default function DividasClient() {
       if (!j?.ok) throw new Error(j?.error || "Erro ao carregar dívidas");
       setDebts(j.data || []);
       setPeople(j.people || []);
+      setPixByName(j.pixByName || {});
+      setPixDraft({});
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -231,6 +239,7 @@ export default function DividasClient() {
           openCount: 0,
           nextDueDate: null,
           linkedUser: null,
+          pix: pixByName[key] || null,
         });
       }
       const g = map.get(key)!;
@@ -362,7 +371,7 @@ export default function DividasClient() {
     });
 
     return groups;
-  }, [filtered, sortMode]);
+  }, [filtered, sortMode, pixByName]);
 
   const visibleGroups = useMemo(() => {
     if (statusFilter === "PAID") return grouped;
@@ -490,6 +499,52 @@ export default function DividasClient() {
       setPixDestino(j.data);
     } catch (e: any) {
       alert(e.message);
+    }
+  }
+
+  function pixFields(group: CreditorGroup) {
+    const key = groupActionKey(group.key);
+    return (
+      pixDraft[key] || {
+        pixTipo: (group.pix?.pixTipo as PixTipo) || "CPF",
+        chavePix: group.pix?.chavePix || "",
+      }
+    );
+  }
+
+  async function savePersonPix(group: CreditorGroup) {
+    if (!group.key) return alert("Informe o nome da pessoa na dívida para vincular o PIX.");
+    const actionKey = groupActionKey(group.key);
+    const fields = pixFields(group);
+    setPixSavingKey(actionKey);
+    try {
+      const r = await fetch("/api/dividas/credor", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupKey: actionKey,
+          pixTipo: fields.pixTipo,
+          chavePix: fields.chavePix,
+        }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao salvar PIX");
+      setPixByName((prev) => ({
+        ...prev,
+        [group.key]: {
+          pixTipo: j.data?.pix?.pixTipo || fields.pixTipo,
+          chavePix: j.data?.pix?.chavePix || fields.chavePix,
+        },
+      }));
+      setPixDraft((prev) => {
+        const next = { ...prev };
+        delete next[actionKey];
+        return next;
+      });
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setPixSavingKey(null);
     }
   }
 
@@ -636,9 +691,66 @@ export default function DividasClient() {
             ))}
           </select>
           <p className="mt-1 text-xs text-slate-500">
-            Quando vinculado, o PIX usa a chave cadastrada na pessoa.
+            Opcional: se vincular alguém da equipe, o PIX usa a chave do cadastro dela. Senão, usa o PIX abaixo.
           </p>
         </div>
+
+        {g.key ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">PIX desta pessoa</div>
+            {(() => {
+              const fields = pixFields(g);
+              const actionKey = groupActionKey(g.key);
+              const saved = Boolean(g.pix?.chavePix);
+              return (
+                <>
+                  <div className="mt-2 grid gap-2 md:grid-cols-[160px_1fr_auto]">
+                    <select
+                      className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      value={fields.pixTipo}
+                      onChange={(e) =>
+                        setPixDraft((prev) => ({
+                          ...prev,
+                          [actionKey]: { pixTipo: e.target.value as PixTipo, chavePix: fields.chavePix },
+                        }))
+                      }
+                    >
+                      <option value="CPF">CPF</option>
+                      <option value="CNPJ">CNPJ</option>
+                      <option value="EMAIL">E-mail</option>
+                      <option value="TELEFONE">Telefone</option>
+                      <option value="ALEATORIA">Aleatória</option>
+                    </select>
+                    <input
+                      className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      placeholder="Chave PIX da pessoa"
+                      value={fields.chavePix}
+                      onChange={(e) =>
+                        setPixDraft((prev) => ({
+                          ...prev,
+                          [actionKey]: { pixTipo: fields.pixTipo, chavePix: e.target.value },
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void savePersonPix(g)}
+                      disabled={pixSavingKey === actionKey || !fields.chavePix.trim()}
+                      className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {pixSavingKey === actionKey ? "Salvando..." : saved ? "Atualizar PIX" : "Vincular PIX"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {saved
+                      ? `PIX vinculado: ${g.pix?.pixTipo} · ${g.pix?.chavePix}. Fica salvo nesta pessoa para os próximos pagamentos.`
+                      : "Salva a chave nesta pessoa (pelo nome da dívida). Depois é só Pagar via PIX."}
+                  </p>
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
 
         {g.balanceCents > 0 ? (
           <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -1123,6 +1235,8 @@ export default function DividasClient() {
                             <div className="font-semibold text-slate-900">{g.name}</div>
                             <div className="text-xs text-slate-500">
                               {g.debts.length} dívida(s) • {g.openCount} aberta(s)
+                              {g.pix?.chavePix ? " • PIX vinculado" : ""}
+                              {g.linkedUser ? ` • ${g.linkedUser.name}` : ""}
                             </div>
                           </td>
                           <td className="px-3 py-3 text-slate-700">{g.debts.length}</td>

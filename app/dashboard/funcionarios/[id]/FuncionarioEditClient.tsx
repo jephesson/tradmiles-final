@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CedentesBreakdown, type CedentesCount } from "../CedentesBreakdown";
 
 type PixTipo = "CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA";
 
@@ -18,7 +19,7 @@ type FuncItem = {
   totpEnabled?: boolean;
   inviteCode: string | null;
   createdAt: string;
-  _count?: { cedentes: number };
+  _count?: CedentesCount;
 };
 
 function onlyDigits(v: string) {
@@ -271,9 +272,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
 
       {!loading && item && (
         <form onSubmit={salvarDados} className="space-y-4 rounded-2xl border p-4">
-          <div className="text-xs text-slate-500">
-            Cedentes vinculados: <span className="font-semibold">{item._count?.cedentes ?? 0}</span>
-          </div>
+          <CedentesBreakdown counts={item._count} />
 
           <div>
             <label className="block text-sm mb-1">Nome completo</label>

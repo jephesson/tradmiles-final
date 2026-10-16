@@ -1150,6 +1150,19 @@ model Debt {
   @@map("debts")
 }
 
+/** PIX da pessoa da dívida (credor), sem precisar ser funcionário. */
+model PersonDebtCreditor {
+  id       String   @id @default(cuid())
+  name     String   @unique
+  pixTipo  PixTipo?
+  chavePix String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("person_debt_creditors")
+}
+
 model DebtPayment {
   id          String   @id @default(cuid())
   debtId      String

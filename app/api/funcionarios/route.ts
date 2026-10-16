@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { parsePixCadastro } from "@/lib/inter/pix-key";
+import { countCedentesByOwner, serializeCedenteBreakdown } from "@/lib/cedentes/ownerCounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,9 +61,10 @@ export async function GET() {
         totpEnabled: true,
         createdAt: true,
         employeeInvite: { select: { code: true, isActive: true } },
-        _count: { select: { cedentesOwned: true } },
       },
     });
+
+    const breakdowns = await countCedentesByOwner(users.map((u) => u.id));
 
     const data = users.map((u) => ({
       id: u.id,
@@ -78,7 +80,7 @@ export async function GET() {
       totpEnabled: u.totpEnabled,
       createdAt: u.createdAt,
       inviteCode: u.employeeInvite?.code ?? null,
-      _count: { cedentes: u._count.cedentesOwned },
+      _count: serializeCedenteBreakdown(breakdowns.get(u.id)!),
     }));
 
     return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });

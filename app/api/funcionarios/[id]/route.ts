@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, requireSession } from "@/lib/require-session";
 import { parsePixCadastro } from "@/lib/inter/pix-key";
+import { countCedentesByOwner, serializeCedenteBreakdown } from "@/lib/cedentes/ownerCounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,11 +53,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       totpEnabled: true,
       createdAt: true,
       employeeInvite: { select: { code: true, isActive: true } },
-      _count: { select: { cedentesOwned: true } },
     },
   });
 
   if (!u) return NextResponse.json({ ok: false, error: "Funcionário não encontrado." }, { status: 404, headers: noCacheHeaders() });
+
+  const breakdowns = await countCedentesByOwner([u.id]);
 
   return NextResponse.json(
     {
@@ -75,7 +77,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         totpEnabled: u.totpEnabled,
         createdAt: u.createdAt,
         inviteCode: u.employeeInvite?.code ?? null,
-        _count: { cedentes: u._count.cedentesOwned },
+        _count: serializeCedenteBreakdown(breakdowns.get(u.id)!),
       },
     },
     { headers: noCacheHeaders() }

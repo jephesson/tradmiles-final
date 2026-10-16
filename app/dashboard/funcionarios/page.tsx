@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CedentesBreakdown, type CedentesCount } from "./CedentesBreakdown";
 
 type FuncItem = {
   id: string;
@@ -13,7 +14,7 @@ type FuncItem = {
   totpEnabled?: boolean;
   inviteCode: string | null;
   createdAt: string;
-  _count?: { cedentes: number };
+  _count?: CedentesCount;
 };
 
 function baseUrl() {
@@ -123,9 +124,7 @@ export default function FuncionariosPage() {
                       <span className="font-medium">{f.cpf || "-"}</span> • Time:{" "}
                       <span className="font-medium">{f.team}</span>
                     </div>
-                    <div className="text-xs text-slate-500">
-                      Cedentes vinculados: <span className="font-semibold">{f._count?.cedentes ?? 0}</span>
-                    </div>
+                    <CedentesBreakdown counts={f._count} />
                   </div>
 
                   <div className="flex flex-col gap-2 min-w-[360px]">

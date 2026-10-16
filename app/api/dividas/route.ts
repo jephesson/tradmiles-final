@@ -92,7 +92,15 @@ export async function GET() {
       select: { id: true, name: true, login: true, role: true },
     });
 
-    return NextResponse.json({ ok: true, data, people }, { status: 200 });
+    const pixRows = await prisma.personDebtCreditor.findMany({
+      select: { name: true, pixTipo: true, chavePix: true },
+    });
+    const pixByName: Record<string, { pixTipo: string | null; chavePix: string | null }> = {};
+    for (const row of pixRows) {
+      pixByName[row.name] = { pixTipo: row.pixTipo, chavePix: row.chavePix };
+    }
+
+    return NextResponse.json({ ok: true, data, people, pixByName }, { status: 200 });
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
