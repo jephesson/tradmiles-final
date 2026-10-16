@@ -220,36 +220,38 @@ export default function AttendanceCard({ month }: { month: string }) {
         </table>
       </div>
 
-      {ranking
-        .filter((p) => p.userId === (openUser || me?.userId))
-        .map((p) => (
+      {(isAdmin ? ranking : ranking.filter((p) => p.userId === (openUser || me?.userId))).map((p) => (
           <div key={p.userId} className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
             <div className="text-xs font-semibold text-slate-700">Por dia · {p.name}</div>
             <DayTable days={p.days || []} />
-            <div className="mt-3 text-xs font-semibold text-slate-700">Extrato · {p.name}</div>
-            <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
-              {p.ledger.length === 0 ? (
-                <li className="text-slate-500">Sem lançamentos ainda neste período.</li>
-              ) : (
-                p.ledger.map((l, i) => (
-                  <li key={`${l.dateISO}-${l.origin}-${i}`} className="rounded-lg bg-white px-2 py-1.5">
-                    <span className="font-medium text-slate-800">
-                      {fmtDateBR(l.dateISO)} {l.startHHMM}–{l.endHHMM}
-                    </span>
-                    <span className="text-slate-500"> · {originLabel(l.origin)}</span>
-                    {l.origin === "CREDIT" ? (
-                      <span className="text-violet-700"> · +{fmtH(l.creditHours)} crédito</span>
-                    ) : (
-                      <span className="text-slate-600">
-                        {" "}
-                        · decl. {fmtH(l.declaredHours)} · cump. {fmtH(l.fulfilledHours)}
-                      </span>
-                    )}
-                    <div className="text-[11px] text-slate-500">{l.note}</div>
-                  </li>
-                ))
-              )}
-            </ul>
+            {!isAdmin || p.userId === (openUser || me?.userId) ? (
+              <>
+                <div className="mt-3 text-xs font-semibold text-slate-700">Extrato · {p.name}</div>
+                <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
+                  {p.ledger.length === 0 ? (
+                    <li className="text-slate-500">Sem lançamentos ainda neste período.</li>
+                  ) : (
+                    p.ledger.map((l, i) => (
+                      <li key={`${l.dateISO}-${l.origin}-${i}`} className="rounded-lg bg-white px-2 py-1.5">
+                        <span className="font-medium text-slate-800">
+                          {fmtDateBR(l.dateISO)} {l.startHHMM}–{l.endHHMM}
+                        </span>
+                        <span className="text-slate-500"> · {originLabel(l.origin)}</span>
+                        {l.origin === "CREDIT" ? (
+                          <span className="text-violet-700"> · +{fmtH(l.creditHours)} crédito</span>
+                        ) : (
+                          <span className="text-slate-600">
+                            {" "}
+                            · decl. {fmtH(l.declaredHours)} · cump. {fmtH(l.fulfilledHours)}
+                          </span>
+                        )}
+                        <div className="text-[11px] text-slate-500">{l.note}</div>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </>
+            ) : null}
           </div>
         ))}
     </div>
