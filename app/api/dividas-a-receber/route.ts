@@ -151,6 +151,7 @@ export async function GET(req: Request) {
         owner: { select: { id: true, name: true, login: true } },
         employeeUser: { select: { id: true, name: true, login: true } },
         dayCharges: { orderBy: { date: "desc" }, take: 12 },
+        rates: { orderBy: { effectiveFrom: "asc" } },
         _count: { select: { payments: true, dayCharges: true } },
       },
     }),
@@ -328,6 +329,13 @@ export async function POST(req: Request) {
       employeeUserId,
       dailyProfitBps,
       startsOn: kind === "FUNCIONARIO" ? startsOn : null,
+      ...(kind === "FUNCIONARIO"
+        ? {
+            rates: {
+              create: { effectiveFrom: startsOn, dailyProfitBps },
+            },
+          }
+        : {}),
     },
   });
 

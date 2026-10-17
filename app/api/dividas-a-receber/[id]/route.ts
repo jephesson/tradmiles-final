@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { canManageFuncionarioDebt } from "@/lib/dividas-funcionario-access";
 import { computeStatus } from "../route";
+import { todayISORecife } from "@/lib/payouts/autoCompute";
+import { applyEmployeeDebtDiscountsRange } from "@/lib/payouts/applyEmployeeDebtDiscounts";
+import { bpsForDate } from "@/lib/payouts/employeeDebtRate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,21 +34,6 @@ function normalizeText(v: unknown, max = 2000) {
   return s.length > max ? s.slice(0, max) : s;
 }
 
-function todayISORecife() {
-  const p = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Recife",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(new Date())
-    .reduce<Record<string, string>>((acc, x) => {
-      acc[x.type] = x.value;
-      return acc;
-    }, {});
-  return `${p.year}-${p.month}-${p.day}`;
-}
-
 export async function PATCH(req: Request, ctx: RouteCtx) {
   const session = await requireSession();
   const { id } = await ctx.params;
@@ -57,6 +45,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
   }
 
   const data: Record<string, unknown> = {};
+  let applyFrom: string | null = null;
   if (body.status !== undefined) {
     const status = String(body.status).toUpperCase();
     if (!["OPEN", "PARTIAL", "PAID", "CANCELED"].includes(status)) {
@@ -66,6 +55,50 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     if (status !== "CANCELED" && status !== "PAID") {
       data.status = computeStatus(existing.totalCents, existing.receivedCents);
     }
+  }
+
+  const wantsRateChange =
+    existing.kind === "FUNCIONARIO" &&
+    (body.dailyProfitPercent !== undefined || body.dailyProfitBps !== undefined);
+
+  if (wantsRateChange) {
+    const percent = Number(String(body.dailyProfitPercent ?? "").replace(",", "."));
+    const fromBodyBps = safeInt(body.dailyProfitBps, 0);
+    const dailyProfitBps = fromBodyBps > 0
+      ? Math.min(10000, fromBodyBps)
+      : Math.min(10000, Math.max(0, Math.round((Number.isFinite(percent) ? percent : 0) * 100)));
+    if (dailyProfitBps <= 0) {
+      return NextResponse.json({ ok: false, error: "Informe o novo percentual." }, { status: 400 });
+    }
+    const fromRaw = String(body.effectiveFrom || "").slice(0, 10);
+    const effectiveFrom = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : todayISORecife();
+    const startFloor = String(existing.startsOn || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(startFloor) && effectiveFrom < startFloor) {
+      return NextResponse.json(
+        { ok: false, error: "A data do novo percentual não pode ser antes do início da dívida." },
+        { status: 400 }
+      );
+    }
+
+    await prisma.employeeDebtRate.upsert({
+      where: { dividaId_effectiveFrom: { dividaId: existing.id, effectiveFrom } },
+      create: { dividaId: existing.id, effectiveFrom, dailyProfitBps },
+      update: { dailyProfitBps },
+    });
+
+    const rates = await prisma.employeeDebtRate.findMany({
+      where: { dividaId: existing.id },
+      select: { effectiveFrom: true, dailyProfitBps: true },
+    });
+    const today = todayISORecife();
+    data.dailyProfitBps = bpsForDate(rates, today, dailyProfitBps);
+
+    const pct = dailyProfitBps / 100;
+    const pctLabel = Number.isInteger(pct) ? String(pct) : pct.toFixed(2).replace(".", ",");
+    const note = `[% ${pctLabel} a partir de ${effectiveFrom}]`;
+    const prev = String(existing.description || "").trim();
+    data.description = prev ? `${prev}\n${note}` : note;
+    applyFrom = effectiveFrom;
   }
 
   const addCents = Math.max(0, safeInt(body.addCents, 0));
@@ -95,7 +128,15 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
   const row = await prisma.dividaAReceber.update({
     where: { id: existing.id },
     data,
+    include: { rates: { orderBy: { effectiveFrom: "asc" } } },
   });
+
+  if (applyFrom) {
+    const today = todayISORecife();
+    if (applyFrom <= today) {
+      await applyEmployeeDebtDiscountsRange(session.team, applyFrom, today);
+    }
+  }
 
   return NextResponse.json({ ok: true, row });
 }

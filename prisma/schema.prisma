@@ -2191,6 +2191,7 @@ model DividaAReceber {
   /// YYYY-MM-DD — a partir deste dia o desconto automático começa.
   startsOn String?
 
+  rates EmployeeDebtRate[]
   payments DividaAReceberPagamento[]
   dayCharges EmployeeDebtDayCharge[]
 
@@ -2203,6 +2204,24 @@ model DividaAReceber {
   @@index([createdAt])
   @@index([team, kind, employeeUserId])
   @@map("dividas_a_receber")
+}
+
+/// Faixas de % do desconto automático. Vale a última faixa com effectiveFrom <= o dia.
+model EmployeeDebtRate {
+  id String @id @default(cuid())
+
+  dividaId String
+  divida   DividaAReceber @relation(fields: [dividaId], references: [id], onDelete: Cascade)
+
+  /// YYYY-MM-DD
+  effectiveFrom  String
+  dailyProfitBps Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([dividaId, effectiveFrom])
+  @@index([dividaId])
+  @@map("employee_debt_rates")
 }
 
 model EmployeeDebtDayCharge {

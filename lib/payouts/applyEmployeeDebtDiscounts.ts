@@ -7,6 +7,7 @@ import {
 import { isFirstDayOfMonth } from "@/lib/bonus/monthlyBonus";
 import { day1BonusByUser } from "@/lib/card-cashback";
 import { todayISORecife } from "@/lib/payouts/autoCompute";
+import { bpsForDate } from "@/lib/payouts/employeeDebtRate";
 
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -150,6 +151,7 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
       receivedCents: true,
       dailyProfitBps: true,
       status: true,
+      rates: { select: { effectiveFrom: true, dailyProfitBps: true } },
     },
   });
 
@@ -250,7 +252,7 @@ export async function applyEmployeeDebtDiscountsForDate(team: string, date: stri
         safeInt(debt.receivedCents, 0) - (existing ? existing.amountCents : 0)
       );
       const balance = Math.max(0, safeInt(debt.totalCents, 0) - receivedWithoutToday);
-      const bps = safeInt(debt.dailyProfitBps, 0);
+      const bps = bpsForDate(debt.rates, date, safeInt(debt.dailyProfitBps, 0));
       const effectiveBps = bps > 0 ? bps : 10000;
       const want = Math.round((lucroBase * effectiveBps) / 10000);
       const amount = Math.min(want, balance, remainingPay);

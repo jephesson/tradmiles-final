@@ -25,6 +25,11 @@ type DayCharge = {
   amountCents: number;
   lucroBaseCents: number;
 };
+type DebtRate = {
+  id?: string;
+  effectiveFrom: string;
+  dailyProfitBps: number;
+};
 type Row = {
   id: string;
   debtorName: string;
@@ -41,6 +46,7 @@ type Row = {
   kind?: Kind;
   dailyProfitBps?: number;
   startsOn?: string | null;
+  rates?: DebtRate[];
   payments: Payment[];
   dayCharges?: DayCharge[];
   _count?: { payments?: number; dayCharges?: number };
@@ -80,6 +86,19 @@ function todayISO() {
 }
 function bpsToPercent(bps: number) {
   return ((bps || 0) / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+function currentBps(row: Pick<Row, "dailyProfitBps" | "rates">, today: string) {
+  const rates = [...(row.rates || [])].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  let bps = row.dailyProfitBps || 0;
+  for (const rate of rates) {
+    if (rate.effectiveFrom <= today) bps = rate.dailyProfitBps;
+  }
+  return bps;
+}
+function upcomingRate(row: Pick<Row, "rates">, today: string) {
+  return [...(row.rates || [])]
+    .filter((r) => r.effectiveFrom > today)
+    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[0];
 }
 function isAutoCommissionPayment(p: Payment) {
   return (p.note || "").includes("Desconto automático");
@@ -129,6 +148,11 @@ export default function DividasAReceberClient() {
   const [addingForId, setAddingForId] = useState<string | null>(null);
   const [addAmount, setAddAmount] = useState("0,00");
   const [addNote, setAddNote] = useState("");
+
+  const [rateForId, setRateForId] = useState<string | null>(null);
+  const [ratePercent, setRatePercent] = useState("");
+  const [rateFrom, setRateFrom] = useState(todayISO);
+  const [rateSaving, setRateSaving] = useState(false);
 
   const isEmployee = tab === "FUNCIONARIO";
 
@@ -249,6 +273,35 @@ export default function DividasAReceberClient() {
       return;
     }
     load();
+  }
+
+  async function saveRateChange() {
+    if (!rateForId) return;
+    const percent = Number(String(ratePercent).replace(",", "."));
+    if (!Number.isFinite(percent) || percent <= 0) {
+      alert("Informe o novo percentual.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rateFrom)) {
+      alert("Informe a data a partir da qual o novo percentual vale.");
+      return;
+    }
+    setRateSaving(true);
+    try {
+      const r = await fetch(`/api/dividas-a-receber/${rateForId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dailyProfitPercent: percent, effectiveFrom: rateFrom }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || "Erro ao alterar o percentual.");
+      setRateForId(null);
+      await load();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erro ao alterar o percentual.");
+    } finally {
+      setRateSaving(false);
+    }
   }
 
   async function addToDebt() {
@@ -493,7 +546,15 @@ export default function DividasAReceberClient() {
                         </td>
                       ) : null}
                       {isEmployee ? (
-                        <td className="p-3 font-semibold tabular-nums">{bpsToPercent(r.dailyProfitBps || 0)}%</td>
+                        <td className="p-3 font-semibold tabular-nums">
+                          <div>{bpsToPercent(currentBps(r, todayISO()))}%</div>
+                          {upcomingRate(r, todayISO()) ? (
+                            <div className="text-[11px] font-normal text-slate-500">
+                              {bpsToPercent(upcomingRate(r, todayISO())!.dailyProfitBps)}% a partir de{" "}
+                              {fmtDateBR(upcomingRate(r, todayISO())!.effectiveFrom)}
+                            </div>
+                          ) : null}
+                        </td>
                       ) : (
                         <td className="p-3">{fmtDateBR(r.dueDate)}</td>
                       )}
@@ -536,6 +597,19 @@ export default function DividasAReceberClient() {
                               className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium hover:bg-white"
                             >
                               {isEmployee ? "+ Abater" : "+ Recebimento"}
+                            </button>
+                          ) : null}
+                          {isEmployee && isAdmin && r.status !== "PAID" && r.status !== "CANCELED" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRateForId(r.id);
+                                setRatePercent(bpsToPercent(currentBps(r, todayISO())));
+                                setRateFrom(todayISO());
+                              }}
+                              className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium hover:bg-white"
+                            >
+                              Alterar %
                             </button>
                           ) : null}
                           {(!isEmployee || isAdmin) && r.status !== "CANCELED" ? (
@@ -776,8 +850,22 @@ export default function DividasAReceberClient() {
                 </div>
                 {isEmployee ? (
                   <>
-                    <div className="mt-2">Percentual: {bpsToPercent(detailRow.dailyProfitBps || 0)}%</div>
+                    <div className="mt-2">
+                      Percentual atual: {bpsToPercent(currentBps(detailRow, todayISO()))}%
+                    </div>
                     <div>Início: {fmtDateBR(detailRow.startsOn)}</div>
+                    {detailRow.rates?.length ? (
+                      <div className="mt-2 text-xs text-slate-600">
+                        {(detailRow.rates || [])
+                          .slice()
+                          .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
+                          .map((rate) => (
+                            <div key={`${rate.effectiveFrom}-${rate.dailyProfitBps}`}>
+                              {bpsToPercent(rate.dailyProfitBps)}% a partir de {fmtDateBR(rate.effectiveFrom)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <div>Vencimento: {fmtDateBR(detailRow.dueDate)}</div>
@@ -863,6 +951,56 @@ export default function DividasAReceberClient() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rateForId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div className="font-semibold">Alterar percentual do desconto</div>
+              <button type="button" onClick={() => setRateForId(null)} className="text-sm text-slate-500">
+                fechar
+              </button>
+            </div>
+            <div className="grid gap-3 p-5">
+              <p className="text-sm text-slate-600">
+                O que já foi descontado até o dia anterior continua. A partir da data abaixo, o desconto diário usa o
+                novo percentual.
+              </p>
+              <div>
+                <label className="text-[11px] font-semibold uppercase text-slate-500">Novo % do lucro diário</label>
+                <input
+                  value={ratePercent}
+                  onChange={(e) => setRatePercent(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-sm"
+                  placeholder="Ex.: 5"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold uppercase text-slate-500">A partir de qual dia</label>
+                <input
+                  type="date"
+                  value={rateFrom}
+                  onChange={(e) => setRateFrom(e.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t px-5 py-4">
+              <button type="button" onClick={() => setRateForId(null)} className="h-10 rounded-xl border px-4 text-sm">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveRateChange()}
+                disabled={rateSaving}
+                className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {rateSaving ? "Salvando..." : "Salvar percentual"}
+              </button>
             </div>
           </div>
         </div>
