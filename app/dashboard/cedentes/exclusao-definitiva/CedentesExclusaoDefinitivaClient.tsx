@@ -1,6 +1,7 @@
 "use client";
 
 import { buildExclusaoWhatsappShortMessage } from "@/lib/cedentes/exclusaoDefinitivaContent";
+import type { ExclusionReasonCode } from "@/lib/cedentes/exclusaoDefinitivaReasons";
 import {
   appendSmilesFlightsToExclusaoConfirm,
   formatUpcomingSmilesFlightsWarning,
@@ -10,10 +11,6 @@ import { useEffect, useMemo, useState } from "react";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ScopeMode = "ACCOUNT" | "PROGRAM";
-type ExclusionReasonCode =
-  | "LATAM_FACE_NO_RESPONSE"
-  | "LATAM_FACE_IMPOSSIBLE"
-  | "DATA_DELETION_REQUEST";
 
 type CedenteLite = {
   id: string;
