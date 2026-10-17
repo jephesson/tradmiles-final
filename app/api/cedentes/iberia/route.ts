@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
+import { cedenteIdsExcludedFromProgram } from "@/lib/cedentes/programExclusion";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -42,19 +43,26 @@ export async function GET(req: NextRequest) {
     const q = (searchParams.get("q") || "").trim();
     const ownerId = (searchParams.get("ownerId") || "").trim();
 
+    const excludedIds = await cedenteIdsExcludedFromProgram("IBERIA");
     const where: any = {
-      ...activeCedenteWhere(),
-      senhaIberia: { not: null },
+      AND: [
+        activeCedenteWhere(),
+        { senhaIberia: { not: null } },
+        ...(excludedIds.length ? [{ id: { notIn: excludedIds } }] : []),
+        ...(ownerId ? [{ ownerId }] : []),
+        ...(q
+          ? [
+              {
+                OR: [
+                  { nomeCompleto: { contains: q, mode: "insensitive" } },
+                  { identificador: { contains: q, mode: "insensitive" } },
+                  { cpf: { contains: q } },
+                ],
+              },
+            ]
+          : []),
+      ],
     };
-    if (ownerId) where.ownerId = ownerId;
-
-    if (q) {
-      where.OR = [
-        { nomeCompleto: { contains: q, mode: "insensitive" } },
-        { identificador: { contains: q, mode: "insensitive" } },
-        { cpf: { contains: q } },
-      ];
-    }
 
     const rows = await prisma.cedente.findMany({
       where,

@@ -86,6 +86,11 @@ const EXCLUSION_REASONS: Array<{ code: ExclusionReasonCode; label: string; text:
     text:
       "Solicitação expressa de exclusão dos dados e encerramento do vínculo operacional, com encerramento da parceria. As credenciais ficam só na lista de excluídos, para reacesso interno se necessário.",
   },
+  {
+    code: "PROGRAM_REMOVED",
+    label: "Remover só este programa",
+    text: "Remoção do cadastro neste programa específico. Os demais programas e o histórico de vendas permanecem.",
+  },
 ];
 
 function fmtDateTime(v?: string | null) {
@@ -195,6 +200,9 @@ export default function CedentesExclusaoDefinitivaClient() {
   useEffect(() => {
     if (reasonCode === "DATA_DELETION_REQUEST" && mode !== "ACCOUNT") {
       setMode("ACCOUNT");
+    }
+    if (reasonCode === "PROGRAM_REMOVED" && mode !== "PROGRAM") {
+      setMode("PROGRAM");
     }
   }, [reasonCode, mode]);
 
@@ -527,7 +535,7 @@ export default function CedentesExclusaoDefinitivaClient() {
             <select
               className="w-full rounded-xl border px-3 py-2 text-sm bg-white disabled:bg-slate-50"
               value={mode}
-              disabled={reasonCode === "DATA_DELETION_REQUEST"}
+              disabled={reasonCode === "DATA_DELETION_REQUEST" || reasonCode === "PROGRAM_REMOVED"}
               onChange={(e) => setMode(e.target.value as ScopeMode)}
             >
               <option value="ACCOUNT">Conta inteira</option>
@@ -536,6 +544,10 @@ export default function CedentesExclusaoDefinitivaClient() {
             {reasonCode === "DATA_DELETION_REQUEST" ? (
               <div className="text-xs text-slate-500">
                 Solicitação de exclusão de dados sempre remove a conta inteira e todos os programas.
+              </div>
+            ) : reasonCode === "PROGRAM_REMOVED" ? (
+              <div className="text-xs text-slate-500">
+                Remove só o programa escolhido. Os outros cadastros continuam.
               </div>
             ) : null}
           </label>

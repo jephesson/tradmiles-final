@@ -18,6 +18,7 @@ import {
   VP_TABLE_ROW,
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
+import { RemoveProgramCadastroButton } from "./RemoveProgramCadastroButton";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type SortField = "pontos" | "score" | "nome" | "responsavel" | "identificador";
@@ -32,6 +33,7 @@ type CedenteRow = {
   scoreMedia?: number;
   owner: { id: string; name: string; login: string };
   blockedPrograms?: Program[];
+  excludedPrograms?: Program[];
 };
 
 function fmtInt(n: number) {
@@ -122,6 +124,7 @@ export default function CedentesVisualizarEsferaClient() {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return rows.filter((r) => {
+      if ((r.excludedPrograms || []).includes("ESFERA")) return false;
       if (ownerFilter && r.owner?.id !== ownerFilter) return false;
       if (!s) return true;
       return (
@@ -404,6 +407,13 @@ export default function CedentesVisualizarEsferaClient() {
                       >
                         Editar pontos
                       </button>
+                      <RemoveProgramCadastroButton
+                        program="ESFERA"
+                        cedenteId={r.id}
+                        nomeCompleto={r.nomeCompleto}
+                        identificador={r.identificador}
+                        onRemoved={() => void load()}
+                      />
                     </div>
                   </td>
                 </tr>

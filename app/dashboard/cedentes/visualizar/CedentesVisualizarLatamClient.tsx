@@ -35,6 +35,7 @@ import {
   VP_TABLE_ROW,
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
+import { RemoveProgramCadastroButton } from "./RemoveProgramCadastroButton";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type Owner = { id: string; name: string; login: string };
@@ -651,6 +652,14 @@ export default function CedentesVisualizarLatamClient() {
                               <span className="sr-only">Editar pontos</span>
                               <ActionTooltip label="Editar pontos" />
                             </button>
+
+                            <RemoveProgramCadastroButton
+                              program="LATAM"
+                              cedenteId={r.id}
+                              nomeCompleto={r.nomeCompleto}
+                              identificador={r.identificador}
+                              onRemoved={() => void load()}
+                            />
                           </>
                         )}
                       </div>

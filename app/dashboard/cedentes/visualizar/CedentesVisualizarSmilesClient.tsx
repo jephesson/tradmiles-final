@@ -15,6 +15,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { RemoveProgramCadastroButton } from "./RemoveProgramCadastroButton";
 import { cn } from "@/lib/cn";
 import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
@@ -500,6 +501,14 @@ export default function CedentesVisualizarSmilesClient() {
                               <span className="sr-only">Editar pontos</span>
                               <ActionTooltip label="Editar pontos" />
                             </button>
+
+                            <RemoveProgramCadastroButton
+                              program="SMILES"
+                              cedenteId={r.id}
+                              nomeCompleto={r.nomeCompleto}
+                              identificador={r.identificador}
+                              onRemoved={() => void load()}
+                            />
                           </>
                         )}
                       </div>

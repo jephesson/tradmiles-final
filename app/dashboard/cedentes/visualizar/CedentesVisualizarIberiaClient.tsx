@@ -20,6 +20,7 @@ import {
   VP_TABLE_ROW,
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
+import { RemoveProgramCadastroButton } from "./RemoveProgramCadastroButton";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type SortField = "pontos" | "score" | "nome" | "responsavel" | "identificador";
@@ -476,6 +477,13 @@ export default function CedentesVisualizarIberiaClient() {
                       >
                         Editar pontos
                       </button>
+                      <RemoveProgramCadastroButton
+                        program="IBERIA"
+                        cedenteId={r.id}
+                        nomeCompleto={r.nomeCompleto}
+                        identificador={r.identificador}
+                        onRemoved={() => void load()}
+                      />
                     </div>
                   </td>
                 </tr>

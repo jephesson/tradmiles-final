@@ -1,6 +1,7 @@
 // app/api/cedentes/latam/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
+import { cedenteIdsExcludedFromProgram } from "@/lib/cedentes/programExclusion";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 
@@ -129,6 +130,9 @@ export async function GET(req: NextRequest) {
       ...activeCedenteWhere({ owner: { team: session.team } }),
       AND: [],
     };
+
+    const excludedIds = await cedenteIdsExcludedFromProgram("LATAM");
+    if (excludedIds.length) whereCedente.AND.push({ id: { notIn: excludedIds } });
 
     if (ownerId) whereCedente.AND.push({ ownerId });
 

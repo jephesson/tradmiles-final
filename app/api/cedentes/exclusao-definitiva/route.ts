@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import crypto from "node:crypto";
 import { readSessionCookie } from "@/lib/session";
+import { decryptTotpSecret, verifyTotpCode } from "@/lib/totp";
 
 type SessionCookie = {
   id: string;
@@ -56,6 +57,35 @@ async function requirePassword(req: Request, password: string) {
     return { ok: false as const, status: 401, error: "Senha inválida." };
   }
 
+  return {
+    ok: true as const,
+    userId: user.id,
+    team: user.team,
+    role: session.role,
+  };
+}
+
+async function requireTotp(req: Request, totpCode: string) {
+  const session = getSession(req);
+  if (!session) return { ok: false as const, status: 401, error: "Não autenticado." };
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.id },
+    select: { id: true, team: true, totpEnabled: true, totpSecretEnc: true },
+  });
+  if (!user) return { ok: false as const, status: 401, error: "Usuário não encontrado." };
+  if (!user.totpEnabled || !user.totpSecretEnc) {
+    return { ok: false as const, status: 400, error: "Cadastre o Authenticator primeiro." };
+  }
+  let secret: string;
+  try {
+    secret = decryptTotpSecret(user.totpSecretEnc);
+  } catch {
+    return { ok: false as const, status: 400, error: "Authenticator inválido. Peça reset ao admin." };
+  }
+  if (!verifyTotpCode(secret, totpCode)) {
+    return { ok: false as const, status: 401, error: "Código do Authenticator inválido." };
+  }
   return {
     ok: true as const,
     userId: user.id,
@@ -198,6 +228,7 @@ export async function POST(req: Request) {
     const mode = String(body?.mode || "").trim().toUpperCase() as ScopeMode;
     const program = String(body?.program || "").trim().toUpperCase() as Program;
     const password = String(body?.password || "").trim();
+    const totpCode = String(body?.totpCode || "").trim();
     const reasonCodeRaw = String(body?.reasonCode || "").trim().toUpperCase();
     const reasonCode = reasonCodeRaw as ExclusionReasonCode;
 
@@ -210,18 +241,31 @@ export async function POST(req: Request) {
     if (mode === "PROGRAM" && !PROGRAMS.includes(program)) {
       return NextResponse.json({ ok: false, error: "Programa inválido." }, { status: 400 });
     }
-    if (!password) {
-      return NextResponse.json({ ok: false, error: "Senha obrigatória." }, { status: 400 });
-    }
     if (!reasonCode || !isExclusionReasonCode(reasonCode)) {
       return NextResponse.json({ ok: false, error: "Motivo obrigatório e inválido." }, { status: 400 });
+    }
+    if (!password && !totpCode) {
+      return NextResponse.json(
+        { ok: false, error: "Informe a senha ou o código do Authenticator." },
+        { status: 400 }
+      );
     }
 
     // Solicitação de exclusão de dados = conta inteira (todos os programas + painel de emissões).
     const effectiveMode: ScopeMode =
-      reasonCode === "DATA_DELETION_REQUEST" ? "ACCOUNT" : mode;
+      reasonCode === "DATA_DELETION_REQUEST"
+        ? "ACCOUNT"
+        : reasonCode === "PROGRAM_REMOVED"
+          ? "PROGRAM"
+          : mode;
 
-    const auth = await requirePassword(req, password);
+    if (effectiveMode === "PROGRAM" && !PROGRAMS.includes(program)) {
+      return NextResponse.json({ ok: false, error: "Programa inválido." }, { status: 400 });
+    }
+
+    const auth = totpCode
+      ? await requireTotp(req, totpCode)
+      : await requirePassword(req, password);
     if (!auth.ok) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }

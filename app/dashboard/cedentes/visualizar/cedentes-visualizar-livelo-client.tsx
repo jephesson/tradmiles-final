@@ -32,6 +32,7 @@ import {
   VP_TABLE_ROW,
   VP_TABLE_WRAP,
 } from "./visualizarPontosUi";
+import { RemoveProgramCadastroButton } from "./RemoveProgramCadastroButton";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED" | "NEVER";
@@ -58,6 +59,7 @@ type CedenteRow = {
 
   owner: { id: string; name: string; login: string };
   blockedPrograms?: Program[];
+  excludedPrograms?: Program[];
 };
 
 type ClubItem = {
@@ -227,6 +229,7 @@ export default function CedentesVisualizarLiveloClient() {
     const s = q.trim().toLowerCase();
 
     return rows.filter((r) => {
+      if ((r.excludedPrograms || []).includes("LIVELO")) return false;
       if (ownerFilter && r.owner?.id !== ownerFilter) return false;
       if (!s) return true;
 
@@ -673,6 +676,14 @@ export default function CedentesVisualizarLiveloClient() {
                             <span className="sr-only">Editar pontos</span>
                             <ActionTooltip label="Editar pontos" />
                           </button>
+
+                          <RemoveProgramCadastroButton
+                            program="LIVELO"
+                            cedenteId={r.id}
+                            nomeCompleto={r.nomeCompleto}
+                            identificador={r.identificador}
+                            onRemoved={() => void load()}
+                          />
                         </>
                       )}
                     </div>

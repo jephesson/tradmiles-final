@@ -12,6 +12,7 @@
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    excludedPrograms?: string[];
   };
 
   type ApprovedResp = { ok: boolean; data?: any; error?: string };
@@ -220,6 +221,7 @@
             identificador: r.identificador,
             nomeCompleto: r.nomeCompleto,
             cpf: r.cpf,
+            excludedPrograms: Array.isArray(r.excludedPrograms) ? r.excludedPrograms : [],
           }))
         );
       } catch (e: any) {
@@ -233,7 +235,10 @@
     async function loadPanel() {
       setPanelLoading(true);
       try {
-        const ids = cedentes.map((c) => c.id);
+        const prog = programApiKey(program);
+        const ids = cedentes
+          .filter((c) => !(c.excludedPrograms || []).includes(prog))
+          .map((c) => c.id);
         const res = await fetch("/api/emissions/panel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

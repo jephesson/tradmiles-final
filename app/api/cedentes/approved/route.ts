@@ -1,4 +1,5 @@
 import { activeCedenteWhere } from "@/lib/cedentes/activeCedenteWhere";
+import { excludedProgramsByCedenteId } from "@/lib/cedentes/programExclusion";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -66,6 +67,8 @@ export async function GET() {
       },
     });
 
+    const excludedByCedente = await excludedProgramsByCedenteId();
+
     const data = rows.map((r) => ({
       id: r.id,
       identificador: r.identificador,
@@ -80,6 +83,7 @@ export async function GET() {
       createdAt: r.createdAt.toISOString(),
       owner: r.owner,
       blockedPrograms: (r.blockedAccounts || []).map((b) => b.program), // ["LATAM","SMILES"...]
+      excludedPrograms: excludedByCedente.get(r.id) || [],
     }));
 
     return NextResponse.json({ ok: true, data }, { headers: noCacheHeaders() });
