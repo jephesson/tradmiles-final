@@ -67,10 +67,7 @@ function parseDateISOToLocal(v?: unknown): Date {
   const s = String(v || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return new Date();
-  const y = Number(m[1]);
-  const mm = Number(m[2]);
-  const d = Number(m[3]);
-  return new Date(y, mm - 1, d);
+  return new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00.000-03:00`);
 }
 
 function parseDateISOToLocalOrNull(v?: unknown): Date | null {
@@ -78,10 +75,7 @@ function parseDateISOToLocalOrNull(v?: unknown): Date | null {
   if (!s) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return null;
-  const y = Number(m[1]);
-  const mm = Number(m[2]);
-  const d = Number(m[3]);
-  return new Date(y, mm - 1, d);
+  return new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00.000-03:00`);
 }
 
 async function nextCounter(tx: Prisma.TransactionClient, key: string) {

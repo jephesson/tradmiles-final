@@ -273,7 +273,8 @@ export async function computeRateioBreakdownForPurchase(
   });
 }
 
-/** C3: usa snapshot gravado se válido; senão recalcula (sem gravar no banco). */
+/** C3: usa snapshot gravado se válido; senão recalcula (sem gravar no banco).
+ * Extra C1 (fim de semana/feriado) reduz lucro da compra: se o live for menor, ignora snapshot inflado. */
 export async function resolveC3RateioBreakdown(
   db: Db,
   args: {
@@ -291,10 +292,13 @@ export async function resolveC3RateioBreakdown(
     bonusAboveMetaBps: number;
     refDate: Date;
   }
-): Promise<{ breakdown: FinalRateioBreakdown | null; mode: "snapshot" | "computed" }> {
+): Promise<{
+  breakdown: FinalRateioBreakdown | null;
+  mode: "snapshot" | "computed";
+  snapshot: PurchaseFinalizeSnapshot | null;
+  replacedInflatedSnapshot: boolean;
+}> {
   const stored = parseFinalRateioBreakdown(args.storedBreakdown);
-  if (stored) return { breakdown: stored, mode: "snapshot" };
-
   const computed = await computeRateioBreakdownForPurchase(db, {
     team: args.team,
     purchase: args.purchase,
@@ -303,8 +307,35 @@ export async function resolveC3RateioBreakdown(
     refDate: args.refDate,
   });
 
+  const liveBreakdown = computed?.finalRateioBreakdown ?? null;
+  const liveProfit = computed?.finalProfitCents;
+  if (
+    stored &&
+    liveBreakdown &&
+    liveProfit != null &&
+    liveProfit < stored.profitLiquidoCents
+  ) {
+    return {
+      breakdown: liveBreakdown,
+      mode: "computed",
+      snapshot: computed,
+      replacedInflatedSnapshot: true,
+    };
+  }
+
+  if (stored) {
+    return {
+      breakdown: stored,
+      mode: "snapshot",
+      snapshot: computed,
+      replacedInflatedSnapshot: false,
+    };
+  }
+
   return {
-    breakdown: computed?.finalRateioBreakdown ?? null,
+    breakdown: liveBreakdown,
     mode: "computed",
+    snapshot: computed,
+    replacedInflatedSnapshot: false,
   };
 }

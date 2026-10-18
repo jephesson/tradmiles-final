@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { dayBounds, milheiroNoFeeFromPv, todayISORecife } from "@/lib/payouts/employeePayouts";
+import { chooseC1, dayBounds, milheiroNoFeeFromPv, todayISORecife } from "@/lib/payouts/employeePayouts";
 import {
   bonusAboveMetaFromSale,
-  commission1FromPvCents,
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
@@ -14,6 +13,7 @@ import {
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 import {
   resolveC3RateioBreakdown,
+  toPrismaRateioBreakdown,
 } from "@/lib/payouts/purchaseRateio";
 import { applyEmployeeDebtDiscountsForDate } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
@@ -547,7 +547,11 @@ export async function POST(req: Request) {
 
         const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
-        const c1 = safeInt(s.commissionCents, 0) > 0 ? safeInt(s.commissionCents, 0) : commission1FromPvCents(pvSemTaxa, c1Bps, s.date, holidayISOs);
+        const c1 = chooseC1(s.points, safeInt(s.commissionCents, 0), pvSemTaxa, {
+          c1Bps,
+          saleDate: s.date,
+          holidayISOs,
+        });
         const milheiroNoFee = milheiroNoFeeFromPv(s.points, pvSemTaxa);
         const c2 = bonusAboveMetaFromSale(
           {
@@ -588,7 +592,8 @@ export async function POST(req: Request) {
 
     for (const p of purchasesFinalized) {
       const purchaseMeta = safeInt(p.metaMilheiroCents, 0);
-      const { breakdown, mode } = await resolveC3RateioBreakdown(prisma, {
+      const { breakdown, mode, snapshot, replacedInflatedSnapshot } =
+        await resolveC3RateioBreakdown(prisma, {
         team,
         storedBreakdown: p.finalRateioBreakdown,
         purchase: {
@@ -615,6 +620,18 @@ export async function POST(req: Request) {
         bonusAboveMetaBps,
         refDate: p.finalizedAt ?? start,
       });
+
+      if (replacedInflatedSnapshot && snapshot) {
+        await prisma.purchase.update({
+          where: { id: p.id },
+          data: {
+            finalBonusCents: snapshot.finalBonusCents,
+            finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
+            finalProfitCents: snapshot.finalProfitCents,
+            finalRateioBreakdown: toPrismaRateioBreakdown(snapshot.finalRateioBreakdown),
+          },
+        });
+      }
 
       if (!breakdown || breakdown.profitLiquidoCents <= 0) {
         c3Audit.push({

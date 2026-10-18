@@ -4,12 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 import {
+  chooseC1,
   dayBounds,
   milheiroNoFeeFromPv,
 } from "@/lib/payouts/employeePayouts";
 import {
   bonusAboveMetaFromSale,
-  commission1FromPvCents,
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
@@ -418,9 +418,11 @@ export async function GET(req: NextRequest) {
     const meta = bonusMetaMilheiroFromPurchase(s.purchaseMetaMilheiroCents);
 
     const c1 = isSeller
-      ? safeInt(s.commissionCents, 0) > 0
-        ? safeInt(s.commissionCents, 0)
-        : commission1FromPvCents(pvSemTaxa, c1Bps, s.date, holidayISOs)
+      ? chooseC1(points, safeInt(s.commissionCents, 0), pvSemTaxa, {
+          c1Bps,
+          saleDate: s.date,
+          holidayISOs,
+        })
       : 0;
     const c2 = isSeller
       ? bonusAboveMetaFromSale(
@@ -532,6 +534,8 @@ export async function GET(req: NextRequest) {
               embarqueFeeCents: true,
               milheiroCents: true,
               metaMilheiroCents: true,
+              date: true,
+              createdAt: true,
               affiliateCommission: { select: { amountCents: true } },
             },
           })
@@ -580,6 +584,7 @@ export async function GET(req: NextRequest) {
           metaMilheiroCents:
             safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
           affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
+          date: s.date ?? s.createdAt ?? null,
         })),
         bonusAboveMetaBps,
         refDate: p.finalizedAt ?? start,

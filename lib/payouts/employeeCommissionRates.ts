@@ -28,8 +28,11 @@ export const C1_WEEKEND_BONUS_FROM_ISO = "2026-10-17";
 export function saleCalendarISO(date: Date | string | null | undefined) {
   if (date == null || date === "") return "";
   if (typeof date === "string") {
-    const m = /^(\d{4}-\d{2}-\d{2})/.exec(date.trim());
-    if (m) return m[1];
+    const only = date.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(only)) return only;
+    const parsed = new Date(only);
+    if (Number.isNaN(parsed.getTime())) return "";
+    date = parsed;
   }
   const dt = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(dt.getTime())) return "";

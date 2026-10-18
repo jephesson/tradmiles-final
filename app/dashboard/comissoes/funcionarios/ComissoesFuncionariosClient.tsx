@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { qualifiesC1BonusDate, qualifiesWeekendC1Bonus } from "@/lib/payouts/employeeCommissionRates";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 
 type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
@@ -369,6 +370,12 @@ const COMMISSION_KIND_LABEL: Record<CommissionKind, string> = {
   fee: "Taxa embarque",
   bonus: "Bônus extra",
 };
+
+function c1KindShort(dateISO: string) {
+  if (qualifiesWeekendC1Bonus(dateISO)) return "1,5% no sábado/domingo (C1 +50%)";
+  if (qualifiesC1BonusDate(dateISO)) return "1,5% no feriado validado (C1 +50%)";
+  return "1% sobre valor dos pontos";
+}
 
 const COMMISSION_KIND_SHORT: Record<CommissionKind, string> = {
   c1: "1% sobre valor dos pontos",
@@ -1158,7 +1165,9 @@ export default function ComissoesFuncionariosClient() {
               <tr>
                 <th className="px-4 py-3">Funcionário</th>
                 <th className="px-4 py-3 text-right">Vendas</th>
-                <th className="px-4 py-3">C1 (1%)</th>
+                <th className="px-4 py-3">
+                  C1 ({qualifiesC1BonusDate(date) ? "1,5%" : "1%"})
+                </th>
                 <th className="px-4 py-3">C2 (bônus)</th>
                 <th className="px-4 py-3">C3 (rateio)</th>
 
@@ -1433,7 +1442,9 @@ export default function ComissoesFuncionariosClient() {
                   <span className="text-sm text-slate-500">·</span>
                   <span className="text-sm text-slate-600">{fmtDateBR(detailDate)}</span>
                 </div>
-                <div className="mt-0.5 text-xs text-slate-500">{COMMISSION_KIND_SHORT[detailKind]}</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {detailKind === "c1" ? c1KindShort(detailDate) : COMMISSION_KIND_SHORT[detailKind]}
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">

@@ -5,6 +5,7 @@ import {
   commission1FromPvCents,
   DEFAULT_EMPLOYEE_BONUS_ABOVE_META_BPS,
   DEFAULT_EMPLOYEE_C1_BPS,
+  qualifiesC1BonusDate,
   resolveEmployeeBonusAboveMetaBps,
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
@@ -157,15 +158,21 @@ export function chooseC1(
   pvNoFee: number,
   opts?: { c1Bps?: number; saleDate?: Date | string | null; holidayISOs?: ReadonlySet<string> | null }
 ) {
-  if ((c1Db ?? 0) > 0) return c1Db;
-  if ((points ?? 0) > 0 && (pvNoFee ?? 0) > 0)
-    return commission1Fallback(
-      pvNoFee,
-      opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS,
-      opts?.saleDate,
-      opts?.holidayISOs
-    );
-  return 0;
+  const computed =
+    (points ?? 0) > 0 && (pvNoFee ?? 0) > 0
+      ? commission1Fallback(
+          pvNoFee,
+          opts?.c1Bps ?? DEFAULT_EMPLOYEE_C1_BPS,
+          opts?.saleDate,
+          opts?.holidayISOs
+        )
+      : 0;
+  const stored = c1Db ?? 0;
+  if (qualifiesC1BonusDate(opts?.saleDate, opts?.holidayISOs)) {
+    return Math.max(stored, computed);
+  }
+  if (stored > 0) return stored;
+  return computed;
 }
 
 export function chooseC2(
