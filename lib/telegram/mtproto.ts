@@ -303,7 +303,7 @@ function bufferToJpegDataUrl(buf: unknown) {
     : typeof buf === "string"
       ? Buffer.from(buf, "binary")
       : null;
-  if (!raw || raw.length < 40 || raw.length > 180_000) return null;
+  if (!raw || raw.length < 40 || raw.length > 550_000) return null;
   return `data:image/jpeg;base64,${raw.toString("base64")}`;
 }
 
@@ -333,7 +333,7 @@ export async function listTelegramMessages(
         if (row.id <= 0) continue;
         if (row.hasPhoto && thumbs < 20) {
           try {
-            const buf = await client.downloadMedia(m, { thumb: 0 });
+            const buf = await client.downloadMedia(m, { thumb: 1 });
             row.thumb = bufferToJpegDataUrl(buf);
             if (row.thumb) thumbs += 1;
           } catch {
