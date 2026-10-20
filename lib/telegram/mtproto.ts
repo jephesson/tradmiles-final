@@ -90,7 +90,9 @@ export async function withTelegramClient<T>(opts: {
   try {
     await client.connect();
     const result = await opts.run(client);
-    const saved = String(client.session.save() || "");
+    const saveSession = client.session.save.bind(client.session) as () => unknown;
+    const raw = saveSession();
+    const saved = typeof raw === "string" ? raw : "";
     return { result, sessionEnc: saved ? encryptTelegramSession(saved) : opts.sessionEnc || "" };
   } finally {
     try {
