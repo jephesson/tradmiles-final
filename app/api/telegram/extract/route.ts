@@ -14,7 +14,11 @@ import {
   mergePassengerTexts,
 } from "@/lib/documents/formatPassengerBlock";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
-import { parseTelegramEmission } from "@/lib/telegram/parseEmission";
+import {
+  mergeParsedFlights,
+  parseTelegramEmission,
+  parseTelegramEmissionFromImages,
+} from "@/lib/telegram/parseEmission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,7 +104,11 @@ export async function POST(req: Request) {
 
     const extracted = mergePassengerTexts(fromChat, fromImages);
     const combined = [chatText, fromImages].filter(Boolean).join("\n\n");
-    const flight = await parseTelegramEmission(combined, emission);
+    const fromVision = result.images.length
+      ? await parseTelegramEmissionFromImages(result.images)
+      : null;
+    const fromText = await parseTelegramEmission(combined, emission);
+    const flight = mergeParsedFlights(fromVision, fromText);
     const passengerText = (flight?.passengerText || extracted).trim();
     const merged = mergePassengerTexts(existingText, passengerText);
     if (!merged.trim() && !flight?.origin && !flight?.destination) {

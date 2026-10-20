@@ -62,9 +62,16 @@ export async function matchMessagesToEmission(
 
   const catalog = messages
     .map((m) => {
-      const flag = m.looksPassenger || m.hasPhoto ? "PAX?" : "chat";
+      const who = m.fromYou ? "VOCÊ" : "ELES";
+      const flag = m.looksIssued
+        ? "EMITIDA"
+        : m.looksPassenger
+          ? "PAX"
+          : m.looksFlight || m.hasPhoto
+            ? "FOTO/VOO"
+            : "chat";
       const body = (m.hasPhoto ? "[foto] " : "") + (m.text || "");
-      return `#${m.id} (${flag}) ${body}`.slice(0, 280);
+      return `#${m.id} (${who}/${flag}) ${body}`.slice(0, 280);
     })
     .join("\n");
 
@@ -81,13 +88,14 @@ export async function matchMessagesToEmission(
       messages: [
         {
           role: "system",
-          content: `Você escolhe mensagens do Telegram da EMISSÃO ATUAL. Várias vendas entram no mesmo chat o dia todo.
+          content: `Você escolhe mensagens do Telegram da EMISSÃO ATUAL (a que estão fazendo agora).
 Responda SOMENTE JSON: {"messageIds": number[]}
 Regras:
-- Pegue o bloco desta emissão: tabela de voo (origem/destino/data) + fichas de passageiro (nome, CPF, nascimento) e fotos da ficha.
-- Ignore "ok", "bora", milhas, preços e emissões anteriores.
-- Se a rota/data da emissão aparecer na tabela, use as mensagens daquele bloco (tabela + passageiros logo depois).
-- Quantidade de fichas deve bater com o número de passageiros quando possível.`,
+- Pegue o print da busca LATAM (foto da tela de voos/milhas) + a ficha do passageiro (nome, CPF, nascimento).
+- Fotos sem texto também contam se forem o print do voo.
+- Ignore "Parabéns / passagem foi emitida", "ok", "bora", "iniciando", "Mnda" e vendas anteriores.
+- A dica da tela pode estar errada (às vezes vem data de nascimento). O print do Telegram vale mais.
+- Prefira o bloco mais novo com ficha + fotos do voo.`,
         },
         {
           role: "user",

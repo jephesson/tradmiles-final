@@ -53,11 +53,13 @@ export function mapTelegramError(e: unknown) {
   return msg.slice(0, 280) || "Falha no Telegram.";
 }
 
-export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
+export function looksLikeIssuedContent(text: string) {
+  return /parab[eé]ns|passagem foi emitida|resumo da emiss[aã]o|localizador/i.test(text);
+}
+
+export function looksLikeFlightContent(text: string) {
   const s = String(text || "");
-  if (hasPhoto) return true;
-  if (/\bcpf\b|\bnasc|\bsobrenome\b|\bpassageir|\bnome\b/i.test(s)) return true;
-  if (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(s)) return true;
+  if (/latamairlines\.com|oferta-voos|combine suas milhas|milhas \+|light\b/i.test(s)) return true;
   if (/\borigem\b|\bdestino\b|\bcia\b|\bvoo\b/i.test(s) && /\b[A-Z]{3}\b/.test(s.toUpperCase())) {
     return true;
   }
@@ -65,6 +67,14 @@ export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
     return true;
   }
   return false;
+}
+
+export function looksLikePassengerContent(text: string, _hasPhoto = false) {
+  const s = String(text || "");
+  if (looksLikeIssuedContent(s)) return false;
+  if (/\bcpf\b|\bnasc|\bsobrenome\b|\bpassageir|\bnome completo\b|\bnome\b/i.test(s)) return true;
+  if (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(s)) return true;
+  return looksLikeFlightContent(s);
 }
 
 function newClient(sessionStr: string, creds: TelegramApiCreds) {
@@ -243,6 +253,11 @@ export type TelegramMessageRow = {
   text: string;
   hasPhoto: boolean;
   looksPassenger: boolean;
+  looksFlight: boolean;
+  looksIssued: boolean;
+  fromYou: boolean;
+  sender: string;
+  thumb: string | null;
 };
 
 function previewMessage(m: {
@@ -251,6 +266,8 @@ function previewMessage(m: {
   message?: string;
   photo?: unknown;
   document?: { mimeType?: string };
+  out?: boolean;
+  sender?: { firstName?: string; lastName?: string };
 }): TelegramMessageRow {
   const text = String(m.message || "").trim();
   const mime = String(m.document?.mimeType || "");
@@ -262,13 +279,32 @@ function previewMessage(m: {
       : typeof dateRaw === "number"
         ? new Date(dateRaw * 1000).toISOString()
         : null;
+  const fromYou = Boolean(m.out);
+  const sender = fromYou
+    ? "Você"
+    : [m.sender?.firstName, m.sender?.lastName].filter(Boolean).join(" ").trim() || "Contato";
   return {
     id: Number(m.id || 0),
     date,
     text: text.slice(0, 500),
     hasPhoto,
-    looksPassenger: looksLikePassengerContent(text, hasPhoto),
+    looksPassenger: looksLikePassengerContent(text),
+    looksFlight: looksLikeFlightContent(text) || (hasPhoto && !looksLikeIssuedContent(text)),
+    looksIssued: looksLikeIssuedContent(text),
+    fromYou,
+    sender,
+    thumb: null,
   };
+}
+
+function bufferToJpegDataUrl(buf: unknown) {
+  const raw = Buffer.isBuffer(buf)
+    ? buf
+    : typeof buf === "string"
+      ? Buffer.from(buf, "binary")
+      : null;
+  if (!raw || raw.length < 40 || raw.length > 180_000) return null;
+  return `data:image/jpeg;base64,${raw.toString("base64")}`;
 }
 
 export async function checkTelegramAlive(sessionEnc: string, creds: TelegramApiCreds) {
@@ -289,8 +325,24 @@ export async function listTelegramMessages(
     creds,
     run: async (client) => {
       const entity = await resolveChatEntity(client, chatId);
-      const messages = await client.getMessages(entity, { limit: 30 });
-      return messages.map((m) => previewMessage(m as never)).filter((m) => m.id > 0);
+      const messages = await client.getMessages(entity, { limit: 36 });
+      const rows: TelegramMessageRow[] = [];
+      let thumbs = 0;
+      for (const m of messages) {
+        const row = previewMessage(m as never);
+        if (row.id <= 0) continue;
+        if (row.hasPhoto && thumbs < 20) {
+          try {
+            const buf = await client.downloadMedia(m, { thumb: 0 });
+            row.thumb = bufferToJpegDataUrl(buf);
+            if (row.thumb) thumbs += 1;
+          } catch {
+            row.thumb = null;
+          }
+        }
+        rows.push(row);
+      }
+      return rows;
     },
   });
 }

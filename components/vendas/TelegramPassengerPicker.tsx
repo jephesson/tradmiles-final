@@ -26,23 +26,42 @@ type Msg = {
   text: string;
   hasPhoto: boolean;
   looksPassenger: boolean;
+  looksFlight?: boolean;
+  looksIssued?: boolean;
+  fromYou?: boolean;
+  sender?: string;
+  thumb?: string | null;
 };
 
-function defaultSelected(messages: Msg[], expectedCount: number) {
-  const max = Math.max(2, (expectedCount || 2) * 3, 8);
+function defaultSelected(messages: Msg[]) {
   const picked: number[] = [];
   let miss = 0;
   for (const m of messages) {
-    if (m.looksPassenger) {
+    if (m.looksIssued) continue;
+    const useful = m.looksPassenger || m.looksFlight || m.hasPhoto;
+    if (useful) {
       picked.push(m.id);
       miss = 0;
     } else {
       miss += 1;
-      if (picked.length && miss >= 2) break;
+      if (picked.length && miss >= 4) break;
     }
-    if (picked.length >= max) break;
+    if (picked.length >= 8) break;
   }
   return picked;
+}
+
+function formatHour(iso: string | null) {
+  if (!iso) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
 }
 
 export default function TelegramPassengerPicker(props: {
@@ -111,7 +130,7 @@ export default function TelegramPassengerPicker(props: {
       const suggested = Array.isArray(json.suggestedIds)
         ? json.suggestedIds.map((n: unknown) => Number(n)).filter((n: number) => n > 0)
         : [];
-      const ids = suggested.length ? suggested : defaultSelected(list, props.expectedCount);
+      const ids = suggested.length ? suggested : defaultSelected(list);
       const map: Record<number, boolean> = {};
       for (const id of ids) map[id] = true;
       setSelected(map);
@@ -204,11 +223,11 @@ export default function TelegramPassengerPicker(props: {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/50 p-3 sm:items-center">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="border-b border-slate-100 px-4 py-3">
           <div className="text-sm font-semibold text-slate-900">Telegram</div>
           <p className="mt-0.5 text-[11px] text-slate-500">
-            Digite o número, confirme o código do app e fica logado na empresa.
+            Marque o print do voo e a ficha do passageiro. Verde é o que você mandou; branco é o cliente.
           </p>
           {formatEmissionHint(props.emission) ? (
             <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700">
@@ -237,26 +256,55 @@ export default function TelegramPassengerPicker(props: {
                   <span className="font-medium text-slate-800">{chat.title}</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Já marquei tabela do voo + fichas desta emissão. Ajuste se misturou com outra venda.
+                  Já marquei o bloco desta emissão. Desmarque se entrou venda antiga (“passagem emitida”).
                 </p>
-                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-                  {messages.map((m) => (
-                    <li key={m.id} className="flex items-start gap-2 px-3 py-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={!!selected[m.id]}
-                        onChange={(e) =>
-                          setSelected((prev) => ({ ...prev, [m.id]: e.target.checked }))
-                        }
-                      />
-                      <div className="min-w-0 flex-1 text-[12px] text-slate-700">
-                        {m.hasPhoto ? <span className="mr-1 font-semibold text-slate-500">[foto]</span> : null}
-                        {m.text || (m.hasPhoto ? "Imagem" : "(sem texto)")}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <div className="max-h-[52vh] space-y-2 overflow-auto rounded-xl bg-[#e9eef5] p-3">
+                  {[...messages].reverse().map((m) => {
+                    const mine = Boolean(m.fromYou);
+                    return (
+                      <label
+                        key={m.id}
+                        className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mb-2 shrink-0"
+                          checked={!!selected[m.id]}
+                          onChange={(e) =>
+                            setSelected((prev) => ({ ...prev, [m.id]: e.target.checked }))
+                          }
+                        />
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12px] shadow-sm ${
+                            mine
+                              ? "rounded-br-md bg-emerald-100 text-slate-800"
+                              : "rounded-bl-md bg-white text-slate-800"
+                          } ${m.looksIssued ? "opacity-60" : ""}`}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            <span>{m.sender || (mine ? "Você" : "Contato")}</span>
+                            <span>{formatHour(m.date)}</span>
+                          </div>
+                          {m.thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={m.thumb}
+                              alt="Foto do Telegram"
+                              className="mb-1 max-h-40 w-full rounded-lg object-cover"
+                            />
+                          ) : m.hasPhoto ? (
+                            <div className="mb-1 rounded-lg bg-slate-200 px-2 py-6 text-center text-[11px] text-slate-500">
+                              Foto
+                            </div>
+                          ) : null}
+                          {m.text ? (
+                            <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                          ) : null}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
                 <button
                   type="button"
                   disabled={busy || !selectedIds.length}
