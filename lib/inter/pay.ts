@@ -27,7 +27,45 @@ export type InterPayResult = {
   awaitingApproval: boolean;
   codigoSolicitacao?: string | null;
   status?: string;
+  paidInstallmentIds?: string[];
 };
+
+function sameIdSet(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((id, i) => id === right[i]);
+}
+
+function isPendingPixStatus(status: string) {
+  return status === "CREATED" || status === "AWAITING_APPROVAL" || status === "PROCESSING";
+}
+
+async function expireIfStaleCardPix<
+  T extends { id: string; createdAt: Date; codigoSolicitacao: string | null; status: string },
+>(row: T): Promise<T> {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(row.createdAt);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+  const day = `${get("year")}-${get("month")}-${get("day")}`;
+  const staleDay = day < todayISORecife();
+  const staleNoCode = !row.codigoSolicitacao && Date.now() - row.createdAt.getTime() > 5 * 60_000;
+  if (!staleDay && !staleNoCode) return row;
+  await prisma.interPixPayment.update({
+    where: { id: row.id },
+    data: {
+      status: "FAILED",
+      errorMessage: staleNoCode
+        ? "PIX sem código do Inter — pode enviar de novo."
+        : "PIX do dia anterior sem confirmação — pode enviar de novo.",
+    },
+  });
+  return { ...row, status: "FAILED" };
+}
 
 async function resolveEmployeePix(userId: string) {
   const destino = await employeePixDestino(userId);
@@ -54,12 +92,11 @@ async function sendPix(opts: {
 
   const cardIds = (opts.cardDebtInstallmentIds || []).filter(Boolean);
   const openWhere =
-    opts.employeePayoutId || opts.cedenteCommissionId || cardIds.length
+    opts.employeePayoutId || opts.cedenteCommissionId
       ? {
           status: { in: ["CREATED", "AWAITING_APPROVAL", "PROCESSING"] },
           ...(opts.employeePayoutId ? { employeePayoutId: opts.employeePayoutId } : {}),
           ...(opts.cedenteCommissionId ? { cedenteCommissionId: opts.cedenteCommissionId } : {}),
-          ...(cardIds.length ? { cardDebtInstallmentIds: { hasSome: cardIds } } : {}),
         }
       : null;
 
@@ -72,13 +109,24 @@ async function sendPix(opts: {
   if (open?.codigoSolicitacao) {
     const refreshed = await refreshInterPixById(open.id);
     const status = refreshed?.status || open.status;
-    return {
-      via: "inter",
-      paid: status === "PAID",
-      awaitingApproval: status === "AWAITING_APPROVAL" || status === "PROCESSING" || status === "CREATED",
-      codigoSolicitacao: open.codigoSolicitacao,
-      status,
-    };
+    if (isPendingPixStatus(status)) {
+      return {
+        via: "inter",
+        paid: false,
+        awaitingApproval: true,
+        codigoSolicitacao: open.codigoSolicitacao,
+        status,
+      };
+    }
+    if (status === "PAID") {
+      return {
+        via: "inter",
+        paid: true,
+        awaitingApproval: false,
+        codigoSolicitacao: open.codigoSolicitacao,
+        status,
+      };
+    }
   }
 
   await ensureWebhook();
@@ -221,18 +269,85 @@ export async function payCardDebtViaInter(opts: {
   requestedById: string;
 }): Promise<InterPayResult> {
   if (!interConfigured()) {
-    return { via: "local", paid: true, awaitingApproval: false };
+    return {
+      via: "local",
+      paid: true,
+      awaitingApproval: false,
+      paidInstallmentIds: opts.installmentIds,
+    };
   }
-  return sendPix({
+
+  const wanted = [...new Set(opts.installmentIds.filter(Boolean))];
+  const overlapping = wanted.length
+    ? await prisma.interPixPayment.findMany({
+        where: {
+          kind: "CARD_DEBT",
+          status: { in: ["CREATED", "AWAITING_APPROVAL", "PROCESSING"] },
+          cardDebtInstallmentIds: { hasSome: wanted },
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const blocked = new Set<string>();
+  let liveSame: (typeof overlapping)[number] | null = null;
+
+  for (const raw of overlapping) {
+    let row = raw;
+    if (row.codigoSolicitacao) {
+      try {
+        const refreshed = await refreshInterPixById(row.id);
+        if (refreshed) row = refreshed;
+      } catch {
+        // segue com o status local
+      }
+    }
+    row = await expireIfStaleCardPix(row);
+    if (!isPendingPixStatus(row.status)) continue;
+    if (sameIdSet(row.cardDebtInstallmentIds || [], wanted)) liveSame = row;
+    for (const id of row.cardDebtInstallmentIds || []) blocked.add(id);
+  }
+
+  if (liveSame) {
+    return {
+      via: "inter",
+      paid: false,
+      awaitingApproval: true,
+      codigoSolicitacao: liveSame.codigoSolicitacao,
+      status: liveSame.status,
+    };
+  }
+
+  const remainingIds = wanted.filter((id) => !blocked.has(id));
+  if (!remainingIds.length) {
+    throw new Error(
+      "Já existe um PIX em andamento no Inter para estas parcelas. Confira as aprovações; se tiver expirado, envie de novo em alguns minutos."
+    );
+  }
+
+  const remainingRows = await prisma.cardDebtInstallment.findMany({
+    where: { id: { in: remainingIds }, status: "OPEN" },
+    select: { id: true, amountCents: true },
+  });
+  const remainingAmount = remainingRows.reduce((s, r) => s + r.amountCents, 0);
+  if (remainingAmount <= 0) {
+    return { via: "inter", paid: true, awaitingApproval: false, paidInstallmentIds: remainingIds };
+  }
+
+  const result = await sendPix({
     team: opts.team,
     kind: "CARD_DEBT",
-    cardDebtInstallmentIds: opts.installmentIds,
-    amountCents: opts.amountCents,
+    cardDebtInstallmentIds: remainingRows.map((r) => r.id),
+    amountCents: remainingAmount,
     pixTipo: opts.pixTipo,
     pixKey: opts.pixKey,
     description: opts.description,
     requestedById: opts.requestedById,
   });
+  return {
+    ...result,
+    paidInstallmentIds: result.paid ? remainingRows.map((r) => r.id) : undefined,
+  };
 }
 
 export async function payPersonDebtViaInter(opts: {

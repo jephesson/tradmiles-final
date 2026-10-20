@@ -84,13 +84,32 @@ export async function POST(req: Request) {
       description: `Cartao ${rows.length} parc`.slice(0, 140),
       requestedById: sess.id,
     });
-    if (result.paid) {
+    const paidIds =
+      result.paidInstallmentIds?.length ? result.paidInstallmentIds : result.paid ? rowIds : [];
+    if (paidIds.length) {
       await prisma.cardDebtInstallment.updateMany({
-        where: { id: { in: rowIds }, status: "OPEN" },
+        where: { id: { in: paidIds }, status: "OPEN" },
         data: { status: "PAID", paidAt: new Date(), paidVia: result.via === "inter" ? "inter" : "local" },
       });
+      const creditor = rows[0]?.purchase?.creditor;
+      if (creditor) {
+        const { abateCardPayOnPersonDebt } = await import("@/lib/card-debt/sync-person-debt");
+        const paidRows = rows.filter((r) => paidIds.includes(r.id));
+        for (const r of paidRows) {
+          await abateCardPayOnPersonDebt({
+            creditorId: creditor.id,
+            creditorName: creditor.name,
+            amountCents: r.amountCents,
+            note: `Cartão: ${r.purchase.title} (${r.n}ª)`,
+            sourceRef: `card-inst:${r.id}`,
+          });
+        }
+      }
     }
-    return NextResponse.json({ ok: true, data: { ...result, amountCents, count: rowIds.length } });
+    return NextResponse.json({
+      ok: true,
+      data: { ...result, amountCents, count: paidIds.length || rowIds.length },
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Falha no PIX." }, { status: 400 });
   }

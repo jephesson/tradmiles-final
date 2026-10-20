@@ -3,14 +3,16 @@ import { getInterPix } from "@/lib/inter/pix";
 import { abateCardPayOnPersonDebt } from "@/lib/card-debt/sync-person-debt";
 import { allocateDebtPayment } from "@/lib/debts/allocate";
 
-const PAID_RE = /PROCESSADO|EFETIVADO|PAGO|LIQUIDADO/i;
-const FAIL_RE = /CANCELADO|ERRO|RECUSADO|REJEITADO|FALHA/i;
-const WAIT_RE = /APROVACAO|AGUARDANDO|CRIADO|APROVADO|PROCESSANDO/i;
+const PAID_RE = /PROCESSADO|EFETIVADO|PAGO|LIQUIDADO|REALIZADO/i;
+const FAIL_RE =
+  /CANCELADO|ERRO|RECUSADO|REJEITADO|REPROVADO|FALHA|EXPIRAD|NAO[_\s-]?REALIZADO|NÃO[_\s-]?REALIZADO|NEGADO/i;
+const WAIT_RE = /AGUARDANDO|CRIADO|APROVADO|PROCESSANDO|AGENDADO|EM_PROCESSAMENTO/i;
 
 export function mapInterStatus(raw?: string | null) {
   const s = String(raw || "");
   if (PAID_RE.test(s)) return "PAID" as const;
   if (FAIL_RE.test(s)) return "FAILED" as const;
+  if (/APROVACAO_EXPIRADA|EXPIRAD/i.test(s)) return "FAILED" as const;
   if (WAIT_RE.test(s) || /APROVACAO/i.test(s)) return "AWAITING_APPROVAL" as const;
   return "PROCESSING" as const;
 }
