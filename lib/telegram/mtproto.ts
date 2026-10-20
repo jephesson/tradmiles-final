@@ -1,7 +1,4 @@
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { Api } from "telegram/tl";
-import { computeCheck } from "telegram/Password";
+import { TelegramClient, sessions, Api, password as telegramPassword } from "telegram";
 import bigInt from "big-integer";
 import {
   decryptTelegramSession,
@@ -47,6 +44,9 @@ export function mapTelegramError(e: unknown) {
       : "Telegram limitou tentativas. Espere um pouco.";
   }
   if (/API_ID_INVALID/i.test(code)) return "TELEGRAM_API_ID inválido.";
+  if (/StringSession and StoreSessions/i.test(code)) {
+    return "Não deu para abrir a sessão do Telegram. Envie o código de novo.";
+  }
   if (/AUTH_KEY_UNREGISTERED|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED/i.test(code)) {
     return "SESSION_DEAD";
   }
@@ -68,7 +68,11 @@ export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
 }
 
 function newClient(sessionStr: string, creds: TelegramApiCreds) {
-  return new TelegramClient(new StringSession(sessionStr || ""), creds.apiId, creds.apiHash, {
+  return new TelegramClient(
+    new sessions.StringSession(sessionStr || ""),
+    creds.apiId,
+    creds.apiHash,
+    {
     connectionRetries: 3,
     autoReconnect: false,
     timeout: 20,
@@ -81,7 +85,14 @@ export async function withTelegramClient<T>(opts: {
   creds: TelegramApiCreds;
   run: (client: TelegramClient) => Promise<T>;
 }): Promise<{ result: T; sessionEnc: string }> {
-  const sessionStr = opts.sessionEnc ? decryptTelegramSession(opts.sessionEnc) : "";
+  let sessionStr = "";
+  if (opts.sessionEnc) {
+    try {
+      sessionStr = decryptTelegramSession(opts.sessionEnc);
+    } catch {
+      sessionStr = "";
+    }
+  }
   const client = newClient(sessionStr, opts.creds);
   try {
     await client.connect();
@@ -167,7 +178,7 @@ export async function signInTelegramPassword(opts: {
       const pwd = await client.invoke(new Api.account.GetPassword());
       await client.invoke(
         new Api.auth.CheckPassword({
-          password: await computeCheck(pwd, opts.password),
+          password: await telegramPassword.computeCheck(pwd, opts.password),
         })
       );
       const me = (await client.getMe()) as { id?: unknown; firstName?: string; lastName?: string };
