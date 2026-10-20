@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { teamTelegram } from "@/lib/telegram/account";
 import {
   mapTelegramError,
   normalizeTelegramPhone,
@@ -31,35 +32,51 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const phone = normalizeTelegramPhone(String(body?.phone || ""));
+  const force = Boolean(body?.force);
+  const existing = await teamTelegram(sess.team);
+  if (!force && existing?.status === "CONNECTED" && existing.sessionEnc) {
+    return NextResponse.json({
+      ok: true,
+      alreadyConnected: true,
+      name: existing.telegramName,
+    });
+  }
+
+  const phone = normalizeTelegramPhone(String(body?.phone || existing?.phone || ""));
   if (phone.length < 12) {
     return NextResponse.json({ ok: false, error: "Informe o celular com DDD." }, { status: 400 });
   }
 
   try {
-    const existing = await prisma.telegramAccount.findUnique({
-      where: { team_userId: { team: sess.team, userId: sess.id } },
-    });
-    const { result, sessionEnc } = await sendTelegramLoginCode(phone, existing?.sessionEnc);
-    await prisma.telegramAccount.upsert({
-      where: { team_userId: { team: sess.team, userId: sess.id } },
-      create: {
-        team: sess.team,
-        userId: sess.id,
-        phone,
-        sessionEnc,
-        phoneCodeHash: result.phoneCodeHash,
-        status: "PENDING",
-      },
-      update: {
-        phone,
-        sessionEnc,
-        phoneCodeHash: result.phoneCodeHash,
-        status: "PENDING",
-        telegramName: null,
-        telegramUserId: null,
-      },
-    });
+    const { result, sessionEnc } = await sendTelegramLoginCode(
+      phone,
+      force ? "" : existing?.sessionEnc
+    );
+    if (existing) {
+      await prisma.telegramAccount.update({
+        where: { id: existing.id },
+        data: {
+          userId: sess.id,
+          phone,
+          sessionEnc,
+          phoneCodeHash: result.phoneCodeHash,
+          status: "PENDING",
+          telegramName: force ? null : existing.telegramName,
+          telegramUserId: force ? null : existing.telegramUserId,
+        },
+      });
+    } else {
+      await prisma.telegramAccount.create({
+        data: {
+          team: sess.team,
+          userId: sess.id,
+          phone,
+          sessionEnc,
+          phoneCodeHash: result.phoneCodeHash,
+          status: "PENDING",
+        },
+      });
+    }
     return NextResponse.json({ ok: true, needCode: true, phone });
   } catch (e) {
     return NextResponse.json({ ok: false, error: mapTelegramError(e) }, { status: 400 });

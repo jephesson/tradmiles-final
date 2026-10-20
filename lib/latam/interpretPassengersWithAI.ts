@@ -29,7 +29,7 @@ Regras:
 - Inclua bebês (isInfant=true). Não invente passageiros.
 - Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.
-- Extraia TODOS os passageiros do texto.`;
+- Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.`;
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -123,7 +123,7 @@ function mapAiPassenger(raw: any, block: string): ParsedPassenger | null {
 /** OpenAI só quando o regex não bastar. Retorna null se API/chave falhar. */
 export async function interpretPassengersWithAI(
   text: string,
-  opts?: { expectedCount?: number }
+  opts?: { expectedCount?: number; emissionHint?: string }
 ): Promise<ParsedPassenger[] | null> {
   const apiKey = process.env.OPENAI_API_KEY || process.env.DOCUMENT_AI_API_KEY || "";
   if (!apiKey) return null;
@@ -137,10 +137,14 @@ export async function interpretPassengersWithAI(
   ).replace(/\/$/, "");
 
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
-  const hint =
+  const hint = [
     expected > 0
-      ? `Esperado cerca de ${expected} passageiro(s) no texto (incluindo bebê se houver).`
-      : "Extraia todos os passageiros visíveis.";
+      ? `Esperado cerca de ${expected} passageiro(s) (incluindo bebê se houver).`
+      : "Extraia os passageiros visíveis desta emissão.",
+    opts?.emissionHint || "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -200,7 +204,7 @@ function parseCompletenessScore(
 export async function parsePassengerTextWithFallback(
   raw: string,
   titular?: TitularContact | null,
-  opts?: { expectedCount?: number }
+  opts?: { expectedCount?: number; emissionHint?: string }
 ): Promise<{
   passengers: ParsedPassenger[];
   source: "regex" | "openai";
@@ -208,12 +212,18 @@ export async function parsePassengerTextWithFallback(
   const regex = parsePassengerText(raw, titular);
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
 
-  if (!raw.trim() || !passengerParseNeedsAi(regex, expected, raw)) {
+  const needsAi =
+    Boolean(opts?.emissionHint) ||
+    passengerParseNeedsAi(regex, expected, raw);
+  if (!raw.trim() || !needsAi) {
     return { passengers: regex, source: "regex" };
   }
 
   try {
-    const ai = await interpretPassengersWithAI(raw, { expectedCount: expected });
+    const ai = await interpretPassengersWithAI(raw, {
+      expectedCount: expected,
+      emissionHint: opts?.emissionHint,
+    });
     if (ai?.length) {
       const withContact = ai
         .filter((p) => p.firstName && p.birthDate)

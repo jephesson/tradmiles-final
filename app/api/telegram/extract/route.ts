@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { mapTelegramError, readTelegramChat } from "@/lib/telegram/mtproto";
+import { teamTelegram } from "@/lib/telegram/account";
+import {
+  emissionExtractInstructions,
+  type TelegramEmission,
+} from "@/lib/telegram/emission";
+import { examplesAsFewShot, loadEmissionExamples } from "@/lib/telegram/matchEmission";
+import { mapTelegramError, readTelegramMessages } from "@/lib/telegram/mtproto";
 import { extractPassengersFromImages } from "@/lib/documents/extractWithVision";
 import {
   formatPassengersForSale,
@@ -24,28 +30,46 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const chatId = String(body?.chatId || "").trim();
   const existingText = String(body?.existingText || "");
-  const expectedCount = Math.max(0, Math.trunc(Number(body?.expectedCount) || 0));
+  const emission = (body?.emission || {}) as TelegramEmission;
+  const expectedCount = Math.max(
+    0,
+    Math.trunc(Number(emission?.expectedCount ?? body?.expectedCount) || 0)
+  );
+  const messageIds = Array.isArray(body?.messageIds)
+    ? (body.messageIds as unknown[]).map((x) => Math.trunc(Number(x))).filter((n) => n > 0)
+    : [];
   if (!chatId) {
     return NextResponse.json({ ok: false, error: "Escolha uma conversa." }, { status: 400 });
   }
 
-  const row = await prisma.telegramAccount.findUnique({
-    where: { team_userId: { team: sess.team, userId: sess.id } },
-  });
+  const row = await teamTelegram(sess.team);
   if (!row || row.status !== "CONNECTED" || !row.sessionEnc) {
     return NextResponse.json({ ok: false, error: "Conecte o Telegram com o código primeiro." }, { status: 400 });
   }
 
   try {
-    const { result, sessionEnc } = await readTelegramChat(row.sessionEnc, chatId);
+    const { result, sessionEnc } = await readTelegramMessages(
+      row.sessionEnc,
+      chatId,
+      messageIds
+    );
     if (sessionEnc !== row.sessionEnc) {
       await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
     }
 
+    const examples = await loadEmissionExamples(sess.team, emission);
+    const few = examplesAsFewShot(examples);
+    const emissionHint = [emissionExtractInstructions(emission), few ? `Aprendizado:\n${few}` : ""]
+      .filter(Boolean)
+      .join("\n\n");
+
     const chatText = result.texts.join("\n\n").trim();
     let fromChat = "";
     if (chatText) {
-      const parsed = await parsePassengerTextWithFallback(chatText, null, { expectedCount });
+      const parsed = await parsePassengerTextWithFallback(chatText, null, {
+        expectedCount,
+        emissionHint,
+      });
       if (parsed.passengers.length) {
         fromChat = parsed.passengers
           .map((p) => {
@@ -64,14 +88,15 @@ export async function POST(req: Request) {
 
     let fromImages = "";
     if (result.images.length) {
-      const vision = await extractPassengersFromImages(result.images);
+      const vision = await extractPassengersFromImages(result.images, emissionHint);
       fromImages = formatPassengersForSale(vision.passengers);
     }
 
-    const merged = mergePassengerTexts(existingText, mergePassengerTexts(fromChat, fromImages));
+    const extracted = mergePassengerTexts(fromChat, fromImages);
+    const merged = mergePassengerTexts(existingText, extracted);
     if (!merged.trim()) {
       return NextResponse.json(
-        { ok: false, error: "Não achei passageiro nessa conversa (texto ou print)." },
+        { ok: false, error: "Não achei passageiro desta emissão nas mensagens marcadas." },
         { status: 400 }
       );
     }
@@ -79,6 +104,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       mergedText: merged,
+      extractedText: extracted,
+      chatSnippet: chatText.slice(0, 4000),
       textPassengers: Boolean(fromChat),
       imageCount: result.images.length,
     });

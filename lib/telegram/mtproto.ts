@@ -51,7 +51,18 @@ export function mapTelegramError(e: unknown) {
       : "Telegram limitou tentativas. Espere um pouco.";
   }
   if (/API_ID_INVALID/i.test(code)) return "TELEGRAM_API_ID inválido.";
+  if (/AUTH_KEY_UNREGISTERED|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED/i.test(code)) {
+    return "SESSION_DEAD";
+  }
   return msg.slice(0, 280) || "Falha no Telegram.";
+}
+
+export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
+  const s = String(text || "");
+  if (hasPhoto) return true;
+  if (/\bcpf\b|\bnasc|\bsobrenome\b|\bpassageir|\bnome\b/i.test(s)) return true;
+  if (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(s)) return true;
+  return false;
 }
 
 function newClient(sessionStr: string) {
@@ -182,17 +193,79 @@ export async function listTelegramChats(sessionEnc: string, query = "") {
   });
 }
 
-export async function readTelegramChat(sessionEnc: string, chatId: string) {
+async function resolveChatEntity(client: TelegramClient, chatId: string) {
+  try {
+    return await client.getEntity(chatId);
+  } catch {
+    return await client.getEntity(BigInt(chatId));
+  }
+}
+
+export type TelegramMessageRow = {
+  id: number;
+  date: string | null;
+  text: string;
+  hasPhoto: boolean;
+  looksPassenger: boolean;
+};
+
+function previewMessage(m: {
+  id?: number;
+  date?: Date | number;
+  message?: string;
+  photo?: unknown;
+  document?: { mimeType?: string };
+}): TelegramMessageRow {
+  const text = String(m.message || "").trim();
+  const mime = String(m.document?.mimeType || "");
+  const hasPhoto = Boolean(m.photo) || /^image\//i.test(mime);
+  const dateRaw = m.date;
+  const date =
+    dateRaw instanceof Date
+      ? dateRaw.toISOString()
+      : typeof dateRaw === "number"
+        ? new Date(dateRaw * 1000).toISOString()
+        : null;
+  return {
+    id: Number(m.id || 0),
+    date,
+    text: text.slice(0, 500),
+    hasPhoto,
+    looksPassenger: looksLikePassengerContent(text, hasPhoto),
+  };
+}
+
+export async function checkTelegramAlive(sessionEnc: string) {
+  return withTelegramClient({
+    sessionEnc,
+    run: async (client) => client.checkAuthorization(),
+  });
+}
+
+export async function listTelegramMessages(sessionEnc: string, chatId: string) {
   return withTelegramClient({
     sessionEnc,
     run: async (client) => {
-      let entity;
-      try {
-        entity = await client.getEntity(chatId);
-      } catch {
-        entity = await client.getEntity(BigInt(chatId));
-      }
-      const messages = await client.getMessages(entity, { limit: 40 });
+      const entity = await resolveChatEntity(client, chatId);
+      const messages = await client.getMessages(entity, { limit: 30 });
+      return messages.map((m) => previewMessage(m as never)).filter((m) => m.id > 0);
+    },
+  });
+}
+
+export async function readTelegramMessages(
+  sessionEnc: string,
+  chatId: string,
+  messageIds?: number[]
+) {
+  return withTelegramClient({
+    sessionEnc,
+    run: async (client) => {
+      const entity = await resolveChatEntity(client, chatId);
+      const wanted = (messageIds || []).map((n) => Math.trunc(Number(n))).filter((n) => n > 0);
+      const messages = wanted.length
+        ? await client.getMessages(entity, { ids: wanted })
+        : await client.getMessages(entity, { limit: 12 });
       const texts: string[] = [];
       const images: { mimeType: string; base64: string }[] = [];
       const chronological = [...messages].reverse();

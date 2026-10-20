@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { teamTelegram } from "@/lib/telegram/account";
 import {
   mapTelegramError,
   signInTelegram,
@@ -23,9 +24,7 @@ export async function POST(req: Request) {
   const code = String(body?.code || "").trim();
   const password = String(body?.password || "").trim();
 
-  const row = await prisma.telegramAccount.findUnique({
-    where: { team_userId: { team: sess.team, userId: sess.id } },
-  });
+  const row = await teamTelegram(sess.team);
   if (!row) {
     return NextResponse.json({ ok: false, error: "Peça o código no Telegram primeiro." }, { status: 400 });
   }

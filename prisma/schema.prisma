@@ -2826,11 +2826,33 @@ model TelegramAccount {
   status         String  @default("PENDING")
   telegramUserId String?
   telegramName   String?
+  lastChatId     String?
+  lastChatTitle  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([team, userId])
-  @@index([team])
+  @@unique([team])
+  @@index([userId])
   @@map("telegram_accounts")
+}
+
+/** Extrações confirmadas — few-shot para a emissão atual no Telegram. */
+model TelegramEmissionExample {
+  id     String @id @default(cuid())
+  team   String
+  userId String?
+
+  origin         String @default("")
+  destination    String @default("")
+  outbound       String @default("")
+  expectedCount  Int    @default(0)
+  chatSnippet    String @default("")
+  passengerText  String @default("")
+
+  createdAt DateTime @default(now())
+
+  @@index([team, createdAt])
+  @@index([team, origin, destination])
+  @@map("telegram_emission_examples")
 }

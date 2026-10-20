@@ -2400,6 +2400,17 @@ export default function BiometriaWizardModal({
         <TelegramPassengerPicker
           existingText={latamPassengerText}
           expectedCount={expectedPassengerCount}
+          emission={{
+            origin: searchOrigin,
+            destination: searchDestination,
+            outbound: searchOutbound,
+            inbound: searchInbound,
+            trip: searchTrip,
+            adt: searchAdt,
+            chd: searchChd,
+            inf: searchInf,
+            expectedCount: expectedPassengerCount,
+          }}
           onClose={() => setShowTelegram(false)}
           onApply={(text) => {
             setLatamPassengerText(text);

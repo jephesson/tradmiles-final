@@ -11,12 +11,15 @@ Regras:
 6. CPF no formato 000.000.000-00 ou só dígitos; normalize para 11 dígitos quando possível.
 7. Datas com ponto (03.04.1969) → DD/MM/YYYY.
 8. Certidão de nascimento: nome do registrado, data, CPF se houver, sexo se houver.
-9. Print de Telegram/WhatsApp: leia TODAS as fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento). Junte Nome+Sobrenome em fullName. Ignore chat, milhas, voo, valores e o restante da tela.
+9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) da emissão atual. Junte Nome+Sobrenome em fullName. Ignore chat, milhas, voo, valores e fichas de OUTRA emissão.
 10. Não invente CPF. Não invente sexo.
 11. Responda SOMENTE JSON válido no schema pedido.`;
 
-export function buildExtractUserPrompt(imageCount: number) {
-  return `Analise ${imageCount} imagem(ns) (documento e/ou print de Telegram/WhatsApp). Extraia TODOS os passageiros. Retorne JSON:
+export function buildExtractUserPrompt(imageCount: number, emissionHint = "") {
+  const scope = emissionHint
+    ? `\nContexto da emissão atual:\n${emissionHint}\n`
+    : "";
+  return `Analise ${imageCount} imagem(ns) (documento e/ou print de Telegram/WhatsApp). Extraia os passageiros desta emissão.${scope}Retorne JSON:
 {
   "passengers": [
     {
@@ -126,7 +129,8 @@ export type VisionImage = {
  * Requer OPENAI_API_KEY (ou DOCUMENT_AI_API_KEY) no ambiente.
  */
 export async function extractPassengersFromImages(
-  images: VisionImage[]
+  images: VisionImage[],
+  emissionHint = ""
 ): Promise<DocumentExtractResult> {
   if (!images.length) {
     return { passengers: [], warnings: ["Nenhuma imagem enviada."] };
@@ -154,7 +158,7 @@ export async function extractPassengersFromImages(
   ).replace(/\/$/, "");
 
   const content: any[] = [
-    { type: "text", text: buildExtractUserPrompt(images.length) },
+    { type: "text", text: buildExtractUserPrompt(images.length, emissionHint) },
     ...images.map((img) => ({
       type: "image_url",
       image_url: {
