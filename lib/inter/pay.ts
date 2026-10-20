@@ -117,7 +117,7 @@ async function sendPix(opts: {
         return {
           via: "inter",
           paid: false,
-          awaitingApproval: status !== "PAID",
+          awaitingApproval: true,
           codigoSolicitacao: open.codigoSolicitacao,
           status,
         };
