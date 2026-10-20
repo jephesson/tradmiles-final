@@ -431,6 +431,7 @@ export default function BiometriaWizardModal({
   const [allCedentesLoading, setAllCedentesLoading] = useState(false);
   const openedOnce = useRef(false);
   const lastCedenteId = useRef(cedenteId);
+  const pendingTelegramPrep = useRef(false);
 
   const expectedPassengerCount = Math.max(
     0,
@@ -511,6 +512,29 @@ export default function BiometriaWizardModal({
     expectedPassengerCount,
     latamRegexPassengers.length,
     latamTitularContact,
+  ]);
+
+  useEffect(() => {
+    if (!pendingTelegramPrep.current) return;
+    if (step !== "extension") return;
+    if (!useLatamExtension) return;
+    if (!latamPassengerText.trim()) {
+      pendingTelegramPrep.current = false;
+      return;
+    }
+    if (latamAiParsing) return;
+    if (latamParsedPassengers.some((p) => !p.birthDate)) {
+      pendingTelegramPrep.current = false;
+      return;
+    }
+    pendingTelegramPrep.current = false;
+    void syncLatamExtensionSession(true);
+  }, [
+    step,
+    useLatamExtension,
+    latamPassengerText,
+    latamAiParsing,
+    latamParsedPassengers,
   ]);
 
   const cpf = creds?.cpf || "";
@@ -1657,10 +1681,10 @@ export default function BiometriaWizardModal({
                 Preencha o trecho para abrir a busca{" "}
                 {program === "SMILES" ? "Smiles" : "LATAM"} já em milhas.
                 Adultos/crianças/bebês vêm da venda — bebê entra no link, mas não
-                conta CPF do cedente.
+                conta CPF do cedente. Dá para ler rota e passageiros no Telegram.
               </p>
 
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setSearchTrip("IDA")}
@@ -1684,6 +1708,14 @@ export default function BiometriaWizardModal({
                   )}
                 >
                   Ida e volta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTelegram(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Ler no Telegram
                 </button>
               </div>
 
@@ -2412,9 +2444,52 @@ export default function BiometriaWizardModal({
             expectedCount: expectedPassengerCount,
           }}
           onClose={() => setShowTelegram(false)}
-          onApply={(text) => {
-            setLatamPassengerText(text);
+          onApply={(payload) => {
+            const f = payload.flight;
+            if (f) {
+              if (f.origin) setSearchOrigin(f.origin);
+              if (f.destination) setSearchDestination(f.destination);
+              if (f.outbound) setSearchOutbound(f.outbound);
+              if (f.inbound) {
+                setSearchInbound(f.inbound);
+                setSearchTrip("IDA_VOLTA");
+              } else {
+                setSearchTrip(f.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA");
+              }
+              setSearchAdt(Math.max(1, Math.min(9, f.adt || 1)));
+              setSearchChd(Math.max(0, Math.min(9, f.chd || 0)));
+              setSearchInf(Math.max(0, Math.min(9, f.inf || 0)));
+              if (program === "LATAM") {
+                const link = buildLatamSearchLink({
+                  origin: f.origin,
+                  destination: f.destination,
+                  outbound: f.outbound,
+                  inbound: f.inbound,
+                  trip: f.trip === "IDA_VOLTA" ? "RT" : "OW",
+                  adt: f.adt,
+                  chd: f.chd,
+                  inf: f.inf,
+                });
+                if (link) window.open(link, "_blank");
+              } else if (f.origin && f.destination && f.outbound) {
+                const url = buildSmilesSearchUrl(
+                  f.origin,
+                  f.destination,
+                  f.outbound,
+                  f.adt,
+                  f.trip === "IDA_VOLTA" ? f.inbound || null : null,
+                  { children: f.chd, infants: f.inf }
+                );
+                if (url) window.open(url, "_blank");
+              }
+            }
+            if (payload.passengerText.trim()) {
+              setLatamPassengerText(payload.passengerText);
+              setUseLatamExtension(true);
+              pendingTelegramPrep.current = true;
+            }
             setShowTelegram(false);
+            if (program === "LATAM") setStep("extension");
           }}
         />
       ) : null}

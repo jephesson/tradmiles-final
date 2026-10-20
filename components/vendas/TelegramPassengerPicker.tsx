@@ -7,6 +7,17 @@ import {
   type TelegramEmission,
 } from "@/lib/telegram/emission";
 
+export type TelegramFlightApply = {
+  origin: string;
+  destination: string;
+  outbound: string;
+  inbound: string;
+  trip: "IDA" | "IDA_VOLTA";
+  adt: number;
+  chd: number;
+  inf: number;
+};
+
 type Chat = { id: string; title: string; lastMessage: string };
 type Msg = {
   id: number;
@@ -38,7 +49,7 @@ export default function TelegramPassengerPicker(props: {
   expectedCount: number;
   emission: TelegramEmission;
   onClose: () => void;
-  onApply: (text: string) => void;
+  onApply: (payload: { passengerText: string; flight: TelegramFlightApply | null }) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -220,24 +231,52 @@ export default function TelegramPassengerPicker(props: {
         body: JSON.stringify({
           chatId: chat.id,
           messageIds: selectedIds,
-          existingText: props.existingText,
+          existingText: "",
           expectedCount: props.expectedCount,
           emission: props.emission,
         }),
       });
       const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Não achei passageiros.");
-      const text = String(json.mergedText || "");
+      if (!json?.ok) throw new Error(json?.error || "Não achei voo nem passageiros.");
+      const text = String(json.extractedText || json.mergedText || "");
+      const raw = json.flight && typeof json.flight === "object" ? json.flight : null;
+      const flight: TelegramFlightApply | null = raw
+        ? {
+            origin: String(raw.origin || "").toUpperCase(),
+            destination: String(raw.destination || "").toUpperCase(),
+            outbound: String(raw.outbound || ""),
+            inbound: String(raw.inbound || ""),
+            trip: raw.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA",
+            adt: Math.max(1, Math.trunc(Number(raw.adt) || 1)),
+            chd: Math.max(0, Math.trunc(Number(raw.chd) || 0)),
+            inf: Math.max(0, Math.trunc(Number(raw.inf) || 0)),
+          }
+        : null;
       void fetch("/api/telegram/learn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          emission: props.emission,
-          passengerText: String(json.extractedText || text),
+          emission: {
+            ...props.emission,
+            ...(flight
+              ? {
+                  origin: flight.origin,
+                  destination: flight.destination,
+                  outbound: flight.outbound,
+                  inbound: flight.inbound,
+                  trip: flight.trip,
+                  adt: flight.adt,
+                  chd: flight.chd,
+                  inf: flight.inf,
+                  expectedCount: flight.adt + flight.chd + flight.inf,
+                }
+              : null),
+          },
+          passengerText: text,
           chatSnippet: String(json.chatSnippet || ""),
         }),
       }).catch(() => undefined);
-      props.onApply(text);
+      props.onApply({ passengerText: text, flight });
     } catch (e: any) {
       setError(e?.message || "Falha ao ler a conversa.");
     } finally {
@@ -267,7 +306,7 @@ export default function TelegramPassengerPicker(props: {
         <div className="border-b border-slate-100 px-4 py-3">
           <div className="text-sm font-semibold text-slate-900">Telegram</div>
           <p className="mt-0.5 text-[11px] text-slate-500">
-            Fica logado na empresa. A IA marca o bloco da emissão atual e aprende com o que você confirma.
+            Fica logado na empresa. Lê rota, datas, adulto/criança/bebê e passageiros da emissão atual.
           </p>
           {formatEmissionHint(props.emission) ? (
             <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-700">
@@ -295,7 +334,7 @@ export default function TelegramPassengerPicker(props: {
                 <span className="font-medium text-slate-800">{chat.title}</span>
               </div>
               <p className="text-[11px] text-slate-500">
-                Já marquei o que parece desta emissão. Ajuste se misturou com outra venda do chat.
+                Já marquei tabela do voo + fichas desta emissão. Ajuste se misturou com outra venda.
               </p>
               <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
                 {messages.map((m) => (
@@ -321,7 +360,7 @@ export default function TelegramPassengerPicker(props: {
                 onClick={() => void extractSelected()}
                 className="h-10 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {busy ? "Lendo passageiros…" : `Usar ${selectedIds.length} mensagem(ns)`}
+                {busy ? "Lendo voo e passageiros…" : `Usar ${selectedIds.length} mensagem(ns)`}
               </button>
             </div>
           ) : connected ? (

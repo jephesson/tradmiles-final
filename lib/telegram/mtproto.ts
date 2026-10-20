@@ -62,6 +62,12 @@ export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
   if (hasPhoto) return true;
   if (/\bcpf\b|\bnasc|\bsobrenome\b|\bpassageir|\bnome\b/i.test(s)) return true;
   if (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(s)) return true;
+  if (/\borigem\b|\bdestino\b|\bcia\b|\bvoo\b/i.test(s) && /\b[A-Z]{3}\b/.test(s.toUpperCase())) {
+    return true;
+  }
+  if (/\b[A-Z]{3}\s+[A-Z]{3}\b/.test(s.toUpperCase()) && /\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(s)) {
+    return true;
+  }
   return false;
 }
 

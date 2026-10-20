@@ -14,6 +14,7 @@ import {
   mergePassengerTexts,
 } from "@/lib/documents/formatPassengerBlock";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
+import { parseTelegramEmission } from "@/lib/telegram/parseEmission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,10 +94,13 @@ export async function POST(req: Request) {
     }
 
     const extracted = mergePassengerTexts(fromChat, fromImages);
-    const merged = mergePassengerTexts(existingText, extracted);
-    if (!merged.trim()) {
+    const combined = [chatText, fromImages].filter(Boolean).join("\n\n");
+    const flight = await parseTelegramEmission(combined, emission);
+    const passengerText = (flight?.passengerText || extracted).trim();
+    const merged = mergePassengerTexts(existingText, passengerText);
+    if (!merged.trim() && !flight?.origin && !flight?.destination) {
       return NextResponse.json(
-        { ok: false, error: "Não achei passageiro desta emissão nas mensagens marcadas." },
+        { ok: false, error: "Não achei voo nem passageiro desta emissão nas mensagens marcadas." },
         { status: 400 }
       );
     }
@@ -104,10 +108,22 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       mergedText: merged,
-      extractedText: extracted,
+      extractedText: passengerText,
       chatSnippet: chatText.slice(0, 4000),
       textPassengers: Boolean(fromChat),
       imageCount: result.images.length,
+      flight: flight
+        ? {
+            origin: flight.origin,
+            destination: flight.destination,
+            outbound: flight.outbound,
+            inbound: flight.inbound,
+            trip: flight.trip,
+            adt: flight.adt,
+            chd: flight.chd,
+            inf: flight.inf,
+          }
+        : null,
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: mapTelegramError(e) }, { status: 400 });

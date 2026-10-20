@@ -38,5 +38,7 @@ export function emissionExtractInstructions(e: TelegramEmission | null | undefin
     return "Extraia os passageiros da emissão mais recente no material.";
   }
   return `Emissão ATUAL (única que vale): ${hint}.
-Extraia SOMENTE os passageiros deste voo/desta quantidade. Se o Telegram tiver fichas de outras emissões do mesmo dia, ignore. Não invente passageiro para completar a conta.`;
+Extraia SOMENTE este voo: origem/destino IATA, data ida (e volta se houver) e os passageiros (nome, nascimento, CPF).
+Classifique ADT (≥12), CHD (2–11) e INF (<2) na data da ida.
+Se o Telegram tiver fichas de outras emissões do mesmo dia, ignore. Não invente passageiro para completar a conta.`;
 }
