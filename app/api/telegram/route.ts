@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { teamTelegram } from "@/lib/telegram/account";
-import { checkTelegramAlive, mapTelegramError, telegramApiConfigured } from "@/lib/telegram/mtproto";
+import { resolveTelegramCreds, teamTelegram } from "@/lib/telegram/account";
+import { checkTelegramAlive, mapTelegramError } from "@/lib/telegram/mtproto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,12 +12,13 @@ export async function GET() {
   try {
     const sess = await requireSession();
     const row = await teamTelegram(sess.team);
+    const creds = await resolveTelegramCreds(sess.team);
     let status = row?.status || null;
     let connected = row?.status === "CONNECTED" && Boolean(row?.sessionEnc);
 
-    if (connected && row?.sessionEnc) {
+    if (connected && row?.sessionEnc && creds) {
       try {
-        const { result, sessionEnc } = await checkTelegramAlive(row.sessionEnc);
+        const { result, sessionEnc } = await checkTelegramAlive(row.sessionEnc, creds);
         if (sessionEnc !== row.sessionEnc) {
           await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
         }
@@ -43,7 +44,7 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      configured: telegramApiConfigured(),
+      configured: Boolean(creds),
       connected,
       status,
       phone: row?.phone || null,
@@ -59,7 +60,16 @@ export async function GET() {
 export async function DELETE() {
   try {
     const sess = await requireSession();
-    await prisma.telegramAccount.deleteMany({ where: { team: sess.team } });
+    await prisma.telegramAccount.updateMany({
+      where: { team: sess.team },
+      data: {
+        sessionEnc: "",
+        phoneCodeHash: null,
+        status: "DISCONNECTED",
+        telegramUserId: null,
+        telegramName: null,
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });

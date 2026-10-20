@@ -7,23 +7,18 @@ import {
   decryptTelegramSession,
   encryptTelegramSession,
 } from "@/lib/telegram/sessionCrypto";
+import { envTelegramApiCreds, type TelegramApiCreds } from "@/lib/telegram/creds";
 
 export function telegramApiConfigured() {
-  const id = Number(process.env.TELEGRAM_API_ID || "");
-  const hash = String(process.env.TELEGRAM_API_HASH || "").trim();
-  return Number.isInteger(id) && id > 0 && hash.length > 8;
+  return Boolean(envTelegramApiCreds());
 }
 
-export function telegramApiCreds() {
-  if (!telegramApiConfigured()) {
-    throw new Error(
-      "Configure TELEGRAM_API_ID e TELEGRAM_API_HASH no servidor (my.telegram.org → API development tools)."
-    );
+export function telegramApiCreds(): TelegramApiCreds {
+  const env = envTelegramApiCreds();
+  if (!env) {
+    throw new Error("Falta o app do Telegram (API ID e API HASH).");
   }
-  return {
-    apiId: Number(process.env.TELEGRAM_API_ID),
-    apiHash: String(process.env.TELEGRAM_API_HASH || "").trim(),
-  };
+  return env;
 }
 
 export function normalizeTelegramPhone(raw: string) {
@@ -72,9 +67,8 @@ export function looksLikePassengerContent(text: string, hasPhoto: boolean) {
   return false;
 }
 
-function newClient(sessionStr: string) {
-  const { apiId, apiHash } = telegramApiCreds();
-  return new TelegramClient(new StringSession(sessionStr || ""), apiId, apiHash, {
+function newClient(sessionStr: string, creds: TelegramApiCreds) {
+  return new TelegramClient(new StringSession(sessionStr || ""), creds.apiId, creds.apiHash, {
     connectionRetries: 3,
     autoReconnect: false,
     timeout: 20,
@@ -84,10 +78,11 @@ function newClient(sessionStr: string) {
 
 export async function withTelegramClient<T>(opts: {
   sessionEnc?: string | null;
+  creds: TelegramApiCreds;
   run: (client: TelegramClient) => Promise<T>;
 }): Promise<{ result: T; sessionEnc: string }> {
   const sessionStr = opts.sessionEnc ? decryptTelegramSession(opts.sessionEnc) : "";
-  const client = newClient(sessionStr);
+  const client = newClient(sessionStr, opts.creds);
   try {
     await client.connect();
     const result = await opts.run(client);
@@ -104,12 +99,20 @@ export async function withTelegramClient<T>(opts: {
   }
 }
 
-export async function sendTelegramLoginCode(phone: string, sessionEnc?: string | null) {
-  const { apiId, apiHash } = telegramApiCreds();
+export async function sendTelegramLoginCode(
+  phone: string,
+  sessionEnc: string | null | undefined,
+  creds: TelegramApiCreds
+) {
   return withTelegramClient({
     sessionEnc,
+    creds,
     run: async (client) => {
-      const sent = await client.sendCode({ apiId, apiHash }, phone, false);
+      const sent = await client.sendCode(
+        { apiId: creds.apiId, apiHash: creds.apiHash },
+        phone,
+        false
+      );
       return { phoneCodeHash: String(sent.phoneCodeHash || "") };
     },
   });
@@ -120,10 +123,12 @@ export async function signInTelegram(opts: {
   phoneCodeHash: string;
   code: string;
   sessionEnc?: string | null;
+  creds: TelegramApiCreds;
 }) {
   try {
     return await withTelegramClient({
       sessionEnc: opts.sessionEnc,
+      creds: opts.creds,
       run: async (client) => {
         await client.invoke(
           new Api.auth.SignIn({
@@ -153,9 +158,11 @@ export async function signInTelegram(opts: {
 export async function signInTelegramPassword(opts: {
   password: string;
   sessionEnc?: string | null;
+  creds: TelegramApiCreds;
 }) {
   return withTelegramClient({
     sessionEnc: opts.sessionEnc,
+    creds: opts.creds,
     run: async (client) => {
       const pwd = await client.invoke(new Api.account.GetPassword());
       await client.invoke(
@@ -178,9 +185,14 @@ export type TelegramChatRow = {
   lastMessage: string;
 };
 
-export async function listTelegramChats(sessionEnc: string, query = "") {
+export async function listTelegramChats(
+  sessionEnc: string,
+  query: string,
+  creds: TelegramApiCreds
+) {
   return withTelegramClient({
     sessionEnc,
+    creds,
     run: async (client) => {
       const dialogs = await client.getDialogs({ limit: 60 });
       const q = query.trim().toLowerCase();
@@ -248,16 +260,22 @@ function previewMessage(m: {
   };
 }
 
-export async function checkTelegramAlive(sessionEnc: string) {
+export async function checkTelegramAlive(sessionEnc: string, creds: TelegramApiCreds) {
   return withTelegramClient({
     sessionEnc,
+    creds,
     run: async (client) => client.checkAuthorization(),
   });
 }
 
-export async function listTelegramMessages(sessionEnc: string, chatId: string) {
+export async function listTelegramMessages(
+  sessionEnc: string,
+  chatId: string,
+  creds: TelegramApiCreds
+) {
   return withTelegramClient({
     sessionEnc,
+    creds,
     run: async (client) => {
       const entity = await resolveChatEntity(client, chatId);
       const messages = await client.getMessages(entity, { limit: 30 });
@@ -269,10 +287,12 @@ export async function listTelegramMessages(sessionEnc: string, chatId: string) {
 export async function readTelegramMessages(
   sessionEnc: string,
   chatId: string,
-  messageIds?: number[]
+  messageIds: number[] | undefined,
+  creds: TelegramApiCreds
 ) {
   return withTelegramClient({
     sessionEnc,
+    creds,
     run: async (client) => {
       const entity = await resolveChatEntity(client, chatId);
       const wanted = (messageIds || []).map((n) => Math.trunc(Number(n))).filter((n) => n > 0);

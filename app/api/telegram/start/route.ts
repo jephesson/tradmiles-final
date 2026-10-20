@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { teamTelegram } from "@/lib/telegram/account";
+import { resolveTelegramCreds, teamTelegram } from "@/lib/telegram/account";
 import {
   mapTelegramError,
   normalizeTelegramPhone,
   sendTelegramLoginCode,
-  telegramApiConfigured,
 } from "@/lib/telegram/mtproto";
 
 export const runtime = "nodejs";
@@ -20,12 +19,14 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
-  if (!telegramApiConfigured()) {
+  const creds = await resolveTelegramCreds(sess.team);
+  if (!creds) {
     return NextResponse.json(
       {
         ok: false,
+        needApp: true,
         error:
-          "Falta TELEGRAM_API_ID e TELEGRAM_API_HASH na Vercel (crie em my.telegram.org → API development tools).",
+          "Na primeira vez, cole o API ID e o API HASH de my.telegram.org → API development tools.",
       },
       { status: 400 }
     );
@@ -50,7 +51,8 @@ export async function POST(req: Request) {
   try {
     const { result, sessionEnc } = await sendTelegramLoginCode(
       phone,
-      force ? "" : existing?.sessionEnc
+      force ? "" : existing?.sessionEnc,
+      creds
     );
     if (existing) {
       await prisma.telegramAccount.update({

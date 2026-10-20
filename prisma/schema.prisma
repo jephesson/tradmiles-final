@@ -2823,6 +2823,9 @@ model TelegramAccount {
   phone          String
   sessionEnc     String  @default("")
   phoneCodeHash  String?
+  /** App em my.telegram.org — usado se não houver env na Vercel. */
+  apiId          Int     @default(0)
+  apiHashEnc     String  @default("")
   status         String  @default("PENDING")
   telegramUserId String?
   telegramName   String?

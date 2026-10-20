@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { teamTelegram } from "@/lib/telegram/account";
+import { resolveTelegramCreds, teamTelegram } from "@/lib/telegram/account";
 import {
   mapTelegramError,
   signInTelegram,
@@ -25,8 +25,15 @@ export async function POST(req: Request) {
   const password = String(body?.password || "").trim();
 
   const row = await teamTelegram(sess.team);
+  const creds = await resolveTelegramCreds(sess.team);
   if (!row) {
     return NextResponse.json({ ok: false, error: "Peça o código no Telegram primeiro." }, { status: 400 });
+  }
+  if (!creds) {
+    return NextResponse.json(
+      { ok: false, needApp: true, error: "Salve o API ID e o API HASH primeiro." },
+      { status: 400 }
+    );
   }
 
   try {
@@ -34,6 +41,7 @@ export async function POST(req: Request) {
       const { result, sessionEnc } = await signInTelegramPassword({
         password,
         sessionEnc: row.sessionEnc,
+        creds,
       });
       await prisma.telegramAccount.update({
         where: { id: row.id },
@@ -61,6 +69,7 @@ export async function POST(req: Request) {
         phoneCodeHash: row.phoneCodeHash,
         code,
         sessionEnc: row.sessionEnc,
+        creds,
       });
       await prisma.telegramAccount.update({
         where: { id: row.id },

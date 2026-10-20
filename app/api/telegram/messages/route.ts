@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { teamTelegram } from "@/lib/telegram/account";
+import { resolveTelegramCreds, teamTelegram } from "@/lib/telegram/account";
 import type { TelegramEmission } from "@/lib/telegram/emission";
 import { loadEmissionExamples, matchMessagesToEmission } from "@/lib/telegram/matchEmission";
 import { listTelegramMessages, mapTelegramError } from "@/lib/telegram/mtproto";
@@ -46,7 +46,11 @@ export async function GET(req: NextRequest) {
   const emission = emissionFromSearch(req.nextUrl.searchParams);
 
   try {
-    const { result, sessionEnc } = await listTelegramMessages(row.sessionEnc, chatId);
+    const creds = await resolveTelegramCreds(sess.team);
+    if (!creds) {
+      return NextResponse.json({ ok: false, error: "Telegram sem app configurado." }, { status: 400 });
+    }
+    const { result, sessionEnc } = await listTelegramMessages(row.sessionEnc, chatId, creds);
     const data: Record<string, unknown> = {
       sessionEnc: sessionEnc !== row.sessionEnc ? sessionEnc : undefined,
       lastChatId: chatId,

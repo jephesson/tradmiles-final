@@ -344,6 +344,7 @@ export default function Sidebar() {
   );
 
   const isExtensaoLatamRoute = pathname.startsWith("/dashboard/extensao-latam");
+  const isTelegramRoute = pathname.startsWith("/dashboard/telegram");
   const isCartaoViasRoute = pathname.startsWith("/dashboard/cartao-vias-aereas");
 
   // ✅ NOVO: Emissões no balcão
@@ -359,6 +360,7 @@ export default function Sidebar() {
     isAtualizacaoTermosRoute ||
     isHorarioBiometriaRoute ||
     isExtensaoLatamRoute ||
+    isTelegramRoute ||
     isCartaoViasRoute ||
     isImportacoesRoute ||
     isImportacoesEmissoesLatamRoute ||
@@ -1230,6 +1232,7 @@ export default function Sidebar() {
           <NavLink href="/dashboard/automacao">Automação</NavLink>
 
           <NavLink href="/dashboard/extensao-latam">Extensão LATAM</NavLink>
+          <NavLink href="/dashboard/telegram">Telegram</NavLink>
 
           <NavLink href="/dashboard/anotacoes">Anotações</NavLink>
 

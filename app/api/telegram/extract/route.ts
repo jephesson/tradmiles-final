@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { teamTelegram } from "@/lib/telegram/account";
+import { resolveTelegramCreds, teamTelegram } from "@/lib/telegram/account";
 import {
   emissionExtractInstructions,
   type TelegramEmission,
@@ -49,10 +49,15 @@ export async function POST(req: Request) {
   }
 
   try {
+    const creds = await resolveTelegramCreds(sess.team);
+    if (!creds) {
+      return NextResponse.json({ ok: false, error: "Telegram sem app configurado." }, { status: 400 });
+    }
     const { result, sessionEnc } = await readTelegramMessages(
       row.sessionEnc,
       chatId,
-      messageIds
+      messageIds,
+      creds
     );
     if (sessionEnc !== row.sessionEnc) {
       await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
