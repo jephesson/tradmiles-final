@@ -2,6 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram/tl";
 import { computeCheck } from "telegram/Password";
+import bigInt from "big-integer";
 import {
   decryptTelegramSession,
   encryptTelegramSession,
@@ -205,7 +206,11 @@ async function resolveChatEntity(client: TelegramClient, chatId: string) {
   try {
     return await client.getEntity(chatId);
   } catch {
-    return await client.getEntity(BigInt(chatId));
+    const n = Number(chatId);
+    if (Number.isSafeInteger(n) && n !== 0) {
+      return await client.getEntity(n);
+    }
+    return await client.getEntity(bigInt(chatId));
   }
 }
 
@@ -290,7 +295,11 @@ export async function readTelegramMessages(
         if (!hasMedia || images.length >= 8) continue;
         try {
           const buf = await client.downloadMedia(m, {});
-          const raw = Buffer.isBuffer(buf) ? buf : buf ? Buffer.from(buf as ArrayBuffer) : null;
+          const raw = Buffer.isBuffer(buf)
+            ? buf
+            : typeof buf === "string"
+              ? Buffer.from(buf, "binary")
+              : null;
           if (!raw || raw.length < 80) continue;
           images.push({ mimeType: "image/jpeg", base64: raw.toString("base64") });
         } catch {
