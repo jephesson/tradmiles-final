@@ -280,6 +280,7 @@ model User {
 
   // ✅ Gmail OAuth (token da caixa conectada)
   gmailConnectionsConnected GmailConnection[] @relation("GmailConnectionConnectedBy")
+  telegramAccounts          TelegramAccount[] @relation("TelegramAccountUser")
 
   // Cartões para taxa/pagamento LATAM (sem CVV)
   paymentCards EmployeePaymentCard[] @relation("EmployeePaymentCardOwner")
@@ -2810,4 +2811,26 @@ model CotacaoPassagemSearch {
   @@unique([jobId, direction, originIata, destIata, date, airline])
   @@index([jobId, status])
   @@map("cotacao_passagem_searches")
+}
+
+/** Conta Telegram do funcionário (login com código do app) para ler conversas. */
+model TelegramAccount {
+  id     String @id @default(cuid())
+  team   String
+  userId String
+  user   User   @relation("TelegramAccountUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  phone          String
+  sessionEnc     String  @default("")
+  phoneCodeHash  String?
+  status         String  @default("PENDING")
+  telegramUserId String?
+  telegramName   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, userId])
+  @@index([team])
+  @@map("telegram_accounts")
 }

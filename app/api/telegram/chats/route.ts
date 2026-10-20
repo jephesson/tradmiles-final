@@ -1,0 +1,35 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth-server";
+import { listTelegramChats, mapTelegramError } from "@/lib/telegram/mtproto";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+export async function GET(req: NextRequest) {
+  let sess;
+  try {
+    sess = await requireSession();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
+  }
+
+  const row = await prisma.telegramAccount.findUnique({
+    where: { team_userId: { team: sess.team, userId: sess.id } },
+  });
+  if (!row || row.status !== "CONNECTED" || !row.sessionEnc) {
+    return NextResponse.json({ ok: false, error: "Conecte o Telegram com o código primeiro." }, { status: 400 });
+  }
+
+  const q = req.nextUrl.searchParams.get("q") || "";
+  try {
+    const { result, sessionEnc } = await listTelegramChats(row.sessionEnc, q);
+    if (sessionEnc !== row.sessionEnc) {
+      await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
+    }
+    return NextResponse.json({ ok: true, chats: result });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: mapTelegramError(e) }, { status: 400 });
+  }
+}

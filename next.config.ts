@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["telegram", "websocket", "ws", "big-integer"],
   async headers() {
     return [
       {

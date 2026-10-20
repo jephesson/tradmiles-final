@@ -32,6 +32,7 @@ import {
   normalizeUnicoBiometriaLink,
 } from "@/lib/latam/validacaoLinks";
 import ScreenRegionPicker from "@/components/vendas/ScreenRegionPicker";
+import TelegramPassengerPicker from "@/components/vendas/TelegramPassengerPicker";
 
 type Program = "LATAM" | "SMILES";
 
@@ -383,6 +384,7 @@ export default function BiometriaWizardModal({
   const [docExtractError, setDocExtractError] = useState("");
   const [docExtractWarnings, setDocExtractWarnings] = useState<string[]>([]);
   const [screenCapture, setScreenCapture] = useState<string | null>(null);
+  const [showTelegram, setShowTelegram] = useState(false);
   const [latamPaymentCards, setLatamPaymentCards] = useState<
     Array<{
       id: string;
@@ -1913,6 +1915,15 @@ export default function BiometriaWizardModal({
                           <button
                             type="button"
                             disabled={docExtracting}
+                            onClick={() => setShowTelegram(true)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            Telegram
+                          </button>
+                          <button
+                            type="button"
+                            disabled={docExtracting}
                             onClick={() => void captureTelegramScreen()}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
                           >
@@ -1946,9 +1957,9 @@ export default function BiometriaWizardModal({
                         </div>
                       </div>
                       <p className="mt-1 text-[10px] text-slate-500">
-                        Vários passageiros: cole o texto, cole print (Ctrl+V / ⌘V),
-                        envie fotos ou selecione a tela do Telegram. Imagem e
-                        print vão para a OpenAI; texto misturado também entra.
+                        Vários passageiros: cole texto/print, selecione a tela, ou
+                        conecte o Telegram com o código, escolha a conversa e a
+                        OpenAI lê o que estiver lá.
                       </p>
                       <textarea
                         className="mt-1 min-h-[120px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
@@ -2383,6 +2394,17 @@ export default function BiometriaWizardModal({
           busy={docExtracting}
           onCancel={() => setScreenCapture(null)}
           onConfirm={(file) => void extractDocumentsFromFiles([file])}
+        />
+      ) : null}
+      {showTelegram ? (
+        <TelegramPassengerPicker
+          existingText={latamPassengerText}
+          expectedCount={expectedPassengerCount}
+          onClose={() => setShowTelegram(false)}
+          onApply={(text) => {
+            setLatamPassengerText(text);
+            setShowTelegram(false);
+          }}
         />
       ) : null}
     </div>
