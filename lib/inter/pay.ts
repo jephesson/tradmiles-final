@@ -53,7 +53,7 @@ async function expireIfStaleCardPix<
   const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
   const day = `${get("year")}-${get("month")}-${get("day")}`;
   const staleDay = day < todayISORecife();
-  const staleNoCode = !row.codigoSolicitacao && Date.now() - row.createdAt.getTime() > 5 * 60_000;
+  const staleNoCode = !row.codigoSolicitacao;
   if (!staleDay && !staleNoCode) return row;
   await prisma.interPixPayment.update({
     where: { id: row.id },
@@ -107,29 +107,34 @@ async function sendPix(opts: {
       })
     : null;
   if (open?.codigoSolicitacao) {
-    const refreshed = await refreshInterPixById(open.id);
-    const status = refreshed?.status || open.status;
-    if (isPendingPixStatus(status)) {
-      return {
-        via: "inter",
-        paid: false,
-        awaitingApproval: true,
-        codigoSolicitacao: open.codigoSolicitacao,
-        status,
-      };
-    }
-    if (status === "PAID") {
-      return {
-        via: "inter",
-        paid: true,
-        awaitingApproval: false,
-        codigoSolicitacao: open.codigoSolicitacao,
-        status,
-      };
+    try {
+      const refreshed = await refreshInterPixById(open.id);
+      const status = refreshed?.status || open.status;
+      const queued =
+        status === "AWAITING_APPROVAL" ||
+        (status === "PROCESSING" && Date.now() - open.createdAt.getTime() < 15 * 60_000);
+      if (queued) {
+        return {
+          via: "inter",
+          paid: false,
+          awaitingApproval: status !== "PAID",
+          codigoSolicitacao: open.codigoSolicitacao,
+          status,
+        };
+      }
+      if (status === "PAID") {
+        return {
+          via: "inter",
+          paid: true,
+          awaitingApproval: false,
+          codigoSolicitacao: open.codigoSolicitacao,
+          status,
+        };
+      }
+    } catch {
+      // Inter não confirmou este PIX — cria outro.
     }
   }
-
-  await ensureWebhook();
 
   const idempotencyKey = randomUUID();
   const row = await prisma.interPixPayment.create({
@@ -173,6 +178,8 @@ async function sendPix(opts: {
         rawCreate: created as object,
       },
     });
+
+    void ensureWebhook();
 
     if (created.codigoSolicitacao) {
       const refreshed = await refreshInterPixById(row.id);
@@ -303,12 +310,16 @@ export async function payCardDebtViaInter(opts: {
       }
     }
     row = await expireIfStaleCardPix(row);
-    if (!isPendingPixStatus(row.status)) continue;
+    if (!row.codigoSolicitacao || !isPendingPixStatus(row.status)) continue;
+    const queuedOnInter =
+      row.status === "AWAITING_APPROVAL" ||
+      (row.status === "PROCESSING" && Date.now() - row.createdAt.getTime() < 15 * 60_000);
+    if (!queuedOnInter) continue;
     if (sameIdSet(row.cardDebtInstallmentIds || [], wanted)) liveSame = row;
     for (const id of row.cardDebtInstallmentIds || []) blocked.add(id);
   }
 
-  if (liveSame) {
+  if (liveSame?.codigoSolicitacao) {
     return {
       via: "inter",
       paid: false,

@@ -105,6 +105,10 @@ export async function createInterPixByKey(opts: {
 }
 
 export type InterPixConsulta = {
+  notFound?: boolean;
+  status?: string;
+  situacao?: string;
+  tipoRetorno?: string;
   transacaoPix?: {
     status?: string;
     endToEnd?: string;
@@ -123,6 +127,7 @@ export async function getInterPix(codigoSolicitacao: string): Promise<InterPixCo
     url: `${cfg.bankingBase}/pix/${encodeURIComponent(codigoSolicitacao)}`,
     headers: await authHeaders(),
   });
+  if (res.status === 404) return { notFound: true };
   if (res.status >= 400) {
     throw new Error(formatInterError(res.status, res.json, res.text));
   }

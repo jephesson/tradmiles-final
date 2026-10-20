@@ -36,14 +36,35 @@ async function markCedentePaid(commissionId: string, paidById: string | null) {
 }
 
 export async function applyInterPixConsulta(rowId: string, consulta: {
+  notFound?: boolean;
   transacaoPix?: { status?: string; endToEnd?: string };
   tipoRetorno?: string;
+  status?: string;
+  situacao?: string;
 }) {
   const row = await prisma.interPixPayment.findUnique({ where: { id: rowId } });
   if (!row) return null;
 
-  const interStatus = String(consulta.transacaoPix?.status || consulta.tipoRetorno || row.interStatus || "");
-  const mapped = mapInterStatus(interStatus);
+  if (consulta.notFound) {
+    return prisma.interPixPayment.update({
+      where: { id: row.id },
+      data: {
+        status: "FAILED",
+        errorMessage: "PIX não encontrado no Inter.",
+        rawLast: consulta as object,
+      },
+    });
+  }
+
+  const interStatus = String(
+    consulta.transacaoPix?.status ||
+      consulta.status ||
+      consulta.situacao ||
+      consulta.tipoRetorno ||
+      row.interStatus ||
+      ""
+  );
+  const mapped = interStatus ? mapInterStatus(interStatus) : "PROCESSING";
   const endToEnd = consulta.transacaoPix?.endToEnd || row.endToEnd || null;
 
   const updated = await prisma.interPixPayment.update({
@@ -108,7 +129,21 @@ export async function refreshInterPixByCodigo(codigoSolicitacao: string) {
 
 export async function refreshInterPixById(id: string) {
   const row = await prisma.interPixPayment.findUnique({ where: { id } });
-  if (!row?.codigoSolicitacao) return row;
-  const consulta = await getInterPix(row.codigoSolicitacao);
-  return applyInterPixConsulta(row.id, consulta);
+  if (!row) return null;
+  if (!row.codigoSolicitacao) {
+    return prisma.interPixPayment.update({
+      where: { id: row.id },
+      data: { status: "FAILED", errorMessage: "PIX sem código do Inter." },
+    });
+  }
+  try {
+    const consulta = await getInterPix(row.codigoSolicitacao);
+    return applyInterPixConsulta(row.id, consulta);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (/404|n[aã]o encontr|not found/i.test(message)) {
+      return applyInterPixConsulta(row.id, { notFound: true });
+    }
+    throw e;
+  }
 }

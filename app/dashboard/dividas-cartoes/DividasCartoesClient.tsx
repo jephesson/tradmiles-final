@@ -195,8 +195,13 @@ export default function DividasCartoesClient() {
       });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao pagar.");
-      if (via === "inter" && json.data?.awaitingApproval) {
-        alert("PIX enviado. Aguardando aprovação no Inter.");
+      if (via === "inter") {
+        if (!json.data?.codigoSolicitacao) {
+          throw new Error("O Inter não criou o PIX. Tente de novo e confira se aparece em Aprovações.");
+        }
+        if (json.data?.awaitingApproval) {
+          alert("PIX criado no Inter. Abra Aprovações no app do Inter para confirmar.");
+        }
       }
       setSelected({});
       setConfirm(null);

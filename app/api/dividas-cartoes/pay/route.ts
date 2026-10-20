@@ -106,6 +106,12 @@ export async function POST(req: Request) {
         }
       }
     }
+    if (result.awaitingApproval && !result.codigoSolicitacao) {
+      return NextResponse.json(
+        { ok: false, error: "O Inter não criou o PIX. Tente de novo e confira Aprovações no app." },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({
       ok: true,
       data: { ...result, amountCents, count: paidIds.length || rowIds.length },
