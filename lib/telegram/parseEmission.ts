@@ -46,6 +46,102 @@ function brToIso(raw: string | null) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+const PT_MONTH: Record<string, number> = {
+  jan: 1,
+  janeiro: 1,
+  fev: 2,
+  fevereiro: 2,
+  mar: 3,
+  marco: 3,
+  abr: 4,
+  abril: 4,
+  mai: 5,
+  maio: 5,
+  jun: 6,
+  junho: 6,
+  jul: 7,
+  julho: 7,
+  ago: 8,
+  agosto: 8,
+  set: 9,
+  setembro: 9,
+  out: 10,
+  outubro: 10,
+  nov: 11,
+  novembro: 11,
+  dez: 12,
+  dezembro: 12,
+};
+
+function recifeTodayIso() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function ymd(year: number, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+    return null;
+  }
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Data do voo: aceita ISO, dd/mm/aaaa, 28/12 e "28 dez" / "28 de dezembro". Sem ano, usa o próximo dia válido. */
+export function parseFlightDate(raw: string | null | undefined): string | null {
+  const s = String(raw || "")
+    .trim()
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ");
+  if (!s || /^null$/i.test(s)) return null;
+
+  const isoHead = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoHead) {
+    const iso = `${isoHead[1]}-${isoHead[2]}-${isoHead[3]}`;
+    return plausibleFlightDate(iso) ? iso : null;
+  }
+
+  const today = recifeTodayIso();
+  const thisYear = Number(today.slice(0, 4));
+  const pickYear = (day: number, month: number, yearHint?: number) => {
+    if (yearHint && yearHint >= thisYear - 1 && yearHint <= thisYear + 2) {
+      const hinted = ymd(yearHint, month, day);
+      if (hinted) return hinted;
+    }
+    const cur = ymd(thisYear, month, day);
+    if (cur && cur >= today) return cur;
+    return ymd(thisYear + 1, month, day);
+  };
+
+  const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let yearHint: number | undefined;
+    if (dmy[3]) yearHint = dmy[3].length === 2 ? 2000 + Number(dmy[3]) : Number(dmy[3]);
+    const iso = pickYear(day, month, yearHint);
+    return iso && plausibleFlightDate(iso) ? iso : iso;
+  }
+
+  const norm = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const named = norm.match(/(\d{1,2})\s*(?:de\s+)?([a-z]{3,9})(?:\s*(?:de\s+)?(\d{4}))?/);
+  if (named) {
+    const month = PT_MONTH[named[2]] || PT_MONTH[named[2].slice(0, 3)];
+    if (month) {
+      const iso = pickYear(Number(named[1]), month, named[3] ? Number(named[3]) : undefined);
+      return iso;
+    }
+  }
+  return brToIso(s);
+}
+
 function toIata(raw: string) {
   const s = String(raw || "")
     .replace(/[^a-zA-Z]/g, "")
@@ -124,10 +220,20 @@ function regexFlight(text: string) {
       destination = b;
     }
   }
-  const dates = [...String(text || "").matchAll(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g)]
-    .map((m) => brToIso(`${m[1]}/${m[2]}/${m[3]}`))
+  const dates = [
+    ...String(text || "").matchAll(/\b(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?\b/g),
+  ]
+    .map((m) => parseFlightDate(m[0]))
     .filter((d): d is string => Boolean(d) && plausibleFlightDate(d));
-  const uniqueDates = [...new Set(dates)];
+  const named = [
+    ...String(text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .matchAll(/\b(\d{1,2})\s*(?:de\s+)?(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*/gi),
+  ]
+    .map((m) => parseFlightDate(m[0]))
+    .filter((d): d is string => Boolean(d));
+  const uniqueDates = [...new Set([...dates, ...named])];
   const outbound = uniqueDates[0] || "";
   const inbound = uniqueDates.find((d) => d !== outbound) || "";
   return { origin, destination, outbound, inbound };
@@ -137,10 +243,15 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
   const passengers: TelegramParsedPax[] = [];
   let origin = toIata(String(data.origin || "")) || seed?.origin || "";
   let destination = toIata(String(data.destination || "")) || seed?.destination || "";
-  let outbound = brToIso(String(data.outbound || "")) || seed?.outbound || "";
-  let inbound = brToIso(String(data.inbound || "")) || seed?.inbound || "";
-  if (!plausibleFlightDate(outbound)) outbound = seed?.outbound || "";
-  if (!plausibleFlightDate(inbound)) inbound = seed?.inbound || "";
+  let outbound = parseFlightDate(String(data.outbound || "")) || seed?.outbound || "";
+  let inbound = parseFlightDate(String(data.inbound || data.returnDate || "")) || seed?.inbound || "";
+  if (outbound && !plausibleFlightDate(outbound)) outbound = seed?.outbound || outbound;
+  if (inbound && !plausibleFlightDate(inbound)) inbound = seed?.inbound || inbound;
+  const tripRaw = String(data.trip || "").toUpperCase();
+  const trip: "IDA" | "IDA_VOLTA" =
+    tripRaw.includes("VOLTA") || tripRaw === "RT" || Boolean(inbound && inbound !== outbound)
+      ? "IDA_VOLTA"
+      : "IDA";
   const list = Array.isArray(data.passengers) ? data.passengers : [];
   for (const item of list as Array<Record<string, unknown>>) {
     const fullName = String(item?.fullName || "").replace(/\s+/g, " ").trim();
@@ -160,7 +271,17 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
       paxType,
     });
   }
-  return finishFlight({ origin, destination, outbound, inbound, passengers });
+  return finishFlight({
+    origin,
+    destination,
+    outbound,
+    inbound,
+    passengers,
+    trip,
+    adt: Number(data.adt) || undefined,
+    chd: Number(data.chd) || undefined,
+    inf: Number(data.inf) || undefined,
+  });
 }
 
 function finishFlight(partial: {
@@ -172,6 +293,7 @@ function finishFlight(partial: {
   adt?: number;
   chd?: number;
   inf?: number;
+  trip?: "IDA" | "IDA_VOLTA";
 }): TelegramParsedFlight | null {
   const passengers = partial.passengers.map((p) => ({
     ...p,
@@ -189,7 +311,11 @@ function finishFlight(partial: {
     destination: partial.destination,
     outbound: partial.outbound,
     inbound: partial.inbound,
-    trip: partial.inbound && partial.inbound !== partial.outbound ? "IDA_VOLTA" : "IDA",
+    trip:
+      partial.trip === "IDA_VOLTA" ||
+      (Boolean(partial.inbound) && partial.inbound !== partial.outbound)
+        ? "IDA_VOLTA"
+        : "IDA",
     ...counted,
     passengers,
     passengerText: passengers.map(formatPaxBlock).filter(Boolean).join("\n\n"),
@@ -304,12 +430,16 @@ JSON:
   "destination": "IATA",
   "outbound": "YYYY-MM-DD",
   "inbound": "YYYY-MM-DD ou null",
+  "trip": "IDA ou IDA_VOLTA",
   "adt": 1,
   "chd": 0,
   "inf": 0,
   "passengers": [{ "fullName": "", "birthDate": "", "cpf": null, "paxType": "ADT" }]
 }
-IATA do aeroporto do print (GRU, XAP), não SAO genérico. Datas do VOO (ex.: 28 dez e 12 jan), nunca nascimento. Ida e volta se o print tiver os dois trechos.`,
+Hoje (Recife): ${recifeTodayIso()}.
+IATA do aeroporto do print (SSA, VCP, GRU, XAP), não SAO genérico.
+Datas do VOO no cabeçalho (ex.: "seg., 28 dez" e "ter., 12 jan") em YYYY-MM-DD. Se não tiver ano, escolha o próximo dia válido a partir de hoje.
+Nunca use data de nascimento. Se o print for ida e volta, preencha outbound E inbound e trip=IDA_VOLTA.`,
     },
     ...images.map((img) => ({
       type: "image_url",

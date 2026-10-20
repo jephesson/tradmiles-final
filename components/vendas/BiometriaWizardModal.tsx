@@ -2450,22 +2450,20 @@ export default function BiometriaWizardModal({
               if (f.origin) setSearchOrigin(f.origin);
               if (f.destination) setSearchDestination(f.destination);
               if (f.outbound) setSearchOutbound(f.outbound);
-              if (f.inbound) {
-                setSearchInbound(f.inbound);
-                setSearchTrip("IDA_VOLTA");
-              } else {
-                setSearchTrip(f.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA");
-              }
+              if (f.inbound) setSearchInbound(f.inbound);
+              setSearchTrip(
+                f.inbound || f.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA"
+              );
               setSearchAdt(Math.max(1, Math.min(9, f.adt || 1)));
               setSearchChd(Math.max(0, Math.min(9, f.chd || 0)));
               setSearchInf(Math.max(0, Math.min(9, f.inf || 0)));
-              if (program === "LATAM") {
+              if (program === "LATAM" && f.origin && f.destination && f.outbound) {
                 const link = buildLatamSearchLink({
                   origin: f.origin,
                   destination: f.destination,
                   outbound: f.outbound,
                   inbound: f.inbound,
-                  trip: f.trip === "IDA_VOLTA" ? "RT" : "OW",
+                  trip: f.inbound || f.trip === "IDA_VOLTA" ? "RT" : "OW",
                   adt: f.adt,
                   chd: f.chd,
                   inf: f.inf,
@@ -2489,7 +2487,6 @@ export default function BiometriaWizardModal({
               pendingTelegramPrep.current = true;
             }
             setShowTelegram(false);
-            if (program === "LATAM") setStep("extension");
           }}
         />
       ) : null}
