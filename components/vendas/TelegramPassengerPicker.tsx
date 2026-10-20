@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, ZoomIn, X } from "lucide-react";
 import {
   formatEmissionHint,
   type TelegramEmission,
@@ -262,7 +262,7 @@ export default function TelegramPassengerPicker(props: {
               </button>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{chat.title}</div>
-                <div className="text-[11px] text-white/80">Toque na foto ou no texto para selecionar</div>
+                <div className="text-[11px] text-white/80">Toque para marcar. Toque de novo para desmarcar.</div>
               </div>
               <button type="button" className="rounded-lg p-1.5 hover:bg-white/10" onClick={props.onClose}>
                 <X className="h-4 w-4" />
@@ -293,16 +293,25 @@ export default function TelegramPassengerPicker(props: {
                       >
                         <div className="mb-0.5 text-[10px] font-semibold text-sky-800">{who}</div>
                         {m.thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={m.thumb}
-                            alt=""
-                            className="mb-1 max-h-72 w-full cursor-zoom-in rounded-lg object-contain bg-slate-100"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setPreview(m.thumb || null);
-                            }}
-                          />
+                          <div className="relative mb-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={m.thumb}
+                              alt=""
+                              className="max-h-72 w-full rounded-lg bg-slate-100 object-contain"
+                            />
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="absolute right-1.5 top-1.5 rounded-full bg-black/55 p-1 text-white"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setPreview(m.thumb || null);
+                              }}
+                            >
+                              <ZoomIn className="h-3.5 w-3.5" />
+                            </span>
+                          </div>
                         ) : m.hasPhoto ? (
                           <div className="mb-1 rounded-lg bg-slate-200 px-2 py-10 text-center text-[11px] text-slate-500">
                             Foto
@@ -331,6 +340,15 @@ export default function TelegramPassengerPicker(props: {
               >
                 Fechar
               </button>
+              {selectedIds.length ? (
+                <button
+                  type="button"
+                  onClick={() => setSelected({})}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+                >
+                  Limpar
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy || !selectedIds.length}
