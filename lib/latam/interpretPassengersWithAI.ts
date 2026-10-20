@@ -6,7 +6,7 @@ import {
   passengerParseNeedsAi,
 } from "@/lib/latam/parsePassengerText";
 
-const SYSTEM = `Você extrai passageiros de textos de reserva / WhatsApp / documentos BR.
+const SYSTEM = `Você extrai passageiros de textos de reserva / WhatsApp / Telegram / documentos BR.
 Responda SOMENTE JSON válido:
 {
   "passengers": [
@@ -27,7 +27,9 @@ Regras:
 - Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
 - cpf só dígitos ou formatado BR; null se não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
-- Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.`;
+- Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
+- Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.
+- Extraia TODOS os passageiros do texto.`;
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");

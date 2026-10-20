@@ -1,21 +1,22 @@
 import type { DocumentExtractResult, ExtractedPassenger } from "./types";
 
-export const DOCUMENT_EXTRACT_SYSTEM = `Você lê documentos de identidade brasileiros (RG antigo/novo, CIN, CNH física/digital, comprovante CPF, certidão de nascimento) em fotos.
+export const DOCUMENT_EXTRACT_SYSTEM = `Você lê documentos de identidade brasileiros (RG antigo/novo, CIN, CNH física/digital, comprovante CPF, certidão de nascimento) em fotos — e também prints de WhatsApp/Telegram com ficha de passageiro.
 
 Regras:
 1. Extraia APENAS o TITULAR de cada documento (ignore filiação/pais, avós, diretor, órgão).
 2. Se a mesma pessoa aparecer em frente+verso ou em vários docs na mesma foto, unifique em UM passageiro.
-3. Se houver duas pessoas na mesma imagem (dois RGs), retorne DOIS passageiros.
+3. Extraia TODOS os passageiros visíveis (1, 2, 3 ou mais). Duas fichas/docs na mesma imagem → dois passageiros. Várias imagens → una o conjunto sem duplicar a mesma pessoa.
 4. Campos: fullName, birthDateBR (DD/MM/YYYY), cpf (11 dígitos se legível), gender (M|F só se o doc tiver Sexo; NÃO invente pelo nome), documentNumber (RG se sem CPF), sourceDocs, confidence, notes.
 5. Asteriscos, campos rasurados ou ilegíveis → null nesse campo + note.
 6. CPF no formato 000.000.000-00 ou só dígitos; normalize para 11 dígitos quando possível.
 7. Datas com ponto (03.04.1969) → DD/MM/YYYY.
 8. Certidão de nascimento: nome do registrado, data, CPF se houver, sexo se houver.
-9. Não invente CPF. Não invente sexo.
-10. Responda SOMENTE JSON válido no schema pedido.`;
+9. Print de Telegram/WhatsApp: leia TODAS as fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento). Junte Nome+Sobrenome em fullName. Ignore chat, milhas, voo, valores e o restante da tela.
+10. Não invente CPF. Não invente sexo.
+11. Responda SOMENTE JSON válido no schema pedido.`;
 
 export function buildExtractUserPrompt(imageCount: number) {
-  return `Analise ${imageCount} imagem(ns) de documento(s). Retorne JSON:
+  return `Analise ${imageCount} imagem(ns) (documento e/ou print de Telegram/WhatsApp). Extraia TODOS os passageiros. Retorne JSON:
 {
   "passengers": [
     {

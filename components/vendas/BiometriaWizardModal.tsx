@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Loader2,
   MessageCircle,
+  Monitor,
   RefreshCw,
   Search,
   SkipForward,
@@ -30,6 +31,7 @@ import {
   extractLatamOrderId,
   normalizeUnicoBiometriaLink,
 } from "@/lib/latam/validacaoLinks";
+import ScreenRegionPicker from "@/components/vendas/ScreenRegionPicker";
 
 type Program = "LATAM" | "SMILES";
 
@@ -380,6 +382,7 @@ export default function BiometriaWizardModal({
   const [docExtracting, setDocExtracting] = useState(false);
   const [docExtractError, setDocExtractError] = useState("");
   const [docExtractWarnings, setDocExtractWarnings] = useState<string[]>([]);
+  const [screenCapture, setScreenCapture] = useState<string | null>(null);
   const [latamPaymentCards, setLatamPaymentCards] = useState<
     Array<{
       id: string;
@@ -889,7 +892,10 @@ export default function BiometriaWizardModal({
     }
   }
 
-  async function extractDocumentsFromFiles(fileList: FileList | null) {
+  async function extractDocumentsFromFiles(
+    fileList: FileList | File[] | null,
+    existingOverride?: string
+  ) {
     if (!fileList?.length) return;
     setDocExtracting(true);
     setDocExtractError("");
@@ -897,9 +903,9 @@ export default function BiometriaWizardModal({
     try {
       const fd = new FormData();
       Array.from(fileList)
-        .slice(0, 8)
+        .slice(0, 12)
         .forEach((f) => fd.append("files", f));
-      fd.append("existingText", latamPassengerText);
+      fd.append("existingText", existingOverride ?? latamPassengerText);
       const res = await fetch("/api/documents/extract", {
         method: "POST",
         body: fd,
@@ -915,14 +921,76 @@ export default function BiometriaWizardModal({
       );
       if (!json.passengers?.length) {
         setDocExtractError(
-          "Nenhum passageiro reconhecido — confira a foto ou cole o texto."
+          "Nenhum passageiro reconhecido — confira a foto, a tela ou cole o texto."
         );
       }
+      setScreenCapture(null);
     } catch (e: any) {
       setDocExtractError(e?.message || "Falha ao ler documentos.");
     } finally {
       setDocExtracting(false);
     }
+  }
+
+  async function captureTelegramScreen() {
+    const media = navigator.mediaDevices;
+    if (!media?.getDisplayMedia) {
+      setDocExtractError(
+        "Este navegador não deixa escolher a tela. Tire um print e cole (Ctrl+V / ⌘V) na caixa."
+      );
+      return;
+    }
+    setDocExtractError("");
+    let stream: MediaStream | null = null;
+    try {
+      stream = await media.getDisplayMedia({
+        video: { frameRate: 2 },
+        audio: false,
+      });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+      await new Promise((r) => window.setTimeout(r, 180));
+      const w = video.videoWidth || 0;
+      const h = video.videoHeight || 0;
+      if (w < 8 || h < 8) throw new Error("Não deu para capturar a tela.");
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas indisponível.");
+      ctx.drawImage(video, 0, 0);
+      setScreenCapture(canvas.toDataURL("image/jpeg", 0.88));
+    } catch (e: any) {
+      const msg = String(e?.message || e || "");
+      if (/not allowed|permission|denied|abort|NotAllowed/i.test(msg)) return;
+      setDocExtractError(msg || "Falha ao selecionar a tela.");
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
+  }
+
+  function onPassengerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files: File[] = [];
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+    }
+    const pastedText = String(e.clipboardData?.getData("text/plain") || "").trim();
+    if (!files.length) return;
+    e.preventDefault();
+    const existing = pastedText
+      ? [latamPassengerText.trim(), pastedText].filter(Boolean).join("\n\n")
+      : latamPassengerText;
+    if (pastedText) setLatamPassengerText(existing);
+    void extractDocumentsFromFiles(files, existing);
   }
 
   async function syncLatamExtensionSession(nextUse?: boolean) {
@@ -1839,41 +1907,54 @@ export default function BiometriaWizardModal({
                     <div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                          Passageiros (foto do doc ou colar texto)
+                          Passageiros (colar, foto ou tela do Telegram)
                         </div>
-                        <label
-                          className={cn(
-                            "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50",
-                            docExtracting && "pointer-events-none opacity-60"
-                          )}
-                        >
-                          {docExtracting ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Upload className="h-3.5 w-3.5" />
-                          )}
-                          {docExtracting ? "Lendo…" : "Ler documentos"}
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,image/jpg"
-                            multiple
-                            className="hidden"
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
                             disabled={docExtracting}
-                            onChange={(e) => {
-                              void extractDocumentsFromFiles(e.target.files);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
+                            onClick={() => void captureTelegramScreen()}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            <Monitor className="h-3.5 w-3.5" />
+                            Selecionar tela
+                          </button>
+                          <label
+                            className={cn(
+                              "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50",
+                              docExtracting && "pointer-events-none opacity-60"
+                            )}
+                          >
+                            {docExtracting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" />
+                            )}
+                            {docExtracting ? "Lendo…" : "Ler documentos"}
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/jpg"
+                              multiple
+                              className="hidden"
+                              disabled={docExtracting}
+                              onChange={(e) => {
+                                void extractDocumentsFromFiles(e.target.files);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
                       </div>
                       <p className="mt-1 text-[10px] text-slate-500">
-                        RG, CIN, CNH ou certidão (até 8 fotos). Revise o texto
-                        antes de preparar a extensão.
+                        Vários passageiros: cole o texto, cole print (Ctrl+V / ⌘V),
+                        envie fotos ou selecione a tela do Telegram. Imagem e
+                        print vão para a OpenAI; texto misturado também entra.
                       </p>
                       <textarea
                         className="mt-1 min-h-[120px] w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10"
                         value={latamPassengerText}
                         onChange={(e) => setLatamPassengerText(e.target.value)}
+                        onPaste={onPassengerPaste}
                         placeholder={
                           "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail@exemplo.com\n11999999999\n(1 e-mail + 1 tel → todos; se omitir → titular do cartão)"
                         }
@@ -2296,6 +2377,14 @@ export default function BiometriaWizardModal({
           </div>
         ) : null}
       </div>
+      {screenCapture ? (
+        <ScreenRegionPicker
+          dataUrl={screenCapture}
+          busy={docExtracting}
+          onCancel={() => setScreenCapture(null)}
+          onConfirm={(file) => void extractDocumentsFromFiles([file])}
+        />
+      ) : null}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_FILES = 8;
+const MAX_FILES = 12;
 const MAX_BYTES = 6 * 1024 * 1024; // 6MB cada
 
 function bad(error: string, status = 400) {
