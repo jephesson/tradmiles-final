@@ -21,6 +21,7 @@ type DayAttendance = {
   declaredHours: number;
   fulfilledHours: number;
   attendance: number;
+  upcoming?: boolean;
 };
 
 type Person = {
@@ -152,7 +153,7 @@ export default function AttendanceCard({ month }: { month: string }) {
             <Stat
               label="Média dos dias"
               value={fmtPct(focus.attendance)}
-              hint="Assiduidade de cada dia, na média"
+              hint="Até agora: só horas que já deveriam ter sido feitas"
             />
             <Stat label="Emissões extras" value={String(focus.creditCount)} hint="1h de crédito cada" />
             <Stat label="Crédito (pontuação)" value={fmtH(focus.creditHours)} hint="Não é hora trabalhada" />
@@ -279,7 +280,9 @@ function DayTable({ days }: { days: DayAttendance[] }) {
               <td className="py-1.5 pr-3 text-slate-800">{fmtDateBR(day.dateISO)}</td>
               <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.declaredHours)}</td>
               <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.fulfilledHours)}</td>
-              <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">{fmtPct(day.attendance)}</td>
+              <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">
+                {day.upcoming ? "—" : fmtPct(day.attendance)}
+              </td>
             </tr>
           ))}
         </tbody>

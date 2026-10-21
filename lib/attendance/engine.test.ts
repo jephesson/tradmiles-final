@@ -190,6 +190,7 @@ describe("regras de horas", () => {
     const r = computeAttendance({
       period,
       users,
+      nowMs: at("2026-10-21", "18:00").getTime(),
       shifts: [
         { userId: "a", dateISO: "2026-10-20", startMin: 8 * 60, endMin: 16 * 60 },
         { userId: "a", dateISO: "2026-10-21", startMin: 8 * 60, endMin: 10 * 60 },
@@ -210,6 +211,83 @@ describe("regras de horas", () => {
     assert.equal(p.attendance, 0.5);
     assert.equal(p.declaredHours, 10);
     assert.equal(p.fulfilledHours, 8);
+  });
+
+  it("turno futuro não puxa a média para baixo", () => {
+    const r = computeAttendance({
+      period,
+      users,
+      nowMs: at("2026-10-20", "18:00").getTime(),
+      shifts: [
+        { userId: "a", dateISO: "2026-10-20", startMin: 8 * 60, endMin: 16 * 60 },
+        { userId: "a", dateISO: "2026-10-30", startMin: 8 * 60, endMin: 16 * 60 },
+      ],
+      sessions: [
+        {
+          userId: "a",
+          startedAt: at("2026-10-20", "08:00"),
+          lastActivityAt: at("2026-10-20", "15:00"),
+        },
+      ],
+      sales: [],
+    });
+    const p = r.people.find((x) => x.userId === "a")!;
+    assert.equal(p.declaredHours, 16);
+    assert.equal(p.fulfilledHours, 8);
+    assert.equal(p.missedHours, 0);
+    assert.equal(p.attendance, 1);
+    assert.equal(p.days.filter((d) => d.upcoming).length, 1);
+  });
+
+  it("no meio do turno de hoje só conta o que já deveria ter sido feito", () => {
+    const r = computeAttendance({
+      period,
+      users,
+      nowMs: at("2026-10-20", "12:00").getTime(),
+      shifts: [{ userId: "a", dateISO: "2026-10-20", startMin: 8 * 60, endMin: 18 * 60 }],
+      sessions: [
+        {
+          userId: "a",
+          startedAt: at("2026-10-20", "08:00"),
+          lastActivityAt: at("2026-10-20", "11:00"),
+        },
+      ],
+      sales: [],
+    });
+    const p = r.people.find((x) => x.userId === "a")!;
+    assert.equal(p.days.length, 1);
+    assert.equal(p.days[0].declaredHours, 4);
+    assert.equal(p.days[0].fulfilledHours, 4);
+    assert.equal(p.attendance, 1);
+    assert.equal(p.declaredHours, 10);
+    assert.equal(p.fulfilledHours, 4);
+    assert.equal(p.missedHours, 0);
+  });
+
+  it("turno da noite que ainda não começou não entra no dia", () => {
+    const r = computeAttendance({
+      period,
+      users,
+      nowMs: at("2026-10-20", "14:00").getTime(),
+      shifts: [
+        { userId: "a", dateISO: "2026-10-20", startMin: 8 * 60, endMin: 12 * 60 },
+        { userId: "a", dateISO: "2026-10-20", startMin: 18 * 60, endMin: 22 * 60 },
+      ],
+      sessions: [
+        {
+          userId: "a",
+          startedAt: at("2026-10-20", "08:00"),
+          lastActivityAt: at("2026-10-20", "11:00"),
+        },
+      ],
+      sales: [],
+    });
+    const p = r.people.find((x) => x.userId === "a")!;
+    assert.equal(p.days[0].declaredHours, 4);
+    assert.equal(p.days[0].fulfilledHours, 4);
+    assert.equal(p.attendance, 1);
+    assert.equal(p.declaredHours, 8);
+    assert.equal(p.missedHours, 0);
   });
 
   it("14. intervalos simultâneos não duplicam", () => {
