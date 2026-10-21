@@ -236,7 +236,9 @@ describe("regras de horas", () => {
     assert.equal(p.fulfilledHours, 8);
     assert.equal(p.missedHours, 0);
     assert.equal(p.attendance, 1);
-    assert.equal(p.days.filter((d) => d.upcoming).length, 1);
+    assert.equal(p.days.length, 2);
+    assert.equal(p.days[1].upcoming, true);
+    assert.equal(p.days[1].declaredHours, 8);
   });
 
   it("no meio do turno de hoje só conta o que já deveria ter sido feito", () => {
@@ -256,8 +258,9 @@ describe("regras de horas", () => {
     });
     const p = r.people.find((x) => x.userId === "a")!;
     assert.equal(p.days.length, 1);
-    assert.equal(p.days[0].declaredHours, 4);
+    assert.equal(p.days[0].declaredHours, 10);
     assert.equal(p.days[0].fulfilledHours, 4);
+    assert.equal(p.days[0].upcoming, false);
     assert.equal(p.attendance, 1);
     assert.equal(p.declaredHours, 10);
     assert.equal(p.fulfilledHours, 4);
@@ -283,7 +286,7 @@ describe("regras de horas", () => {
       sales: [],
     });
     const p = r.people.find((x) => x.userId === "a")!;
-    assert.equal(p.days[0].declaredHours, 4);
+    assert.equal(p.days[0].declaredHours, 8);
     assert.equal(p.days[0].fulfilledHours, 4);
     assert.equal(p.attendance, 1);
     assert.equal(p.declaredHours, 8);

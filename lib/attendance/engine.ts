@@ -350,38 +350,44 @@ export function computeAttendance(args: {
     ledger.push(...creditLines);
     ledger.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.startHHMM.localeCompare(b.startHHMM));
 
-    const byDay = new Map<string, { declaredHours: number; fulfilledHours: number; upcoming: boolean }>();
-    const addDay = (dateISO: string, declared: number, fulfilled: number, upcoming: boolean) => {
-      const current = byDay.get(dateISO) || { declaredHours: 0, fulfilledHours: 0, upcoming: true };
+    const elapsedByDay = new Map<string, { declaredHours: number; fulfilledHours: number }>();
+    const addElapsedDay = (dateISO: string, declared: number, fulfilled: number) => {
+      const current = elapsedByDay.get(dateISO) || { declaredHours: 0, fulfilledHours: 0 };
       current.declaredHours += declared;
       current.fulfilledHours += fulfilled;
-      current.upcoming = current.upcoming && upcoming;
-      byDay.set(dateISO, current);
+      elapsedByDay.set(dateISO, current);
     };
     for (const iv of elapsedOwn) {
       const done = durationMs(intersectMany([iv], elapsedFulfilledOwn));
-      addDay(recifeISOFromMs(iv.start), hoursFromMs(iv.end - iv.start), hoursFromMs(done), false);
+      addElapsedDay(recifeISOFromMs(iv.start), hoursFromMs(iv.end - iv.start), hoursFromMs(done));
     }
     for (const iv of elapsedVoluntary) {
       const h = hoursFromMs(iv.end - iv.start);
-      addDay(recifeISOFromMs(iv.start), h, h, false);
+      addElapsedDay(recifeISOFromMs(iv.start), h, h);
     }
-    for (const iv of mergeIntervals(ownShifts)) {
-      const clipped = intersectPair(iv, elapsedCut);
-      if (clipped) continue;
-      const iso = recifeISOFromMs(iv.start);
-      const existing = byDay.get(iso);
-      if (existing && !existing.upcoming) continue;
-      addDay(iso, hoursFromMs(iv.end - iv.start), 0, true);
+
+    const byDay = new Map<string, { declaredHours: number; fulfilledHours: number }>();
+    for (const line of ledger) {
+      if (line.origin === "CREDIT") continue;
+      const current = byDay.get(line.dateISO) || { declaredHours: 0, fulfilledHours: 0 };
+      current.declaredHours += line.declaredHours;
+      current.fulfilledHours += line.fulfilledHours;
+      byDay.set(line.dateISO, current);
     }
     const daysAttendance: DayAttendance[] = [...byDay.entries()]
-      .map(([dateISO, hours]) => ({
-        dateISO,
-        declaredHours: hours.declaredHours,
-        fulfilledHours: hours.fulfilledHours,
-        attendance: hours.upcoming ? 0 : attendanceRatio(hours.fulfilledHours, hours.declaredHours),
-        upcoming: hours.upcoming,
-      }))
+      .map(([dateISO, hours]) => {
+        const elapsed = elapsedByDay.get(dateISO);
+        const upcoming = !elapsed || elapsed.declaredHours <= 0;
+        return {
+          dateISO,
+          declaredHours: hours.declaredHours,
+          fulfilledHours: hours.fulfilledHours,
+          attendance: upcoming
+            ? 0
+            : attendanceRatio(elapsed.fulfilledHours, elapsed.declaredHours),
+          upcoming,
+        };
+      })
       .sort((a, b) => a.dateISO.localeCompare(b.dateISO));
     const A = averageDayAttendance(daysAttendance);
     const eligibleHours = fulfilledHours + 1e-12 >= period.minHours;

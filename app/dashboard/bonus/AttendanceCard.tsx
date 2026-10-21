@@ -110,7 +110,8 @@ export default function AttendanceCard({ month }: { month: string }) {
     await load();
   }
 
-  const focus = me || ranking[0] || null;
+  const focus =
+    ranking.find((p) => p.userId === openUser) || me || ranking[0] || null;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -119,7 +120,10 @@ export default function AttendanceCard({ month }: { month: string }) {
           <Clock className="h-4 w-4 text-teal-600" aria-hidden />
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assiduidade</div>
-            <div className="text-sm font-semibold text-slate-900">Prévia diária e extrato do período</div>
+            <div className="text-sm font-semibold text-slate-900">
+              Prévia diária e extrato do período
+              {focus ? ` · ${focus.name}` : ""}
+            </div>
           </div>
         </div>
         {isAdmin ? (
@@ -134,8 +138,9 @@ export default function AttendanceCard({ month }: { month: string }) {
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
         Sessão de 1h (renova só no clique). Horas cumpridas = sessão ∩ turno, inclusive se fechar a janela até
-        expirar. Crédito de emissão (1h) entra só na pontuação, não nas horas reais. Bônus R$ 200 no dia 1, com os
-        demais. Período {period ? `${fmtDateBR(period.startISO)} a ${fmtDateBR(period.endISO)}` : "—"}.
+        expirar. Crédito de emissão (1h) entra só na pontuação, não nas horas reais. Pontuação (quem leva R$ 200) =
+        média² × √(horas ajustadas / mínimo). Bônus no dia 1, com os demais. Período{" "}
+        {period ? `${fmtDateBR(period.startISO)} a ${fmtDateBR(period.endISO)}` : "—"}.
       </p>
 
       {loading ? (
@@ -163,7 +168,7 @@ export default function AttendanceCard({ month }: { month: string }) {
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
             {focus.eligible ? (
               <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                Elegível · S {focus.score?.toFixed(2)}
+                Elegível · pontuação {focus.score?.toFixed(2)}
               </span>
             ) : (
               <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
@@ -190,12 +195,20 @@ export default function AttendanceCard({ month }: { month: string }) {
               <th className="py-2 px-2 text-right">Cump.</th>
               <th className="py-2 px-2 text-right">Média</th>
               <th className="py-2 px-2 text-right">Crédito</th>
-              <th className="py-2 pl-2 text-right">S</th>
+              <th className="py-2 pl-2 text-right" title="Pontuação do bônus: média² × √(horas ajustadas / mínimo)">
+                Pontuação
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {ranking.map((p) => (
-              <tr key={p.userId} className={cn(p.isWinner && "bg-violet-50/70")}>
+              <tr
+                key={p.userId}
+                className={cn(
+                  p.isWinner && "bg-violet-50/70",
+                  focus?.userId === p.userId && "bg-teal-50/80"
+                )}
+              >
                 <td className="py-2 pr-3">
                   <button
                     type="button"
@@ -221,40 +234,40 @@ export default function AttendanceCard({ month }: { month: string }) {
         </table>
       </div>
 
-      {(isAdmin ? ranking : ranking.filter((p) => p.userId === (openUser || me?.userId))).map((p) => (
-          <div key={p.userId} className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
-            <div className="text-xs font-semibold text-slate-700">Por dia · {p.name}</div>
-            <DayTable days={p.days || []} />
-            {!isAdmin || p.userId === (openUser || me?.userId) ? (
-              <>
-                <div className="mt-3 text-xs font-semibold text-slate-700">Extrato · {p.name}</div>
-                <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
-                  {p.ledger.length === 0 ? (
-                    <li className="text-slate-500">Sem lançamentos ainda neste período.</li>
+      {focus ? (
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+          <div className="text-xs font-semibold text-slate-700">Por dia · {focus.name}</div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Todos os turnos do período. A % de cada dia (e a média) só conta o que já deveria ter sido feito.
+            Clique no nome no ranking para ver outra pessoa.
+          </p>
+          <DayTable days={focus.days || []} />
+          <div className="mt-3 text-xs font-semibold text-slate-700">Extrato · {focus.name}</div>
+          <ul className="mt-2 max-h-[28rem] space-y-1 overflow-y-auto text-xs [scrollbar-width:thin]">
+            {focus.ledger.length === 0 ? (
+              <li className="text-slate-500">Sem lançamentos ainda neste período.</li>
+            ) : (
+              focus.ledger.map((l, i) => (
+                <li key={`${l.dateISO}-${l.origin}-${i}`} className="rounded-lg bg-white px-2 py-1.5">
+                  <span className="font-medium text-slate-800">
+                    {fmtDateBR(l.dateISO)} {l.startHHMM}–{l.endHHMM}
+                  </span>
+                  <span className="text-slate-500"> · {originLabel(l.origin)}</span>
+                  {l.origin === "CREDIT" ? (
+                    <span className="text-violet-700"> · +{fmtH(l.creditHours)} crédito</span>
                   ) : (
-                    p.ledger.map((l, i) => (
-                      <li key={`${l.dateISO}-${l.origin}-${i}`} className="rounded-lg bg-white px-2 py-1.5">
-                        <span className="font-medium text-slate-800">
-                          {fmtDateBR(l.dateISO)} {l.startHHMM}–{l.endHHMM}
-                        </span>
-                        <span className="text-slate-500"> · {originLabel(l.origin)}</span>
-                        {l.origin === "CREDIT" ? (
-                          <span className="text-violet-700"> · +{fmtH(l.creditHours)} crédito</span>
-                        ) : (
-                          <span className="text-slate-600">
-                            {" "}
-                            · decl. {fmtH(l.declaredHours)} · cump. {fmtH(l.fulfilledHours)}
-                          </span>
-                        )}
-                        <div className="text-[11px] text-slate-500">{l.note}</div>
-                      </li>
-                    ))
+                    <span className="text-slate-600">
+                      {" "}
+                      · decl. {fmtH(l.declaredHours)} · cump. {fmtH(l.fulfilledHours)}
+                    </span>
                   )}
-                </ul>
-              </>
-            ) : null}
-          </div>
-        ))}
+                  <div className="text-[11px] text-slate-500">{l.note}</div>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -281,7 +294,7 @@ function DayTable({ days }: { days: DayAttendance[] }) {
               <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.declaredHours)}</td>
               <td className="py-1.5 px-2 text-right tabular-nums">{fmtH(day.fulfilledHours)}</td>
               <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">
-                {day.upcoming ? "—" : fmtPct(day.attendance)}
+                {day.upcoming ? "ainda não" : fmtPct(day.attendance)}
               </td>
             </tr>
           ))}
