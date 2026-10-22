@@ -574,6 +574,25 @@
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5">
+                                  <div className="min-w-0 truncate font-medium">
+                                    {r.nomeCompleto}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openCredentials({
+                                        cedenteId: r.cedenteId,
+                                        nomeCompleto: r.nomeCompleto,
+                                        identificador: r.identificador,
+                                        cpf: r.cpf,
+                                      })
+                                    }
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900"
+                                    title="Credenciais e código de verificação"
+                                    aria-label={`Credenciais de ${r.nomeCompleto}`}
+                                  >
+                                    <KeyRound size={14} />
+                                  </button>
                                   {waHref ? (
                                     <a
                                       href={waHref}
@@ -595,25 +614,6 @@
                                       <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
                                     </span>
                                   )}
-                                  <div className="truncate font-medium">
-                                    {r.nomeCompleto}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      openCredentials({
-                                        cedenteId: r.cedenteId,
-                                        nomeCompleto: r.nomeCompleto,
-                                        identificador: r.identificador,
-                                        cpf: r.cpf,
-                                      })
-                                    }
-                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 shadow-sm hover:bg-zinc-50 hover:text-zinc-900"
-                                    title="Credenciais e código de verificação"
-                                    aria-label={`Credenciais de ${r.nomeCompleto}`}
-                                  >
-                                    <KeyRound size={14} />
-                                  </button>
                                 </div>
                                 <div className="truncate text-xs text-zinc-500">
                                   {r.identificador}
