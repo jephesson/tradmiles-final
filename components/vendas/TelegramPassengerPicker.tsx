@@ -478,7 +478,9 @@ export default function TelegramPassengerPicker(props: {
                       Carregando conversas…
                     </div>
                   ) : chats.length === 0 ? (
-                    <div className="px-3 py-10 text-center text-sm text-slate-500">Nenhuma conversa pessoal.</div>
+                    <div className="px-3 py-10 text-center text-sm text-slate-500">
+                      Nenhuma conversa recente. Busque o nome ou toque em Carregar mais.
+                    </div>
                   ) : (
                     <ul>
                       {chats.map((c) => (

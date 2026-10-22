@@ -241,13 +241,22 @@ function isPrivatePerson(d: unknown) {
     isUser?: boolean;
     isGroup?: boolean;
     isChannel?: boolean;
-    entity?: { className?: string; bot?: boolean; deleted?: boolean };
+    entity?: {
+      className?: string;
+      deleted?: boolean;
+      megagroup?: boolean;
+      broadcast?: boolean;
+    };
   };
-  const cls = entityClass(row.entity);
-  const isUser = row.isUser === true || cls === "User" || cls === "UserEmpty";
   if (row.entity?.deleted) return false;
-  if (isUser) return true;
-  return false;
+  if (row.isGroup === true || row.entity?.megagroup) return false;
+  if (row.isChannel === true || row.entity?.broadcast) return false;
+  const cls = entityClass(row.entity);
+  if (cls === "Chat" || cls === "ChatForbidden" || cls === "Channel" || cls === "ChannelForbidden") {
+    return false;
+  }
+  if (row.isUser === true || cls === "User" || cls === "UserEmpty") return true;
+  return cls === "" && row.isUser !== false && !row.isGroup && !row.isChannel;
 }
 
 function dialogTitle(d: unknown) {
@@ -285,62 +294,56 @@ export async function listTelegramChats(
     run: async (client) => {
       const q = query.trim().toLowerCase();
       const page = TELEGRAM_CHAT_PAGE;
-      const scan = 30;
-      const maxRounds = q ? 8 : 6;
-      const rows: TelegramChatRow[] = [];
-      const fallback: TelegramChatRow[] = [];
-      let next: TelegramChatCursor | null = cursor || null;
-      let exhausted = false;
+      const scan = q ? 80 : 50;
+      const people: TelegramChatRow[] = [];
+      const others: TelegramChatRow[] = [];
+      let peopleCursor: TelegramChatCursor | null = null;
+      let othersCursor: TelegramChatCursor | null = null;
 
-      for (let round = 0; round < maxRounds && rows.length < page; round += 1) {
-        const dialogs = await client.getDialogs({
-          limit: scan,
-          ignoreMigrated: true,
-          ...(next?.offsetDate ? { offsetDate: next.offsetDate } : {}),
-          ...(next?.offsetId ? { offsetId: next.offsetId } : {}),
-        });
-        if (!dialogs.length) {
-          exhausted = true;
-          if (!rows.length && !fallback.length) next = null;
-          break;
+      // ignoreMigrated no gramjs está invertido e some com User — não usar.
+      const dialogs = await client.getDialogs({
+        limit: scan,
+        ...(cursor?.offsetDate ? { offsetDate: cursor.offsetDate } : {}),
+        ...(cursor?.offsetId ? { offsetId: cursor.offsetId } : {}),
+      });
+
+      for (const d of dialogs) {
+        const title = dialogTitle(d);
+        const id = dialogPeerId(d);
+        if (!id) continue;
+        const msg = d.message as { message?: string } | undefined;
+        const lastMessage = String(msg?.message || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 120);
+        if (q && !title.toLowerCase().includes(q) && !lastMessage.toLowerCase().includes(q)) {
+          continue;
         }
-        for (const d of dialogs) {
-          next = cursorFromDialog(d);
-          const title = dialogTitle(d);
-          const id = dialogPeerId(d);
-          if (!id) continue;
-          const msg = d.message as { message?: string } | undefined;
-          const lastMessage = String(msg?.message || "")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 120);
-          if (q && !title.toLowerCase().includes(q) && !lastMessage.toLowerCase().includes(q)) {
-            continue;
+        const row = {
+          id,
+          title: title || "Conversa",
+          lastMessage,
+          lastDate: dialogUnix(d),
+        };
+        const cur = cursorFromDialog(d);
+        if (isPrivatePerson(d)) {
+          if (people.length < page) {
+            people.push(row);
+            peopleCursor = cur;
           }
-          const row = {
-            id,
-            title: title || "Conversa",
-            lastMessage,
-            lastDate: dialogUnix(d),
-          };
-          if (isPrivatePerson(d)) {
-            rows.push(row);
-            if (rows.length >= page) break;
-          } else if (fallback.length < page) {
-            fallback.push(row);
-          }
+        } else if (others.length < page) {
+          others.push(row);
+          othersCursor = cur;
         }
-        if (dialogs.length < scan) {
-          exhausted = rows.length < page;
-          if (exhausted && rows.length) next = null;
-          break;
-        }
+        if (people.length >= page) break;
       }
 
-      const chats = rows.length ? rows.slice(0, page) : fallback.slice(0, page);
+      const chats = people.length ? people : others;
+      const next = people.length ? peopleCursor : othersCursor;
+      const exhausted = dialogs.length < scan;
       return {
         chats,
-        next: exhausted && !chats.length ? null : next,
+        next: exhausted && chats.length < page ? null : next,
       };
     },
   });
