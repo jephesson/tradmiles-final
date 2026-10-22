@@ -58,6 +58,9 @@ export function mapTelegramError(e: unknown) {
   if (/AUTH_KEY_UNREGISTERED|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED/i.test(code)) {
     return "SESSION_DEAD";
   }
+  if (/Could not find the input entity|No user has/i.test(msg)) {
+    return "Não abri essa conversa. Volte à lista e escolha de novo.";
+  }
   return msg.slice(0, 280) || "Falha no Telegram.";
 }
 
@@ -213,6 +216,7 @@ export type TelegramChatRow = {
   title: string;
   lastMessage: string;
   lastDate: number;
+  accessHash: string;
 };
 
 export type TelegramChatCursor = {
@@ -267,6 +271,12 @@ function dialogTitle(d: unknown) {
 function dialogPeerId(d: unknown) {
   const row = d as { entity?: { id?: unknown }; id?: unknown };
   return String(row.entity?.id || row.id || "");
+}
+
+function dialogAccessHash(d: unknown) {
+  const hash = (d as { entity?: { accessHash?: unknown } }).entity?.accessHash;
+  if (hash == null || hash === "") return "";
+  return String(hash);
 }
 
 function cursorFromDialog(d: {
@@ -324,6 +334,7 @@ export async function listTelegramChats(
           title: title || "Conversa",
           lastMessage,
           lastDate: dialogUnix(d),
+          accessHash: dialogAccessHash(d),
         };
         const cur = cursorFromDialog(d);
         if (isPrivatePerson(d)) {
@@ -349,16 +360,54 @@ export async function listTelegramChats(
   });
 }
 
-async function resolveChatEntity(client: TelegramClient, chatId: string) {
-  try {
-    return await client.getEntity(chatId);
-  } catch {
-    const n = Number(chatId);
-    if (Number.isSafeInteger(n) && n !== 0) {
-      return await client.getEntity(n);
+async function resolveChatEntity(
+  client: TelegramClient,
+  chatId: string,
+  accessHash?: string
+) {
+  const raw = String(chatId || "").trim();
+  const hash = String(accessHash || "").trim();
+
+  if (hash && hash !== "0") {
+    try {
+      if (raw.startsWith("-100")) {
+        return await client.getInputEntity(
+          new Api.InputPeerChannel({
+            channelId: bigInt(raw.slice(4)),
+            accessHash: bigInt(hash),
+          })
+        );
+      }
+      if (raw.startsWith("-")) {
+        return await client.getInputEntity(
+          new Api.InputPeerChat({ chatId: bigInt(raw.replace(/^-/, "")) })
+        );
+      }
+      return await client.getInputEntity(
+        new Api.InputPeerUser({
+          userId: bigInt(raw),
+          accessHash: bigInt(hash),
+        })
+      );
+    } catch {
+      /* tenta os fallbacks */
     }
-    return await client.getEntity(bigInt(chatId));
   }
+
+  for (const key of [raw, Number.isSafeInteger(Number(raw)) ? Number(raw) : null, bigInt(raw)]) {
+    if (key === null || key === "") continue;
+    try {
+      return await client.getInputEntity(key as never);
+    } catch {
+      /* próximo */
+    }
+  }
+
+  const dialogs = await client.getDialogs({ limit: 80 });
+  const found = dialogs.find((d) => dialogPeerId(d) === raw);
+  if (found?.entity) return found.entity;
+
+  throw new Error("Não abri essa conversa. Volte à lista e escolha de novo.");
 }
 
 export type TelegramMessageRow = {
@@ -505,13 +554,14 @@ export async function checkTelegramAlive(sessionEnc: string, creds: TelegramApiC
 export async function listTelegramMessages(
   sessionEnc: string,
   chatId: string,
-  creds: TelegramApiCreds
+  creds: TelegramApiCreds,
+  accessHash?: string
 ) {
   return withTelegramClient({
     sessionEnc,
     creds,
     run: async (client) => {
-      const entity = await resolveChatEntity(client, chatId);
+      const entity = await resolveChatEntity(client, chatId, accessHash);
       const messages = await client.getMessages(entity, { limit: 36 });
       const rows: TelegramMessageRow[] = [];
       let thumbs = 0;
@@ -544,13 +594,14 @@ export async function readTelegramMessages(
   sessionEnc: string,
   chatId: string,
   messageIds: number[] | undefined,
-  creds: TelegramApiCreds
+  creds: TelegramApiCreds,
+  accessHash?: string
 ) {
   return withTelegramClient({
     sessionEnc,
     creds,
     run: async (client) => {
-      const entity = await resolveChatEntity(client, chatId);
+      const entity = await resolveChatEntity(client, chatId, accessHash);
       const wanted = (messageIds || []).map((n) => Math.trunc(Number(n))).filter((n) => n > 0);
       const messages = wanted.length
         ? await client.getMessages(entity, { ids: wanted })

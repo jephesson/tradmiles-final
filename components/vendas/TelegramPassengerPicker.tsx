@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Search, ZoomIn, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, Search, ZoomIn, X } from "lucide-react";
 import {
   formatEmissionHint,
   type TelegramEmission,
@@ -19,7 +19,13 @@ export type TelegramFlightApply = {
   inf: number;
 };
 
-type Chat = { id: string; title: string; lastMessage: string; lastDate?: number };
+type Chat = {
+  id: string;
+  title: string;
+  lastMessage: string;
+  lastDate?: number;
+  accessHash?: string;
+};
 type ChatCursor = { offsetDate: number; offsetId: number; offsetPeer: string };
 
 const AVATAR_COLORS = [
@@ -189,6 +195,7 @@ export default function TelegramPassengerPicker(props: {
       const qs = new URLSearchParams({
         chatId: next.id,
         title: next.title,
+        accessHash: next.accessHash || "",
         origin: e.origin || "",
         destination: e.destination || "",
         outbound: e.outbound || "",
@@ -221,9 +228,10 @@ export default function TelegramPassengerPicker(props: {
 
   useEffect(() => {
     if (!connected) return;
-    void loadChats("");
+    const t = window.setTimeout(() => void loadChats(q), q.trim() ? 350 : 0);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected]);
+  }, [connected, q]);
 
   useEffect(() => {
     if (!chat || !messages.length) return;
@@ -243,6 +251,7 @@ export default function TelegramPassengerPicker(props: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chatId: chat.id,
+          accessHash: chat.accessHash || "",
           messageIds: selectedIds,
           existingText: "",
           expectedCount: props.expectedCount,
@@ -298,28 +307,41 @@ export default function TelegramPassengerPicker(props: {
   }
 
   const chronological = useMemo(() => [...messages].reverse(), [messages]);
+  const orderedChats = useMemo(() => {
+    if (!lastChatId) return chats;
+    const last = chats.find((c) => c.id === lastChatId);
+    if (!last) return chats;
+    return [last, ...chats.filter((c) => c.id !== lastChatId)];
+  }, [chats, lastChatId]);
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-3">
-      <div className="flex h-[100dvh] w-full max-w-xl flex-col overflow-hidden bg-white shadow-2xl sm:h-[90vh] sm:rounded-2xl">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4">
+      <div className="flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl sm:h-[min(92vh,760px)] sm:rounded-3xl">
         {chat ? (
           <>
-            <div className="flex items-center gap-3 bg-[#517da2] px-3 py-2.5 text-white">
+            <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-3 py-3">
               <button
                 type="button"
-                className="rounded-lg px-2 py-1 text-sm font-medium hover:bg-white/10"
+                className="rounded-xl px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                 onClick={() => {
                   setChat(null);
                   setMessages([]);
+                  setError("");
                 }}
               >
-                ←
+                ← Lista
               </button>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold">{chat.title}</div>
-                <div className="text-[11px] text-white/80">Toque para marcar. Toque de novo para desmarcar.</div>
+                <div className="truncate text-sm font-semibold text-slate-900">{chat.title}</div>
+                <div className="text-[11px] text-slate-500">
+                  Passo 2 · toque nas mensagens desta emissão
+                </div>
               </div>
-              <button type="button" className="rounded-lg p-1.5 hover:bg-white/10" onClick={props.onClose}>
+              <button
+                type="button"
+                className="rounded-xl p-1.5 text-slate-500 hover:bg-slate-100"
+                onClick={props.onClose}
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -395,20 +417,24 @@ export default function TelegramPassengerPicker(props: {
               })}
               <div ref={chatEnd} />
             </div>
-            {error ? <p className="bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{error}</p> : null}
-            <div className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2.5">
+            {error ? (
+              <p className="border-t border-amber-100 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-900">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3">
               <button
                 type="button"
                 onClick={props.onClose}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
               >
-                Fechar
+                Cancelar
               </button>
               {selectedIds.length ? (
                 <button
                   type="button"
                   onClick={() => setSelected({})}
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+                  className="rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
                 >
                   Limpar
                 </button>
@@ -417,31 +443,46 @@ export default function TelegramPassengerPicker(props: {
                 type="button"
                 disabled={busy || !selectedIds.length}
                 onClick={() => void extractSelected()}
-                className="h-10 flex-1 rounded-xl bg-slate-900 text-sm font-semibold text-white disabled:opacity-50"
+                className="h-11 flex-1 rounded-xl bg-slate-900 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {busy ? "Lendo voo e fotos…" : `Usar ${selectedIds.length} selecionada(s)`}
+                {busy
+                  ? "Lendo voo e fotos…"
+                  : selectedIds.length
+                    ? `Usar ${selectedIds.length} mensagem${selectedIds.length === 1 ? "" : "ns"}`
+                    : "Selecione as mensagens"}
               </button>
             </div>
           </>
         ) : (
           <>
-            <div className="bg-[#517da2] px-4 py-3 text-white">
+            <div className="border-b border-slate-200 bg-white px-4 py-3.5">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold">Conversas</div>
-                  <p className="mt-0.5 text-[11px] text-white/80">Pessoas e bots primeiro. Sem canal.</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Passo 1 de 2
+                  </p>
+                  <h2 className="mt-0.5 text-base font-semibold tracking-tight text-slate-900">
+                    Quem mandou a ficha?
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Busque o nome da agência ou da pessoa e abra a conversa.
+                  </p>
                 </div>
-                <button type="button" className="rounded-lg p-1.5 hover:bg-white/10" onClick={props.onClose}>
+                <button
+                  type="button"
+                  className="rounded-xl p-1.5 text-slate-500 hover:bg-slate-100"
+                  onClick={props.onClose}
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>
               {formatEmissionHint(props.emission) ? (
-                <div className="mt-2 rounded-lg bg-white/10 px-2.5 py-1.5 text-[11px] font-medium text-white/95">
-                  Emissão atual: {formatEmissionHint(props.emission)}
+                <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-[12px] font-medium text-sky-950">
+                  Emissão: {formatEmissionHint(props.emission)}
                 </div>
               ) : null}
             </div>
-            <div className="min-h-0 flex-1 overflow-auto bg-white">
+            <div className="min-h-0 flex-1 overflow-auto bg-slate-50">
               <TelegramLoginForm
                 onStatus={(s) => {
                   setConnected(s.connected);
@@ -456,84 +497,107 @@ export default function TelegramPassengerPicker(props: {
               >
                 <div>
                   <form
-                    className="sticky top-0 z-10 border-b border-slate-100 bg-white px-3 py-2"
+                    className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-3"
                     onSubmit={(e) => {
                       e.preventDefault();
                       void loadChats(q);
                     }}
                   >
-                    <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-3">
+                    <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 focus-within:border-slate-400 focus-within:bg-white">
                       <Search className="h-4 w-4 shrink-0 text-slate-400" />
                       <input
-                        className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
-                        placeholder="Buscar pessoa"
+                        className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
+                        placeholder="Buscar agência, pessoa ou mensagem…"
                         value={q}
                         onChange={(e) => setQ(e.target.value)}
                       />
+                      {q ? (
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-slate-500"
+                          onClick={() => setQ("")}
+                        >
+                          Limpar
+                        </button>
+                      ) : null}
                     </div>
                   </form>
                   {busy && !chats.length ? (
-                    <div className="flex items-center justify-center gap-2 px-3 py-10 text-sm text-slate-500">
+                    <div className="flex items-center justify-center gap-2 px-4 py-16 text-sm text-slate-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Carregando conversas…
                     </div>
-                  ) : chats.length === 0 ? (
-                    <div className="px-3 py-10 text-center text-sm text-slate-500">
-                      Nenhuma conversa recente. Busque o nome ou toque em Carregar mais.
+                  ) : orderedChats.length === 0 ? (
+                    <div className="px-6 py-16 text-center text-sm text-slate-500">
+                      Nenhuma conversa nesta busca. Tente o nome da agência.
                     </div>
                   ) : (
-                    <ul>
-                      {chats.map((c) => (
-                        <li key={c.id} className="border-b border-slate-100 last:border-b-0">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => void openChat(c)}
-                            className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            <span
-                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white"
-                              style={{ background: avatarColor(c.id) }}
+                    <ul className="space-y-1 p-2">
+                      {orderedChats.map((c) => {
+                        const last = c.id === lastChatId;
+                        return (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void openChat(c)}
+                              className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white hover:shadow-sm disabled:opacity-50 ${
+                                last ? "border border-emerald-200 bg-emerald-50/70" : "bg-white"
+                              }`}
                             >
-                              {initials(c.title)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-baseline justify-between gap-2">
-                                <span className="truncate text-[15px] font-medium text-slate-900">{c.title}</span>
-                                <span className="shrink-0 text-[11px] text-slate-400">{formatChatTime(c.lastDate)}</span>
+                              <span
+                                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white"
+                                style={{ background: avatarColor(c.id) }}
+                              >
+                                {initials(c.title)}
                               </span>
-                              <span className="mt-0.5 flex items-center gap-1.5">
-                                {c.id === lastChatId ? (
-                                  <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                    última
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-baseline justify-between gap-2">
+                                  <span className="truncate text-[15px] font-semibold text-slate-900">
+                                    {c.title}
                                   </span>
-                                ) : null}
-                                <span className="truncate text-[13px] text-slate-500">
-                                  {c.lastMessage || "Sem mensagens"}
+                                  <span className="shrink-0 text-[11px] text-slate-400">
+                                    {formatChatTime(c.lastDate)}
+                                  </span>
+                                </span>
+                                <span className="mt-0.5 flex items-center gap-1.5">
+                                  {last ? (
+                                    <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                      última
+                                    </span>
+                                  ) : null}
+                                  <span className="truncate text-[13px] text-slate-500">
+                                    {c.lastMessage || "Sem mensagens"}
+                                  </span>
                                 </span>
                               </span>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                   {chatNext ? (
-                    <div className="px-3 py-3">
+                    <div className="px-4 pb-4">
                       <button
                         type="button"
                         disabled={loadingMore || busy}
                         onClick={() => void loadChats(q, true, chatNext)}
-                        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                        className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       >
                         {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        {loadingMore ? "Carregando…" : "Carregar mais 10"}
+                        {loadingMore ? "Carregando…" : "Ver conversas mais antigas"}
                       </button>
                     </div>
                   ) : null}
                 </div>
               </TelegramLoginForm>
-              {error ? <p className="px-4 py-2 text-sm font-medium text-amber-800">{error}</p> : null}
+              {error ? (
+                <p className="mx-4 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                  {error}
+                </p>
+              ) : null}
             </div>
           </>
         )}

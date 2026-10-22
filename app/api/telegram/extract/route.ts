@@ -34,6 +34,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const chatId = String(body?.chatId || "").trim();
+  const accessHash = String(body?.accessHash || "").trim();
   const existingText = String(body?.existingText || "");
   const emission = (body?.emission || {}) as TelegramEmission;
   const expectedCount = Math.max(
@@ -61,7 +62,8 @@ export async function POST(req: Request) {
       row.sessionEnc,
       chatId,
       messageIds,
-      creds
+      creds,
+      accessHash
     );
     if (sessionEnc !== row.sessionEnc) {
       await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });

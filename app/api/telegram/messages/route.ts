@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
 
   const chatId = String(req.nextUrl.searchParams.get("chatId") || "").trim();
   const title = String(req.nextUrl.searchParams.get("title") || "").trim();
+  const accessHash = String(req.nextUrl.searchParams.get("accessHash") || "").trim();
   if (!chatId) {
     return NextResponse.json({ ok: false, error: "Escolha uma conversa." }, { status: 400 });
   }
@@ -50,7 +51,12 @@ export async function GET(req: NextRequest) {
     if (!creds) {
       return NextResponse.json({ ok: false, error: "Telegram sem app configurado." }, { status: 400 });
     }
-    const { result, sessionEnc } = await listTelegramMessages(row.sessionEnc, chatId, creds);
+    const { result, sessionEnc } = await listTelegramMessages(
+      row.sessionEnc,
+      chatId,
+      creds,
+      accessHash
+    );
     const data: Record<string, unknown> = {
       sessionEnc: sessionEnc !== row.sessionEnc ? sessionEnc : undefined,
       lastChatId: chatId,
