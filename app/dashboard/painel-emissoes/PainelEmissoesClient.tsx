@@ -2,8 +2,9 @@
 
   import { useEffect, useMemo, useState } from "react";
   import { useRouter, useSearchParams } from "next/navigation";
-  import { Copy, FileDown, KeyRound, Loader2, X } from "lucide-react";
+  import { Copy, FileDown, KeyRound, Loader2, MessageCircle, X } from "lucide-react";
   import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
+  import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
   type ProgramKey = "latam" | "smiles" | "livelo" | "esfera";
 
@@ -12,6 +13,7 @@
     identificador: string;
     nomeCompleto: string;
     cpf: string;
+    telefone?: string | null;
     excludedPrograms?: string[];
   };
 
@@ -221,6 +223,7 @@
             identificador: r.identificador,
             nomeCompleto: r.nomeCompleto,
             cpf: r.cpf,
+            telefone: r.telefone || null,
             excludedPrograms: Array.isArray(r.excludedPrograms) ? r.excludedPrograms : [],
           }))
         );
@@ -320,6 +323,7 @@
           nomeCompleto: c?.nomeCompleto || "—",
           identificador: c?.identificador || "—",
           cpf: c?.cpf || "",
+          telefone: c?.telefone || null,
         };
       });
 
@@ -559,6 +563,8 @@
                       0,
                       Math.min(100, (Number(r.total || 0) / maxTotal) * 100)
                     );
+                    const waE164 = normalizeBRPhoneToE164(r.telefone);
+                    const waHref = waE164 ? buildWhatsAppLink(waE164) : null;
 
                     return (
                       <tr key={r.cedenteId} className="text-sm">
@@ -568,6 +574,27 @@
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5">
+                                  {waHref ? (
+                                    <a
+                                      href={waHref}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/90 transition hover:bg-emerald-100"
+                                      title="Abrir WhatsApp do cedente"
+                                      aria-label={`WhatsApp — ${r.nomeCompleto}`}
+                                    >
+                                      <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
+                                    </a>
+                                  ) : (
+                                    <span
+                                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 ring-1 ring-slate-200/90"
+                                      title="Sem WhatsApp cadastrado"
+                                      aria-hidden
+                                    >
+                                      <MessageCircle className="h-3.5 w-3.5" strokeWidth={2.25} />
+                                    </span>
+                                  )}
                                   <div className="truncate font-medium">
                                     {r.nomeCompleto}
                                   </div>
