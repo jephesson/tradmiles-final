@@ -230,13 +230,11 @@ function dialogUnix(d: { date?: unknown }) {
   return 0;
 }
 
-function isPrivatePerson(d: {
-  isUser?: boolean;
-  entity?: { bot?: boolean; deleted?: boolean };
-}) {
-  if (!d.isUser) return false;
-  const e = d.entity;
-  if (e?.bot || e?.deleted) return false;
+function isPrivatePerson(d: unknown) {
+  if (!d || typeof d !== "object") return false;
+  const row = d as { isUser?: boolean; entity?: { bot?: boolean; deleted?: boolean } };
+  if (!row.isUser) return false;
+  if (row.entity?.bot || row.entity?.deleted) return false;
   return true;
 }
 
