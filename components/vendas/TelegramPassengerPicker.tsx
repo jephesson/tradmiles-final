@@ -84,24 +84,6 @@ type Msg = {
   fileLabel?: string | null;
 };
 
-function defaultSelected(messages: Msg[]) {
-  const picked: number[] = [];
-  let miss = 0;
-  for (const m of messages) {
-    if (m.looksIssued) continue;
-    const useful = m.looksPassenger || m.looksFlight || m.hasPhoto;
-    if (useful) {
-      picked.push(m.id);
-      miss = 0;
-    } else {
-      miss += 1;
-      if (picked.length && miss >= 4) break;
-    }
-    if (picked.length >= 8) break;
-  }
-  return picked;
-}
-
 function formatHour(iso: string | null) {
   if (!iso) return "";
   try {
@@ -212,13 +194,7 @@ export default function TelegramPassengerPicker(props: {
       const list: Msg[] = Array.isArray(json.messages) ? json.messages : [];
       setChat(next);
       setMessages(list);
-      const suggested = Array.isArray(json.suggestedIds)
-        ? json.suggestedIds.map((n: unknown) => Number(n)).filter((n: number) => n > 0)
-        : [];
-      const ids = suggested.length ? suggested : defaultSelected(list);
-      const map: Record<number, boolean> = {};
-      for (const id of ids) map[id] = true;
-      setSelected(map);
+      setSelected({});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Falha ao ler mensagens.");
     } finally {
@@ -448,7 +424,7 @@ export default function TelegramPassengerPicker(props: {
                 {busy
                   ? "Lendo voo e fotos…"
                   : selectedIds.length
-                    ? `Usar ${selectedIds.length} mensagem${selectedIds.length === 1 ? "" : "ns"}`
+                    ? `Usar ${selectedIds.length} ${selectedIds.length === 1 ? "mensagem" : "mensagens"}`
                     : "Selecione as mensagens"}
               </button>
             </div>
