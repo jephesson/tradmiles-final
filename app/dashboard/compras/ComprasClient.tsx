@@ -195,7 +195,7 @@ function PurchaseRowActions({
   onRelease: () => void;
   onCancel: () => void;
 }) {
-  const lockedHint = isReleased ? "Compra liberada (travada)" : isCanceled ? "Compra cancelada" : "";
+  const lockedHint = isCanceled ? "Compra cancelada" : "";
 
   return (
     <div
@@ -208,7 +208,7 @@ function PurchaseRowActions({
           ACTION_ICON_BTN,
           "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
         )}
-        title="Editar compra"
+        title={isReleased ? "Editar e adicionar itens neste ID" : "Editar compra"}
       >
         <Pencil className="h-4 w-4" aria-hidden />
         <span className="sr-only">Editar</span>

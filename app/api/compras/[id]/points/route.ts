@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import type { LoyaltyProgram, PurchaseItemStatus } from "@prisma/client";
-import { computePurchaseMoneyTotals } from "@/lib/compras";
+import { computePurchaseMoneyTotals, pointsForMilheiroFromPurchase } from "@/lib/compras";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,25 +18,6 @@ function jsonSafe<T>(obj: T): T {
   return JSON.parse(
     JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
   );
-}
-
-function programKey(cia: LoyaltyProgram) {
-  if (cia === "LATAM") return "LATAM";
-  if (cia === "SMILES") return "SMILES";
-  if (cia === "LIVELO") return "LIVELO";
-  return "ESFERA";
-}
-
-function getAppliedOrPredictedPoints(p: any, cia: LoyaltyProgram, fallback: number) {
-  const key = programKey(cia);
-
-  const aplicado = safeInt(p?.[`saldoAplicado${key}`], 0);
-  if (aplicado > 0) return aplicado;
-
-  const previsto = safeInt(p?.[`saldoPrevisto${key}`], 0);
-  if (previsto > 0) return previsto;
-
-  return fallback;
 }
 
 async function recalcPurchaseTotals(tx: any, purchaseId: string) {
@@ -73,8 +54,7 @@ async function recalcPurchaseTotals(tx: any, purchaseId: string) {
     caixaViasAereasCents: safeInt(p.caixaViasAereasCents, 0),
   });
 
-  // custo milheiro usando saldoAplicado/previsto quando existir, senão usa pontosCiaTotal
-  const ptsBase = cia ? getAppliedOrPredictedPoints(p, cia, pontosCiaTotal) : pontosCiaTotal;
+  const ptsBase = pointsForMilheiroFromPurchase(p, items);
   const denom = ptsBase > 0 ? ptsBase / 1000 : 0;
 
   const custoMilheiroCents = denom > 0 ? Math.round(totalCents / denom) : 0;

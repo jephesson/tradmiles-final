@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Loader2,
@@ -58,6 +58,7 @@ type TransferMode = "FULL_POINTS" | "POINTS_PLUS_CASH";
 type PurchaseItem = {
   id?: string;
   type: PurchaseItemType;
+  status?: "PENDING" | "RELEASED" | "CANCELED";
   title: string;
   details?: string;
 
@@ -105,6 +106,7 @@ type PurchaseDraft = {
   expectedIberiaPoints: number | null;
 
   note: string | null;
+  finalizedAt?: string | null;
 
   items: PurchaseItem[];
 };
@@ -223,13 +225,30 @@ function calcItemPointsFinal(item: PurchaseItem) {
   return base;
 }
 
-function pointsForMilheiro(d: PurchaseDraft) {
+function itemPointsToCia(d: PurchaseDraft) {
   const cia = d.ciaProgram;
-  if (cia === "LATAM")
-    return clampInt(d.expectedLatamPoints ?? d.ciaPointsTotal ?? 0);
-  if (cia === "SMILES")
-    return clampInt(d.expectedSmilesPoints ?? d.ciaPointsTotal ?? 0);
-  return clampInt(d.ciaPointsTotal ?? 0);
+  if (!cia) return 0;
+  return (d.items ?? []).reduce((acc, it) => {
+    if (it.programTo !== cia) return acc;
+    return acc + clampInt(it.pointsFinal);
+  }, 0);
+}
+
+function expectedCiaPoints(d: PurchaseDraft) {
+  const cia = d.ciaProgram;
+  if (cia === "LATAM") return clampInt(d.expectedLatamPoints ?? 0);
+  if (cia === "SMILES") return clampInt(d.expectedSmilesPoints ?? 0);
+  if (cia === "IBERIA") return clampInt(d.expectedIberiaPoints ?? 0);
+  return 0;
+}
+
+function pointsForMilheiro(d: PurchaseDraft) {
+  const itemPts = itemPointsToCia(d);
+  if (clampInt(d.remainingCostCents) > 0) {
+    const leftover = Math.max(0, expectedCiaPoints(d) - itemPts);
+    return itemPts + leftover;
+  }
+  return itemPts;
 }
 
 function costFromPointsAndMilheiro(points: number, milheiroCents: number) {
@@ -405,6 +424,7 @@ function normalizeItem(it: any): PurchaseItem {
   return {
     id: it?.id ?? undefined,
     type: (it?.type || "TRANSFER") as PurchaseItemType,
+    status: it?.status || undefined,
     title: String(it?.title || ""),
     details: it?.details ? String(it.details) : "",
 
@@ -437,7 +457,11 @@ function stripAutoRemainingItems(items: PurchaseItem[]) {
 }
 
 function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
-  const rawItems = Array.isArray(raw?.items) ? raw.items.map(normalizeItem) : [];
+  const rawItems = Array.isArray(raw?.items)
+    ? raw.items
+        .map(normalizeItem)
+        .filter((it: PurchaseItem) => it.status !== "CANCELED")
+    : [];
   const stripped = stripAutoRemainingItems(rawItems);
   const items = stripped.items;
 
@@ -501,6 +525,7 @@ function normalizeDraft(raw: any, cedenteSel?: Cedente | null): PurchaseDraft {
       raw?.expectedIberiaPoints ?? raw?.saldoPrevistoIberia ?? null,
 
     note: raw?.note ?? raw?.observacao ?? null,
+    finalizedAt: raw?.finalizedAt ?? null,
 
     items,
   };
@@ -561,6 +586,7 @@ function balanceRemainingDismissKey(cia: LoyaltyProgram) {
 
 export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }) {
   // ✅ pega /.../[id] quando existir (e mantém compatível com prop purchaseId)
+  const router = useRouter();
   const params = useParams() as Record<string, string | string[] | undefined>;
   const routeIdRaw = params?.id;
   const routeId = Array.isArray(routeIdRaw) ? routeIdRaw[0] : routeIdRaw;
@@ -629,6 +655,14 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
   }, []);
 
   const isReleased = draft?.status === "CLOSED";
+  const isFinalized = !!draft?.finalizedAt;
+  const itemsLocked =
+    isFinalized || draft?.status === "CANCELED" || !draft;
+
+  const [baselineDeltas, setBaselineDeltas] = useState<Record<
+    LoyaltyProgram,
+    number
+  > | null>(null);
 
   const totals = useMemo(() => {
     if (!draft) return null;
@@ -665,6 +699,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         const totals = computeTotals(p);
 
         setDraft({ ...p, ...totals });
+        setBaselineDeltas(
+          p.status === "CLOSED" ? computeProgramDeltas(p.items ?? []) : null
+        );
 
         if (p.remainingCostCents > 0) {
           setSuggestedRemainingCostCents(p.remainingCostCents);
@@ -971,6 +1008,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
       const totals = computeTotals(p);
 
       setDraft({ ...p, ...totals });
+      setBaselineDeltas(null);
     } catch (e: any) {
       setError(e?.message || "Falha ao criar compra.");
     } finally {
@@ -990,6 +1028,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     if (!d0) return;
 
     const d = normalizeDraft(d0, cedenteSel);
+    if (d.status === "CANCELED" || d.finalizedAt) return;
 
     setError(null);
     if (!silent) setSaving(true);
@@ -1000,7 +1039,9 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
       setDraft(payload);
 
-      await api<{ ok: true }>(`/api/compras/${d.id}`, {
+      const saved = await api<{ ok: true; compra?: any; cedente?: Cedente }>(
+        `/api/compras/${d.id}`,
+        {
         method: "PATCH",
         body: JSON.stringify({
           ciaProgram: payload.ciaProgram,
@@ -1028,6 +1069,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           targetPerKiloCents: payload.targetPerKiloCents,
         }),
       });
+
+      if (saved?.cedente) setCedenteSel(saved.cedente);
+      if (payload.status === "CLOSED") {
+        setBaselineDeltas(computeProgramDeltas(payload.items ?? []));
+      }
     } catch (e: any) {
       setError(e?.message || "Falha ao salvar.");
     } finally {
@@ -1327,7 +1373,10 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     if (active) dismissed = remainingDismissedIds.has(active.purchaseId);
     else dismissed = remainingDismissedIds.has(balanceRemainingDismissKey(cia));
 
-    const targetCost = pts <= 0 || dismissed ? 0 : clampInt(suggestedRemainingCostCents);
+    const targetCost =
+      pts <= 0 || dismissed || !!active
+        ? 0
+        : clampInt(suggestedRemainingCostCents);
 
     const stripped = stripAutoRemainingItems(draft.items ?? []);
     const itemsChanged = stripped.items.length !== (draft.items ?? []).length;
@@ -1467,37 +1516,46 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     updateDraft({ items });
   }
 
-  // Auto: ciaPointsTotal = soma itens programTo=CIA (se estiver 0)
+  // Auto: ciaPointsTotal = soma itens programTo=CIA
   useEffect(() => {
-    if (!draft || !draft.ciaProgram || isReleased) return;
-    if ((draft.ciaPointsTotal || 0) > 0) return;
+    if (!draft || !draft.ciaProgram || itemsLocked) return;
 
     const itemsArr = Array.isArray(draft.items) ? draft.items : [];
     const sum = itemsArr
       .filter((it) => it.programTo === draft.ciaProgram)
       .reduce((acc, it) => acc + (it.pointsFinal || 0), 0);
 
-    if (sum > 0) updateDraft({ ciaPointsTotal: sum });
+    if (sum !== (draft.ciaPointsTotal || 0)) updateDraft({ ciaPointsTotal: sum });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.ciaProgram, draft?.items, isReleased]);
+  }, [draft?.ciaProgram, draft?.items, itemsLocked]);
 
   const computedExpected = useMemo(() => {
     if (!cedenteSel || !draft) return null;
 
     const deltas = computeProgramDeltas(draft.items ?? []);
+    const base = baselineDeltas;
+    const extra = base
+      ? {
+          LATAM: deltas.LATAM - base.LATAM,
+          SMILES: deltas.SMILES - base.SMILES,
+          LIVELO: deltas.LIVELO - base.LIVELO,
+          ESFERA: deltas.ESFERA - base.ESFERA,
+          IBERIA: deltas.IBERIA - base.IBERIA,
+        }
+      : deltas;
 
     return {
-      LATAM: (cedenteSel.pontosLatam || 0) + deltas.LATAM,
-      SMILES: (cedenteSel.pontosSmiles || 0) + deltas.SMILES,
-      LIVELO: (cedenteSel.pontosLivelo || 0) + deltas.LIVELO,
-      ESFERA: (cedenteSel.pontosEsfera || 0) + deltas.ESFERA,
-      IBERIA: (cedenteSel.pontosIberia || 0) + deltas.IBERIA,
-      deltas,
+      LATAM: (cedenteSel.pontosLatam || 0) + extra.LATAM,
+      SMILES: (cedenteSel.pontosSmiles || 0) + extra.SMILES,
+      LIVELO: (cedenteSel.pontosLivelo || 0) + extra.LIVELO,
+      ESFERA: (cedenteSel.pontosEsfera || 0) + extra.ESFERA,
+      IBERIA: (cedenteSel.pontosIberia || 0) + extra.IBERIA,
+      deltas: extra,
     };
-  }, [cedenteSel, draft]);
+  }, [cedenteSel, draft, baselineDeltas]);
 
   useEffect(() => {
-    if (!draft || !cedenteSel || !computedExpected || isReleased) return;
+    if (!draft || !cedenteSel || !computedExpected || itemsLocked) return;
 
     const patch: Partial<PurchaseDraft> = {};
 
@@ -1521,7 +1579,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
 
     if (changed) updateDraft(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [computedExpected, expectedAuto, isReleased]);
+  }, [computedExpected, expectedAuto, itemsLocked]);
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-6 p-4 pb-10 sm:p-6">
@@ -1558,7 +1616,13 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     : "border-slate-200 bg-slate-50 text-slate-700"
                 )}
               >
-                Status <span className="font-mono">{draft.status}</span>
+                Status{" "}
+                <span className="font-mono">
+                  {draft.status === "CLOSED" ? "LIBERADA" : draft.status}
+                </span>
+                {draft.status === "CLOSED" && !draft.finalizedAt ? (
+                  <span className="font-normal">· pode adicionar itens</span>
+                ) : null}
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
                 {saving ? (
@@ -1579,6 +1643,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             draft={draft}
             saving={saving}
             isReleased={!!isReleased}
+            itemsLocked={itemsLocked}
             onSave={() => void saveDraft(draft)}
             onRelease={releasePurchase}
           />
@@ -1594,6 +1659,17 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           <p className="min-w-0 leading-relaxed">{error}</p>
         </div>
       )}
+
+      {isReleased && !isFinalized ? (
+        <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50/80 p-4 text-sm text-emerald-950">
+          <p className="font-semibold">Esta compra já foi liberada</p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-900/90">
+            Adicione transferências, clubes ou compras de pontos neste mesmo ID. O milheiro
+            recalcula com todos os itens da compra e o saldo do cedente acompanha os novos
+            pontos.
+          </p>
+        </div>
+      ) : null}
 
       <StepSection
         step={1}
@@ -1735,7 +1811,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                   <label className={FIELD_LABEL}>Observação</label>
                   <input
                     value={draft.note || ""}
-                    disabled={!!isReleased}
+                    disabled={itemsLocked}
                     onChange={(e) => updateDraft({ note: e.target.value })}
                     className={CONTROL_INPUT}
                     placeholder="Opcional"
@@ -1751,7 +1827,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     min={0}
                     step="0.01"
                     value={draft.cedentePayCents / 100}
-                    disabled={!!isReleased}
+                    disabled={itemsLocked}
                     onChange={(e) =>
                       updateDraft({
                         cedentePayCents: Math.max(
@@ -1777,7 +1853,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     min={0}
                     step="0.01"
                     value={draft.targetMarkupCents / 100}
-                    disabled={!!isReleased}
+                    disabled={itemsLocked}
                     onChange={(e) =>
                       updateDraft({
                         targetMarkupCents: Math.max(
@@ -1804,7 +1880,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     min={0}
                     step="0.01"
                     value={draft.caixaViasAereasCents / 100}
-                    disabled={!!isReleased}
+                    disabled={itemsLocked}
                     onChange={(e) =>
                       updateDraft({
                         caixaViasAereasCents: Math.max(
@@ -1853,7 +1929,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           title="Clubes (assinaturas)"
           hint="Itens CLUB entram no custo; bônus em milhas soma ao total do item. Para Livelo, o bônus mensal é puxado do cadastro do clube do cedente."
           action={
-            <button type="button" onClick={addClub} disabled={!!isReleased} className={BTN_PRIMARY}>
+            <button type="button" onClick={addClub} disabled={itemsLocked} className={BTN_PRIMARY}>
               <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
               Adicionar clube
             </button>
@@ -1934,7 +2010,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                         <td className="p-3 align-middle">
                           <select
                             value={meta.program}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const program = e.target.value as LoyaltyProgram;
                               const liveloPatch =
@@ -1973,7 +2049,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                         <td className="p-3 align-middle">
                           <select
                             value={meta.tierK}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const next: ClubMeta = {
                                 ...meta,
@@ -1999,7 +2075,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           <input
                             type="number"
                             value={(meta.priceCents || 0) / 100}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const cents = roundCents(
                                 Number(e.target.value || 0) * 100
@@ -2021,7 +2097,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           <input
                             type="number"
                             value={meta.renewalDay}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const next: ClubMeta = {
                                 ...meta,
@@ -2039,7 +2115,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           <input
                             type="date"
                             value={meta.startDateISO}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const next: ClubMeta = {
                                 ...meta,
@@ -2083,7 +2159,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                             type="number"
                             min={0}
                             value={Math.max(0, clampInt(meta.bonusPoints || 0))}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             onChange={(e) => {
                               const bonusPoints = Math.max(
                                 0,
@@ -2120,7 +2196,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                                 type="checkbox"
                                 checked={Boolean(meta.renewedThisCycle)}
                                 disabled={
-                                  !!isReleased ||
+                                  itemsLocked ||
                                   clubRenewSavingId === meta.clubSubscriptionId
                                 }
                                 onChange={(e) =>
@@ -2149,7 +2225,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                           <button
                             type="button"
                             onClick={() => removeItemByIndex(realIdx)}
-                            disabled={!!isReleased}
+                            disabled={itemsLocked}
                             className={cn(
                               BTN_GHOST,
                               "h-8 text-rose-700 border-rose-200 hover:bg-rose-50"
@@ -2178,12 +2254,12 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
         <StepSection
           step={4}
           title="Itens (pontos e custos)"
-          hint="Transferências, compras de pontos, ajustes e custos extras — cada item em um cartão legível."
+          hint="Transferências, compras de pontos, ajustes e custos extras. Em compra já liberada, os novos itens entram neste mesmo ID e o milheiro recalcula."
           action={
             <button
               type="button"
               onClick={addTransferItem}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               className={BTN_PRIMARY}
             >
               <Package className="h-4 w-4" strokeWidth={2} aria-hidden />
@@ -2211,7 +2287,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                     it={it}
                     realIdx={realIdx}
                     allowManual={allowManual}
-                    isReleased={!!isReleased}
+                    locked={itemsLocked}
                     onUpdateItem={updateItem}
                     onRemoveItem={removeItemByIndex}
                     onToggleAllowManual={(v) =>
@@ -2224,8 +2300,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
           )}
 
           <p className="mt-4 text-xs leading-relaxed text-slate-600">
-            O milheiro na etapa 5 usa o <span className="font-medium text-slate-800">esperado</span>{" "}
-            da CIA (LATAM ou Smiles).
+            O milheiro usa os pontos dos itens desta compra na CIA, não o saldo antigo da conta.
           </p>
         </StepSection>
       )}
@@ -2255,7 +2330,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 <option value="IBERIA">Iberia</option>
               </select>
               <p className="text-[11px] text-slate-500">
-                O milheiro usa o esperado da CIA escolhida.
+                O milheiro usa os pontos dos itens desta compra na CIA escolhida.
               </p>
             </div>
 
@@ -2265,12 +2340,8 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
                 {Math.max(0, pointsForMilheiro(draft)).toLocaleString("pt-BR")}
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Fonte:{" "}
-                {draft.ciaProgram === "LATAM"
-                  ? "Esperado LATAM"
-                  : draft.ciaProgram === "SMILES"
-                    ? "Esperado Smiles"
-                    : "—"}
+                Fonte: itens {draft.ciaProgram || "da CIA"} nesta compra
+                {clampInt(draft.remainingCostCents) > 0 ? " + remanescente com custo" : ""}
               </p>
             </div>
 
@@ -2279,7 +2350,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               <div className="mt-1 text-lg font-bold tabular-nums tracking-tight text-slate-900">
                 {fmtMoneyBR(totals?.costPerKiloCents || 0)}
               </div>
-              <p className="mt-1 text-xs text-slate-500">Baseado no esperado da CIA.</p>
+              <p className="mt-1 text-xs text-slate-500">Baseado nos itens desta compra na CIA.</p>
             </div>
           </div>
 
@@ -2289,6 +2360,27 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               Verificando ID de compra ativo…
             </div>
           )}
+
+          {!activeContextLoading && activeContext?.activePurchase && !isReleased ? (
+            <div className="mt-5 rounded-2xl border border-indigo-200/90 bg-indigo-50/80 p-4">
+              <p className="text-sm font-semibold text-indigo-950">
+                Já existe a compra {activeContext.activePurchase.numero} liberada nesta CIA
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-indigo-900/90">
+                Para não distorcer o milheiro, adicione as novas transferências e clubes
+                dentro daquele ID — não misture o remanescente numa compra nova.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/dashboard/compras/${activeContext.activePurchase!.purchaseId}`)
+                }
+                className={cn(BTN_PRIMARY, "mt-3")}
+              >
+                Abrir compra {activeContext.activePurchase.numero} e adicionar itens
+              </button>
+            </div>
+          ) : null}
 
           {!activeContextLoading &&
             draft.ciaProgram &&
@@ -2477,7 +2569,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               delta={computedExpected?.deltas.LATAM || 0}
               value={draft.expectedLatamPoints}
               auto={expectedAuto.LATAM}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, LATAM: v }))}
               onChange={(v) => updateDraft({ expectedLatamPoints: v })}
             />
@@ -2488,7 +2580,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               delta={computedExpected?.deltas.SMILES || 0}
               value={draft.expectedSmilesPoints}
               auto={expectedAuto.SMILES}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, SMILES: v }))}
               onChange={(v) => updateDraft({ expectedSmilesPoints: v })}
             />
@@ -2499,7 +2591,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               delta={computedExpected?.deltas.LIVELO || 0}
               value={draft.expectedLiveloPoints}
               auto={expectedAuto.LIVELO}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, LIVELO: v }))}
               onChange={(v) => updateDraft({ expectedLiveloPoints: v })}
             />
@@ -2510,7 +2602,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               delta={computedExpected?.deltas.ESFERA || 0}
               value={draft.expectedEsferaPoints}
               auto={expectedAuto.ESFERA}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, ESFERA: v }))}
               onChange={(v) => updateDraft({ expectedEsferaPoints: v })}
             />
@@ -2521,7 +2613,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
               delta={computedExpected?.deltas.IBERIA || 0}
               value={draft.expectedIberiaPoints}
               auto={expectedAuto.IBERIA}
-              disabled={!!isReleased}
+              disabled={itemsLocked}
               onToggleAuto={(v) => setExpectedAuto((s) => ({ ...s, IBERIA: v }))}
               onChange={(v) => updateDraft({ expectedIberiaPoints: v })}
             />
@@ -2607,7 +2699,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             </div>
 
             <p className="mt-2 text-[11px] text-slate-500">
-              Milheiro e meta usam o saldo <span className="font-medium text-slate-700">esperado</span> da CIA (etapa 5).
+              Milheiro e meta usam os pontos dos itens desta compra na CIA.
               A meta é o milheiro mais o markup (padrão R$ 2,00) e nunca fica abaixo do milheiro.
               A caixa Vias Aéreas (padrão R$ 100,00) entra no custo total e no milheiro.
               {remanescentePreview.remaining > 0
@@ -2635,7 +2727,11 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             )}
             <span>
               {saving ? "Salvando alterações…" : "Autosave ativo (~0,65 s após editar)."}
-              {draft.status === "CLOSED" ? " Compra liberada (somente leitura)." : ""}
+              {draft.status === "CLOSED" && !draft.finalizedAt
+                ? " Compra liberada: adicione itens neste ID; o milheiro recalcula no total."
+                : draft.finalizedAt
+                  ? " Compra finalizada (somente leitura)."
+                  : ""}
             </span>
           </div>
         </div>
@@ -2648,10 +2744,11 @@ function DraftActions(props: {
   draft: PurchaseDraft;
   saving: boolean;
   isReleased: boolean;
+  itemsLocked: boolean;
   onSave: () => void;
   onRelease: () => void;
 }) {
-  const { draft, saving, isReleased, onSave, onRelease } = props;
+  const { draft, saving, isReleased, itemsLocked, onSave, onRelease } = props;
 
   const ptsMilheiro = pointsForMilheiro(draft);
   const releaseDisabled =
@@ -2662,7 +2759,7 @@ function DraftActions(props: {
       <button
         type="button"
         onClick={onSave}
-        disabled={saving || isReleased}
+        disabled={saving || itemsLocked}
         className={BTN_SECONDARY}
       >
         {saving ? (
@@ -2779,12 +2876,12 @@ function ItemCard(props: {
   it: PurchaseItem;
   realIdx: number;
   allowManual: boolean;
-  isReleased: boolean;
+  locked: boolean;
   onUpdateItem: (realIdx: number, patch: Partial<PurchaseItem>) => void;
   onRemoveItem: (realIdx: number) => void;
   onToggleAllowManual: (v: boolean) => void;
 }) {
-  const { it, realIdx, allowManual, isReleased, onUpdateItem, onRemoveItem, onToggleAllowManual } =
+  const { it, realIdx, allowManual, locked, onUpdateItem, onRemoveItem, onToggleAllowManual } =
     props;
 
   return (
@@ -2794,7 +2891,7 @@ function ItemCard(props: {
           <label className={FIELD_LABEL}>Tipo</label>
           <select
             value={it.type}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, { type: e.target.value as PurchaseItemType })
             }
@@ -2812,7 +2909,7 @@ function ItemCard(props: {
             <label className={FIELD_LABEL}>Título</label>
             <input
               value={it.title}
-              disabled={isReleased}
+              disabled={locked}
               onChange={(e) => onUpdateItem(realIdx, { title: e.target.value })}
               className={CONTROL_INPUT}
               placeholder="Ex.: Transferência Livelo → Smiles"
@@ -2822,7 +2919,7 @@ function ItemCard(props: {
             <label className={FIELD_LABEL}>Detalhes (opcional)</label>
             <input
               value={it.details || ""}
-              disabled={isReleased}
+              disabled={locked}
               onChange={(e) => onUpdateItem(realIdx, { details: e.target.value })}
               className={CONTROL_INPUT}
               placeholder="Campanha, ID do pedido, observações…"
@@ -2836,7 +2933,7 @@ function ItemCard(props: {
             <input
               type="number"
               value={(it.amountCents || 0) / 100}
-              disabled={isReleased}
+              disabled={locked}
               onChange={(e) =>
                 onUpdateItem(realIdx, {
                   amountCents: roundCents(Number(e.target.value || 0) * 100),
@@ -2849,7 +2946,7 @@ function ItemCard(props: {
             <button
               type="button"
               onClick={() => onRemoveItem(realIdx)}
-              disabled={isReleased}
+              disabled={locked}
               className={cn(BTN_GHOST, "text-rose-700 border-rose-200 hover:bg-rose-50")}
             >
               <Trash2 className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
@@ -2868,7 +2965,7 @@ function ItemCard(props: {
           <label className={FIELD_LABEL}>De (origem)</label>
           <select
             value={it.programFrom || ""}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, {
                 programFrom: (e.target.value || null) as any,
@@ -2891,7 +2988,7 @@ function ItemCard(props: {
           <label className={FIELD_LABEL}>Para (destino)</label>
           <select
             value={it.programTo || ""}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, { programTo: (e.target.value || null) as any })
             }
@@ -2912,7 +3009,7 @@ function ItemCard(props: {
           <input
             type="number"
             value={it.pointsBase}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, { pointsBase: clampInt(e.target.value) })
             }
@@ -2926,7 +3023,7 @@ function ItemCard(props: {
             <input
               type="number"
               value={it.bonusValue ?? 0}
-              disabled={isReleased || !it.bonusMode}
+              disabled={locked || !it.bonusMode}
               onChange={(e) =>
                 onUpdateItem(realIdx, { bonusValue: clampInt(e.target.value) })
               }
@@ -2936,7 +3033,7 @@ function ItemCard(props: {
 
             <select
               value={it.bonusMode || ""}
-              disabled={isReleased}
+              disabled={locked}
               onChange={(e) =>
                 onUpdateItem(realIdx, { bonusMode: e.target.value as any })
               }
@@ -2958,7 +3055,7 @@ function ItemCard(props: {
           <input
             type="number"
             value={it.pointsFinal}
-            disabled={isReleased || !allowManual}
+            disabled={locked || !allowManual}
             onChange={(e) =>
               onUpdateItem(realIdx, { pointsFinal: clampInt(e.target.value) })
             }
@@ -2970,7 +3067,7 @@ function ItemCard(props: {
               <input
                 type="checkbox"
                 checked={allowManual}
-                disabled={isReleased}
+                disabled={locked}
                 onChange={(e) => onToggleAllowManual(e.target.checked)}
                 className="rounded border-slate-300 text-slate-900"
               />
@@ -2988,7 +3085,7 @@ function ItemCard(props: {
           <input
             type="number"
             value={it.pointsDebitedFromOrigin}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, {
                 pointsDebitedFromOrigin: clampInt(e.target.value),
@@ -3006,7 +3103,7 @@ function ItemCard(props: {
           <label className={FIELD_LABEL}>Modo</label>
           <select
             value={it.transferMode || ""}
-            disabled={isReleased}
+            disabled={locked}
             onChange={(e) =>
               onUpdateItem(realIdx, {
                 transferMode: (e.target.value || null) as any,

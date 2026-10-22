@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { ok, badRequest, notFound, serverError } from "@/lib/api";
-import { recomputeCompra } from "@/lib/compras";
+import {
+  aplicadoPatchFromProgramDeltas,
+  cedentePatchFromProgramDeltas,
+  computeItemProgramDeltas,
+  recomputeCompra,
+  syncClosedPurchaseItems,
+} from "@/lib/compras";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +47,7 @@ function mapDbToUi(compra: any) {
     expectedIberiaPoints: compra.saldoPrevistoIberia ?? null,
 
     note: compra.observacao ?? null,
+    finalizedAt: compra.finalizedAt ?? null,
     items: Array.isArray(compra.items) ? compra.items : [],
   };
 }
@@ -161,16 +168,55 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
     const exists = await prisma.purchase.findUnique({
       where: { id },
-      select: { id: true },
+      include: { items: true },
     });
     if (!exists) return notFound("Compra não encontrada.");
+    if (exists.status === "CANCELED") return badRequest("Compra cancelada.");
+    if (exists.finalizedAt) return badRequest("Compra finalizada não pode ser alterada.");
 
     const items = Array.isArray(body.items) ? body.items : null;
+    const isClosed = exists.status === "CLOSED";
+
+    if (isClosed && items) {
+      await prisma.$transaction(async (tx) => {
+        const current = await tx.purchase.findUnique({
+          where: { id },
+          include: { items: true },
+        });
+        if (!current) throw new Error("Compra não encontrada.");
+
+        const oldDeltas = computeItemProgramDeltas(current.items);
+        const newDeltas = computeItemProgramDeltas(items);
+        const net: typeof oldDeltas = {
+          LATAM: newDeltas.LATAM - oldDeltas.LATAM,
+          SMILES: newDeltas.SMILES - oldDeltas.SMILES,
+          LIVELO: newDeltas.LIVELO - oldDeltas.LIVELO,
+          ESFERA: newDeltas.ESFERA - oldDeltas.ESFERA,
+          IBERIA: newDeltas.IBERIA - oldDeltas.IBERIA,
+        };
+
+        await syncClosedPurchaseItems(id, items, current.items, tx);
+
+        const cedenteData = cedentePatchFromProgramDeltas(net);
+        if (Object.keys(cedenteData).length > 0) {
+          await tx.cedente.update({
+            where: { id: current.cedenteId },
+            data: cedenteData,
+          });
+        }
+
+        await tx.purchase.update({
+          where: { id },
+          data: aplicadoPatchFromProgramDeltas(current, net),
+        });
+      });
+    }
 
     await prisma.purchase.update({
       where: { id },
       data: {
-        ciaAerea: body.ciaProgram === undefined ? undefined : body.ciaProgram,
+        ciaAerea:
+          isClosed || body.ciaProgram === undefined ? undefined : body.ciaProgram,
         pontosCiaTotal:
           body.ciaPointsTotal === undefined ? undefined : Number(body.ciaPointsTotal || 0),
 
@@ -234,9 +280,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             ? undefined
             : Number(body.targetPerKiloCents || 0),
 
-        status: body.status === undefined ? undefined : body.status,
+        status: isClosed ? undefined : body.status === undefined ? undefined : body.status,
 
-        ...(items
+        ...(items && !isClosed
           ? {
               items: {
                 deleteMany: {},
