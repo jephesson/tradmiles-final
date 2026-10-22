@@ -230,12 +230,34 @@ function dialogUnix(d: { date?: unknown }) {
   return 0;
 }
 
+function entityClass(entity: unknown) {
+  if (!entity || typeof entity !== "object") return "";
+  return String((entity as { className?: string }).className || "");
+}
+
 function isPrivatePerson(d: unknown) {
   if (!d || typeof d !== "object") return false;
-  const row = d as { isUser?: boolean; entity?: { bot?: boolean; deleted?: boolean } };
-  if (!row.isUser) return false;
-  if (row.entity?.bot || row.entity?.deleted) return false;
-  return true;
+  const row = d as {
+    isUser?: boolean;
+    isGroup?: boolean;
+    isChannel?: boolean;
+    entity?: { className?: string; bot?: boolean; deleted?: boolean };
+  };
+  const cls = entityClass(row.entity);
+  const isUser = row.isUser === true || cls === "User" || cls === "UserEmpty";
+  if (row.entity?.deleted) return false;
+  if (isUser) return true;
+  return false;
+}
+
+function dialogTitle(d: unknown) {
+  const row = d as { title?: string; name?: string };
+  return String(row.title || row.name || "").trim();
+}
+
+function dialogPeerId(d: unknown) {
+  const row = d as { entity?: { id?: unknown }; id?: unknown };
+  return String(row.entity?.id || row.id || "");
 }
 
 function cursorFromDialog(d: {
@@ -263,9 +285,10 @@ export async function listTelegramChats(
     run: async (client) => {
       const q = query.trim().toLowerCase();
       const page = TELEGRAM_CHAT_PAGE;
-      const scan = 24;
-      const maxRounds = q ? 4 : 2;
+      const scan = 30;
+      const maxRounds = q ? 8 : 6;
       const rows: TelegramChatRow[] = [];
+      const fallback: TelegramChatRow[] = [];
       let next: TelegramChatCursor | null = cursor || null;
       let exhausted = false;
 
@@ -275,23 +298,16 @@ export async function listTelegramChats(
           ignoreMigrated: true,
           ...(next?.offsetDate ? { offsetDate: next.offsetDate } : {}),
           ...(next?.offsetId ? { offsetId: next.offsetId } : {}),
-          ...(next?.offsetPeer ? { offsetPeer: next.offsetPeer } : {}),
         });
         if (!dialogs.length) {
           exhausted = true;
-          next = null;
+          if (!rows.length && !fallback.length) next = null;
           break;
         }
         for (const d of dialogs) {
           next = cursorFromDialog(d);
-          if (!isPrivatePerson(d)) continue;
-          const title = String(
-            (d as { title?: string; name?: string }).title ||
-              (d as { name?: string }).name ||
-              ""
-          ).trim();
-          const entity = (d as { entity?: { id?: unknown } }).entity;
-          const id = String(entity?.id || (d as { id?: unknown }).id || "");
+          const title = dialogTitle(d);
+          const id = dialogPeerId(d);
           if (!id) continue;
           const msg = d.message as { message?: string } | undefined;
           const lastMessage = String(msg?.message || "")
@@ -301,24 +317,30 @@ export async function listTelegramChats(
           if (q && !title.toLowerCase().includes(q) && !lastMessage.toLowerCase().includes(q)) {
             continue;
           }
-          rows.push({
+          const row = {
             id,
             title: title || "Conversa",
             lastMessage,
             lastDate: dialogUnix(d),
-          });
-          if (rows.length >= page) break;
+          };
+          if (isPrivatePerson(d)) {
+            rows.push(row);
+            if (rows.length >= page) break;
+          } else if (fallback.length < page) {
+            fallback.push(row);
+          }
         }
         if (dialogs.length < scan) {
           exhausted = rows.length < page;
-          if (exhausted) next = null;
+          if (exhausted && rows.length) next = null;
           break;
         }
       }
 
+      const chats = rows.length ? rows.slice(0, page) : fallback.slice(0, page);
       return {
-        chats: rows.slice(0, page),
-        next: exhausted ? null : next,
+        chats,
+        next: exhausted && !chats.length ? null : next,
       };
     },
   });

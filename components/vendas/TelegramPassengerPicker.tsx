@@ -168,7 +168,11 @@ export default function TelegramPassengerPicker(props: {
         const seen = new Set(prev.map((c) => c.id));
         return [...prev, ...list.filter((c) => !seen.has(c.id))];
       });
-      setChatNext(json.next && json.next.offsetPeer ? json.next : null);
+      setChatNext(
+        json.next && (json.next.offsetPeer || json.next.offsetDate || json.next.offsetId)
+          ? json.next
+          : null
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Falha ao listar conversas.");
     } finally {
@@ -425,7 +429,7 @@ export default function TelegramPassengerPicker(props: {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold">Conversas</div>
-                  <p className="mt-0.5 text-[11px] text-white/80">Só pessoas. Sem grupos.</p>
+                  <p className="mt-0.5 text-[11px] text-white/80">Pessoas e bots primeiro. Sem canal.</p>
                 </div>
                 <button type="button" className="rounded-lg p-1.5 hover:bg-white/10" onClick={props.onClose}>
                   <X className="h-4 w-4" />
