@@ -59,6 +59,21 @@ type AgendaGap = {
   label: string;
 };
 
+type FillMonth = {
+  ym: string;
+  label: string;
+  defaultOpen: boolean;
+  adminLocked: boolean | null;
+  openForTeam: boolean;
+  openForYou: boolean;
+};
+
+type FillState = {
+  current: FillMonth;
+  next: FillMonth;
+  canToggle: boolean;
+};
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -123,6 +138,8 @@ export default function AgendaPage() {
   const [gaps, setGaps] = useState<AgendaGap[]>([]);
   const [holidays, setHolidays] = useState<AgendaHoliday[]>([]);
   const [canValidateHolidays, setCanValidateHolidays] = useState(false);
+  const [fill, setFill] = useState<FillState | null>(null);
+  const [fillBusy, setFillBusy] = useState<string | null>(null);
 
   const [selectedISO, setSelectedISO] = useState<string>(() => {
     const now = new Date();
@@ -153,6 +170,7 @@ export default function AgendaPage() {
       setGaps(json.data.gaps || []);
       setHolidays(json.data.holidays || []);
       setCanValidateHolidays(!!json.data.canValidateHolidays);
+      setFill(json.data.fill || null);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
     } finally {
@@ -253,7 +271,37 @@ export default function AgendaPage() {
     setFormDateBR(brFromISO(selectedISO));
   }, [selectedISO]);
 
+  const viewedFill =
+    fill?.current.ym === ym ? fill.current : fill?.next.ym === ym ? fill.next : null;
+  const canFillView = viewedFill ? viewedFill.openForYou : false;
+
+  async function setMonthLocked(monthYm: string, locked: boolean) {
+    setFillBusy(monthYm);
+    try {
+      const res = await fetch("/api/agenda/fill-lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ym: monthYm, locked }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao alterar preenchimento.");
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao alterar preenchimento.");
+    } finally {
+      setFillBusy(null);
+    }
+  }
+
   function openCreate(dateISO: string) {
+    if (!canFillView) {
+      alert(
+        viewedFill && !viewedFill.openForTeam
+          ? "Preenchimento bloqueado neste mês."
+          : "Cadastro ainda não liberado para este mês."
+      );
+      return;
+    }
     setSelectedISO(dateISO);
     setFormDateBR(brFromISO(dateISO));
     setFormType("SHIFT");
@@ -435,7 +483,8 @@ export default function AgendaPage() {
 
           <button
             type="button"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+            disabled={!canFillView}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => openCreate(selectedISO)}
           >
             <Plus className="h-4 w-4" aria-hidden />
@@ -443,6 +492,55 @@ export default function AgendaPage() {
           </button>
         </div>
       </div>
+
+      {fill ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Preenchimento
+          </div>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            Este mês e o próximo. Sem trava do admin, o próximo abre 10 dias antes do dia 1.
+            {fill.canToggle ? " Você libera ou bloqueia para a equipe; admin ainda cadastra." : ""}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[fill.current, fill.next].map((m) => {
+              const teamOpen = m.openForTeam;
+              const busy = fillBusy === m.ym;
+              return (
+                <div
+                  key={m.ym}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl border px-3 py-2",
+                    teamOpen ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/80"
+                  )}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">{m.label}</div>
+                    <div className="text-[11px] text-slate-600">
+                      {teamOpen ? "Liberado para a equipe" : "Bloqueado para a equipe"}
+                    </div>
+                  </div>
+                  {fill.canToggle ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setMonthLocked(m.ym, teamOpen)}
+                      className={cn(
+                        "rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-60",
+                        teamOpen
+                          ? "border border-amber-300 bg-white text-amber-900 hover:bg-amber-50"
+                          : "border border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50"
+                      )}
+                    >
+                      {busy ? "…" : teamOpen ? "Bloquear" : "Liberar"}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {alertGaps.length > 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
@@ -553,7 +651,8 @@ export default function AgendaPage() {
                     </div>
                     <button
                       type="button"
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-white text-slate-600 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800"
+                      disabled={!canFillView}
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-white text-slate-600 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800 disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -670,7 +769,8 @@ export default function AgendaPage() {
               ) : null}
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 sm:self-auto"
+              disabled={!canFillView}
+              className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
               onClick={() => openCreate(selectedISO)}
             >
               <Plus className="h-4 w-4" aria-hidden />

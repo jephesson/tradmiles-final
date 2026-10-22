@@ -2401,6 +2401,23 @@ model AgendaMemberColor {
   @@map("agenda_member_colors")
 }
 
+/// Admin trava ou libera o preenchimento deste mês e do próximo.
+model AgendaFillLock {
+  id     String @id @default(cuid())
+  team   String
+  month  String
+  locked Boolean
+
+  updatedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([team, month], map: "uniq_agenda_fill_lock_team_month")
+  @@index([team])
+  @@map("agenda_fill_locks")
+}
+
 model Anotacao {
   id     String         @id @default(cuid())
   team   String

@@ -7,7 +7,7 @@
     "build": "prisma generate && node scripts/migrate-deploy.mjs && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test lib/attendance/engine.test.ts",
+    "test": "node --experimental-strip-types --test lib/attendance/engine.test.ts lib/agenda/fill.test.ts",
     "postinstall": "prisma generate",
     "gmail:oauth": "node --env-file=.env.local scripts/gmail-oauth.mjs"
   },

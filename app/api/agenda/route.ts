@@ -10,6 +10,14 @@ import {
   parseHHMM as parseShiftHHMM,
 } from "@/lib/agenda/shifts";
 import { officialHolidaysInRange } from "@/lib/agenda/holidays";
+import {
+  defaultMonthFillOpen,
+  fillDeniedMessage,
+  fillWindowYMs,
+  isFillOpenForUser,
+  todayRecifeISO,
+  ymLabelBR,
+} from "@/lib/agenda/fill";
 import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 
 export const runtime = "nodejs";
@@ -87,37 +95,45 @@ function fmtMin(min: number) {
   return fmtShiftMin(min);
 }
 
-function todayRecifeISO(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Recife",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
+function monthFillState(
+  ym: string,
+  todayISO: string,
+  adminLocked: boolean | null,
+  isAdmin: boolean
+) {
+  return {
+    ym,
+    label: ymLabelBR(ym),
+    defaultOpen: defaultMonthFillOpen(ym, todayISO),
+    adminLocked,
+    openForTeam: isFillOpenForUser({ ym, todayISO, adminLocked, isAdmin: false }),
+    openForYou: isFillOpenForUser({ ym, todayISO, adminLocked, isAdmin }),
+  };
 }
-function addMonthsYM(ym: string, delta: number) {
-  const [y, m] = ym.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1 + delta, 1, 12, 0, 0));
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  return `${yy}-${mm}`;
-}
-function canEditMonth(ym: string) {
+
+async function loadFillState(team: string, isAdmin: boolean) {
   const todayISO = todayRecifeISO();
-  const currentYM = todayISO.slice(0, 7);
-  if (ym === currentYM) return true;
+  const { currentYM, nextYM } = fillWindowYMs(todayISO);
+  const rows = await prisma.agendaFillLock.findMany({
+    where: { team, month: { in: [currentYM, nextYM] } },
+    select: { month: true, locked: true },
+  });
+  const map = new Map(rows.map((r) => [r.month, r.locked]));
+  const lockOf = (ym: string) => (map.has(ym) ? Boolean(map.get(ym)) : null);
+  return {
+    todayISO,
+    current: monthFillState(currentYM, todayISO, lockOf(currentYM), isAdmin),
+    next: monthFillState(nextYM, todayISO, lockOf(nextYM), isAdmin),
+    canToggle: isAdmin,
+  };
+}
 
-  const nextYM = addMonthsYM(currentYM, 1);
-  if (ym !== nextYM) return false;
-
-  // libera mês seguinte 10 dias antes do dia 01
-  const unlock = new Date(`${nextYM}-01T12:00:00.000Z`);
-  unlock.setUTCDate(unlock.getUTCDate() - 10);
-  const unlockISO = unlock.toISOString().slice(0, 10);
-
-  return todayISO >= unlockISO;
+async function denyFillIfClosed(team: string, ym: string, isAdmin: boolean) {
+  const fill = await loadFillState(team, isAdmin);
+  const adminLocked =
+    ym === fill.current.ym ? fill.current.adminLocked : ym === fill.next.ym ? fill.next.adminLocked : null;
+  if (isFillOpenForUser({ ym, todayISO: fill.todayISO, adminLocked, isAdmin })) return null;
+  return fillDeniedMessage(ym, fill.todayISO, adminLocked);
 }
 
 function intervalRule(
@@ -231,7 +247,8 @@ export async function GET(req: NextRequest) {
       return bad("Informe 'mes=MM/AAAA' OU 'de=DD/MM/AAAA&ate=DD/MM/AAAA'.");
     }
 
-    const [members, events, holidayRows] = await Promise.all([
+    const isAdmin = isAdminRole(session.role);
+    const [members, events, holidayRows, fill] = await Promise.all([
       getMembersWithColors(session.team),
       prisma.agendaEvent.findMany({
         where: {
@@ -249,6 +266,7 @@ export async function GET(req: NextRequest) {
         where: { team: session.team, dateISO: { gte: startISO, lte: endISO } },
         select: { dateISO: true },
       }),
+      loadFillState(session.team, isAdmin),
     ]);
 
     const eventsOut = events.map((e) => ({
@@ -290,7 +308,8 @@ export async function GET(req: NextRequest) {
       events: eventsOut,
       gaps,
       holidays,
-      canValidateHolidays: isAdminRole(session.role),
+      fill,
+      canValidateHolidays: isAdmin,
     });
   } catch (e: any) {
     return bad(e?.message || "Erro interno.", 500);
@@ -312,9 +331,8 @@ export async function POST(req: NextRequest) {
     if (!dateISO) return bad("Data inválida. Use DD/MM/AAAA.");
 
     const ym = dateISO.slice(0, 7);
-    if (!canEditMonth(ym)) {
-      return bad("Cadastro/edição não liberados para este mês ainda.", 403);
-    }
+    const fillErr = await denyFillIfClosed(session.team, ym, isAdminRole(session.role));
+    if (fillErr) return bad(fillErr, 403);
 
     // ✅ Corrigido: Session não tem userId. Use body.userId ou session.id.
     const userId = String(body.userId || session.id || "").trim() || session.id;
@@ -421,8 +439,8 @@ export async function PATCH(req: NextRequest) {
       return bad("Evento já está cancelado.", 400);
 
     const ym = existing.dateISO.slice(0, 7);
-    if (!canEditMonth(ym))
-      return bad("Edição não liberada para este mês ainda.", 403);
+    const fillErr = await denyFillIfClosed(session.team, ym, isAdminRole(session.role));
+    if (fillErr) return bad(fillErr, 403);
 
     // troca/re-atribuição
     if (body.swapToUserId) {
@@ -580,8 +598,8 @@ export async function DELETE(req: NextRequest) {
     if (existing.status !== "ACTIVE") return ok({ id }); // idempotente
 
     const ym = existing.dateISO.slice(0, 7);
-    if (!canEditMonth(ym))
-      return bad("Exclusão não liberada para este mês ainda.", 403);
+    const fillErr = await denyFillIfClosed(session.team, ym, isAdminRole(session.role));
+    if (fillErr) return bad(fillErr, 403);
 
     await prisma.agendaEvent.update({
       where: { id },
