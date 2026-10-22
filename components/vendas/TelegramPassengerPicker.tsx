@@ -75,6 +75,7 @@ type Msg = {
   fromYou?: boolean;
   sender?: string;
   thumb?: string | null;
+  fileLabel?: string | null;
 };
 
 function defaultSelected(messages: Msg[]) {
@@ -367,8 +368,17 @@ export default function TelegramPassengerPicker(props: {
                             Foto
                           </div>
                         ) : null}
+                        {m.fileLabel ? (
+                          <div className="mb-1 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                            {m.fileLabel}
+                          </div>
+                        ) : null}
                         {m.text ? (
-                          <div className="whitespace-pre-wrap break-words text-slate-800">{m.text}</div>
+                          <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-slate-800">
+                            {m.text}
+                          </div>
+                        ) : !m.thumb && !m.hasPhoto && !m.fileLabel ? (
+                          <div className="text-[11px] text-slate-400">Mensagem vazia</div>
                         ) : null}
                         <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-500">
                           {on ? <Check className="h-3 w-3 text-sky-600" /> : null}

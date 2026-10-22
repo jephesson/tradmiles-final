@@ -5,6 +5,14 @@ import {
   encryptTelegramSession,
 } from "@/lib/telegram/sessionCrypto";
 import { envTelegramApiCreds, type TelegramApiCreds } from "@/lib/telegram/creds";
+import {
+  bufferToDocumentText,
+  documentFileName,
+  fileKindLabel,
+  isPdfDocument,
+  isTextishDocument,
+  webpageToText,
+} from "./mediaText";
 
 export function telegramApiConfigured() {
   return Boolean(envTelegramApiCreds());
@@ -341,20 +349,44 @@ export type TelegramMessageRow = {
   fromYou: boolean;
   sender: string;
   thumb: string | null;
+  fileLabel: string | null;
 };
 
-function previewMessage(m: {
+type TelegramRawMessage = {
   id?: number;
   date?: Date | number;
   message?: string;
   photo?: unknown;
-  document?: { mimeType?: string };
+  document?: { mimeType?: string; attributes?: Array<{ fileName?: string }> };
+  file?: { name?: string; mimeType?: string };
+  webPreview?: {
+    title?: string;
+    description?: string;
+    siteName?: string;
+    cachedPage?: { blocks?: unknown[] };
+  };
+  media?: { webpage?: unknown; className?: string };
   out?: boolean;
   sender?: { firstName?: string; lastName?: string };
-}): TelegramMessageRow {
-  const text = String(m.message || "").trim();
-  const mime = String(m.document?.mimeType || "");
+};
+
+function captionAndPreviewText(m: TelegramRawMessage) {
+  const caption = String(m.message || "").trim();
+  const web =
+    m.webPreview ||
+    (m.media && typeof m.media === "object" && "webpage" in m.media
+      ? (m.media as { webpage?: TelegramRawMessage["webPreview"] }).webpage
+      : null);
+  const webText = webpageToText(web || undefined);
+  return [caption, webText].filter(Boolean).join("\n").trim();
+}
+
+function previewMessage(m: TelegramRawMessage): TelegramMessageRow {
+  const text = captionAndPreviewText(m);
+  const mime = String(m.document?.mimeType || m.file?.mimeType || "");
+  const fileName = documentFileName(m.document, m.file);
   const hasPhoto = Boolean(m.photo) || /^image\//i.test(mime);
+  const hasFile = Boolean(m.document) && !hasPhoto;
   const dateRaw = m.date;
   const date =
     dateRaw instanceof Date
@@ -369,7 +401,7 @@ function previewMessage(m: {
   return {
     id: Number(m.id || 0),
     date,
-    text: text.slice(0, 500),
+    text: text.slice(0, 2000),
     hasPhoto,
     looksPassenger: looksLikePassengerContent(text),
     looksFlight: looksLikeFlightContent(text) || (hasPhoto && !looksLikeIssuedContent(text)),
@@ -377,7 +409,56 @@ function previewMessage(m: {
     fromYou,
     sender,
     thumb: null,
+    fileLabel: hasFile ? fileKindLabel(mime, fileName) : webTextLabel(m, text),
   };
+}
+
+function webTextLabel(m: TelegramRawMessage, text: string) {
+  if (m.webPreview || String(m.media?.className || "").includes("WebPage")) {
+    return text ? null : "Prévia / tabela";
+  }
+  return null;
+}
+
+async function fillFromDocument(
+  client: TelegramClient,
+  m: unknown,
+  row: TelegramMessageRow
+) {
+  const raw = m as TelegramRawMessage;
+  const mime = String(raw.document?.mimeType || raw.file?.mimeType || "");
+  const fileName = documentFileName(raw.document, raw.file);
+  if (!raw.document) return;
+  const textish = isTextishDocument(mime, fileName);
+  const pdf = isPdfDocument(mime, fileName);
+  if (!textish && !pdf) return;
+  try {
+    const buf = await client.downloadMedia(m as never, {});
+    const data = Buffer.isBuffer(buf)
+      ? buf
+      : typeof buf === "string"
+        ? Buffer.from(buf, "binary")
+        : null;
+    if (!data || data.length < 20) return;
+    let extracted = "";
+    if (pdf) {
+      const { extractText, getDocumentProxy } = await import("unpdf");
+      const doc = await getDocumentProxy(new Uint8Array(data));
+      const got = await extractText(doc, { mergePages: true });
+      extracted = Array.isArray(got.text) ? got.text.join("\n") : String(got.text || "");
+    } else {
+      extracted = bufferToDocumentText(data, mime, fileName);
+    }
+    extracted = extracted.trim();
+    if (!extracted) return;
+    row.text = [row.text, extracted].filter(Boolean).join("\n").slice(0, 8000);
+    row.looksPassenger = looksLikePassengerContent(row.text);
+    row.looksFlight = looksLikeFlightContent(row.text);
+    row.looksIssued = looksLikeIssuedContent(row.text);
+    if (!row.fileLabel) row.fileLabel = fileKindLabel(mime, fileName);
+  } catch {
+    /* arquivo que não baixa */
+  }
 }
 
 function bufferToJpegDataUrl(buf: unknown) {
@@ -411,6 +492,7 @@ export async function listTelegramMessages(
       const messages = await client.getMessages(entity, { limit: 36 });
       const rows: TelegramMessageRow[] = [];
       let thumbs = 0;
+      let files = 0;
       for (const m of messages) {
         const row = previewMessage(m as never);
         if (row.id <= 0) continue;
@@ -422,6 +504,11 @@ export async function listTelegramMessages(
           } catch {
             row.thumb = null;
           }
+        }
+        if (files < 12 && (!row.text || row.fileLabel)) {
+          const before = row.text;
+          await fillFromDocument(client, m, row);
+          if (row.text !== before) files += 1;
         }
         rows.push(row);
       }
@@ -449,13 +536,13 @@ export async function readTelegramMessages(
       const images: { mimeType: string; base64: string }[] = [];
       const chronological = [...messages].reverse();
       for (const m of chronological) {
+        const preview = previewMessage(m as never);
+        await fillFromDocument(client, m, preview);
+        if (preview.text) texts.push(preview.text);
         const row = m as {
-          message?: string;
           photo?: unknown;
           document?: { mimeType?: string };
         };
-        const text = String(row.message || "").trim();
-        if (text) texts.push(text);
         const mime = String(row.document?.mimeType || "");
         const hasMedia = Boolean(row.photo) || /^image\//i.test(mime);
         if (!hasMedia || images.length >= 8) continue;
