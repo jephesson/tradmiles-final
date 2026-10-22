@@ -206,8 +206,8 @@ export default function TelegramLoginForm(props: {
           </button>
         </div>
       ) : connected ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+        <div>
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-[11px] text-slate-500">
             <span>Logado na empresa{name ? ` · ${name}` : ""}</span>
             <button type="button" className="underline" onClick={() => void disconnect()}>
               Trocar conta

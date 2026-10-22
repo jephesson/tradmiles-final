@@ -22,16 +22,23 @@ export async function GET(req: NextRequest) {
   }
 
   const q = req.nextUrl.searchParams.get("q") || "";
+  const offsetDate = Number(req.nextUrl.searchParams.get("offsetDate") || 0);
+  const offsetId = Number(req.nextUrl.searchParams.get("offsetId") || 0);
+  const offsetPeer = String(req.nextUrl.searchParams.get("offsetPeer") || "").trim();
+  const cursor =
+    offsetDate > 0 || offsetId > 0 || offsetPeer
+      ? { offsetDate, offsetId, offsetPeer }
+      : null;
   try {
     const creds = await resolveTelegramCreds(sess.team);
     if (!creds) {
       return NextResponse.json({ ok: false, error: "Telegram sem app configurado." }, { status: 400 });
     }
-    const { result, sessionEnc } = await listTelegramChats(row.sessionEnc, q, creds);
+    const { result, sessionEnc } = await listTelegramChats(row.sessionEnc, q, creds, cursor);
     if (sessionEnc !== row.sessionEnc) {
       await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
     }
-    return NextResponse.json({ ok: true, chats: result });
+    return NextResponse.json({ ok: true, chats: result.chats, next: result.next });
   } catch (e) {
     return NextResponse.json({ ok: false, error: mapTelegramError(e) }, { status: 400 });
   }

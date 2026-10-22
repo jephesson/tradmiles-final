@@ -204,33 +204,116 @@ export type TelegramChatRow = {
   id: string;
   title: string;
   lastMessage: string;
+  lastDate: number;
 };
+
+export type TelegramChatCursor = {
+  offsetDate: number;
+  offsetId: number;
+  offsetPeer: string;
+};
+
+export const TELEGRAM_CHAT_PAGE = 10;
+
+function dialogUnix(d: { date?: unknown }) {
+  const date = d.date;
+  if (typeof date === "number") return date > 1e12 ? Math.floor(date / 1000) : date;
+  if (date instanceof Date) return Math.floor(date.getTime() / 1000);
+  return 0;
+}
+
+function isPrivatePerson(d: {
+  isUser?: boolean;
+  entity?: { bot?: boolean; deleted?: boolean };
+}) {
+  if (!d.isUser) return false;
+  const e = d.entity;
+  if (e?.bot || e?.deleted) return false;
+  return true;
+}
+
+function cursorFromDialog(d: {
+  date?: unknown;
+  message?: { id?: number };
+  entity?: { id?: unknown };
+  id?: unknown;
+}): TelegramChatCursor {
+  return {
+    offsetDate: dialogUnix(d),
+    offsetId: Number(d.message?.id || 0),
+    offsetPeer: String(d.entity?.id || d.id || ""),
+  };
+}
 
 export async function listTelegramChats(
   sessionEnc: string,
   query: string,
-  creds: TelegramApiCreds
+  creds: TelegramApiCreds,
+  cursor?: TelegramChatCursor | null
 ) {
   return withTelegramClient({
     sessionEnc,
     creds,
     run: async (client) => {
-      const dialogs = await client.getDialogs({ limit: 60 });
       const q = query.trim().toLowerCase();
+      const page = TELEGRAM_CHAT_PAGE;
+      const scan = 24;
+      const maxRounds = q ? 4 : 2;
       const rows: TelegramChatRow[] = [];
-      for (const d of dialogs) {
-        const title = String((d as { title?: string; name?: string }).title || (d as { name?: string }).name || "").trim();
-        const entity = (d as { entity?: { id?: unknown } }).entity;
-        const id = String(entity?.id || (d as { id?: unknown }).id || "");
-        if (!id) continue;
-        const msg = d.message as { message?: string } | undefined;
-        const lastMessage = String(msg?.message || "").replace(/\s+/g, " ").trim().slice(0, 120);
-        if (q && !title.toLowerCase().includes(q) && !lastMessage.toLowerCase().includes(q)) {
-          continue;
+      let next: TelegramChatCursor | null = cursor || null;
+      let exhausted = false;
+
+      for (let round = 0; round < maxRounds && rows.length < page; round += 1) {
+        const dialogs = await client.getDialogs({
+          limit: scan,
+          ignoreMigrated: true,
+          ...(next?.offsetDate ? { offsetDate: next.offsetDate } : {}),
+          ...(next?.offsetId ? { offsetId: next.offsetId } : {}),
+          ...(next?.offsetPeer ? { offsetPeer: next.offsetPeer } : {}),
+        });
+        if (!dialogs.length) {
+          exhausted = true;
+          next = null;
+          break;
         }
-        rows.push({ id, title: title || "Conversa", lastMessage });
+        for (const d of dialogs) {
+          next = cursorFromDialog(d);
+          if (!isPrivatePerson(d)) continue;
+          const title = String(
+            (d as { title?: string; name?: string }).title ||
+              (d as { name?: string }).name ||
+              ""
+          ).trim();
+          const entity = (d as { entity?: { id?: unknown } }).entity;
+          const id = String(entity?.id || (d as { id?: unknown }).id || "");
+          if (!id) continue;
+          const msg = d.message as { message?: string } | undefined;
+          const lastMessage = String(msg?.message || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 120);
+          if (q && !title.toLowerCase().includes(q) && !lastMessage.toLowerCase().includes(q)) {
+            continue;
+          }
+          rows.push({
+            id,
+            title: title || "Conversa",
+            lastMessage,
+            lastDate: dialogUnix(d),
+          });
+          if (rows.length >= page) break;
+        }
+        if (dialogs.length < scan) {
+          exhausted = rows.length < page;
+          if (exhausted) next = null;
+          break;
+        }
       }
-      return rows.slice(0, 40);
+
+      return {
+        chats: rows.slice(0, page),
+        next: exhausted ? null : next,
+      };
     },
   });
 }
