@@ -82,6 +82,7 @@ export default function EscolhaAutomaticaLatamPage() {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfOwnerId, setPdfOwnerId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ApiResp | null>(null);
 
@@ -134,14 +135,29 @@ export default function EscolhaAutomaticaLatamPage() {
     setMinFree(n);
   }
 
-  async function downloadPdf() {
+  function filePart(s: string) {
+    return (
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 40) || "pessoa"
+    );
+  }
+
+  async function downloadPdf(owner?: { id: string; login: string }) {
+    const ownerKey = owner?.id || owner?.login || null;
     setPdfBusy(true);
+    setPdfOwnerId(ownerKey);
     try {
       const qs = new URLSearchParams({
         monthKey: displayMonth,
         minFree: String(minFree),
       });
       if (q.trim()) qs.set("q", q.trim());
+      if (ownerKey) qs.set("ownerId", ownerKey);
       const res = await fetch(
         `/api/contas-selecionadas/latam/escolha-automatica/pdf?${qs}`,
         { credentials: "include" }
@@ -154,7 +170,7 @@ export default function EscolhaAutomaticaLatamPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `escolha-automatica-latam-${displayMonth}-min${minFree}.pdf`;
+      a.download = `escolha-automatica-latam-${filePart(owner?.login || "todos")}-${displayMonth}-min${minFree}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -163,6 +179,15 @@ export default function EscolhaAutomaticaLatamPage() {
       alert(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
     } finally {
       setPdfBusy(false);
+      setPdfOwnerId(null);
+    }
+  }
+
+  async function downloadPdfByPerson() {
+    if (!grouped.length) return;
+    for (const g of grouped) {
+      await downloadPdf(g.owner);
+      await new Promise((r) => window.setTimeout(r, 450));
     }
   }
 
@@ -242,21 +267,41 @@ export default function EscolhaAutomaticaLatamPage() {
           </button>
           <button
             type="button"
-            disabled={pdfBusy || loading}
+            disabled={pdfBusy || loading || !rows.length}
             className={cn(
               "inline-flex h-10 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold",
               pdfBusy
                 ? "border-slate-200 bg-slate-50 text-slate-400"
                 : "border-teal-200 bg-teal-50 text-teal-800 hover:bg-teal-100"
             )}
-            onClick={downloadPdf}
+            onClick={() => void downloadPdf()}
+            title="Um PDF com todo mundo"
           >
-            {pdfBusy ? (
+            {pdfBusy && !pdfOwnerId ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <FileDown className="h-3.5 w-3.5" />
             )}
-            PDF
+            PDF geral
+          </button>
+          <button
+            type="button"
+            disabled={pdfBusy || loading || grouped.length === 0}
+            className={cn(
+              "inline-flex h-10 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold",
+              pdfBusy
+                ? "border-slate-200 bg-slate-50 text-slate-400"
+                : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+            )}
+            onClick={() => void downloadPdfByPerson()}
+            title="Baixa um PDF separado para cada responsável"
+          >
+            {pdfBusy && pdfOwnerId ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileDown className="h-3.5 w-3.5" />
+            )}
+            PDF por pessoa
           </button>
         </div>
       </div>
@@ -302,14 +347,30 @@ export default function EscolhaAutomaticaLatamPage() {
               key={g.owner.id || g.owner.login}
               className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40"
             >
-              <div className="flex flex-col gap-1 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">{g.owner.name}</div>
                   <div className="text-xs text-slate-500">@{g.owner.login}</div>
                 </div>
-                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-teal-800">
-                  {fmtInt(g.rows.length)} contas · {fmtInt(g.rows.reduce((a, r) => a + r.account.cpfFree, 0))} livres
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-teal-800">
+                    {fmtInt(g.rows.length)} contas · {fmtInt(g.rows.reduce((a, r) => a + r.account.cpfFree, 0))} livres
+                  </span>
+                  <button
+                    type="button"
+                    disabled={pdfBusy}
+                    onClick={() => void downloadPdf(g.owner)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    title={`PDF só de ${g.owner.name}`}
+                  >
+                    {pdfBusy && pdfOwnerId === (g.owner.id || g.owner.login) ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FileDown className="h-3.5 w-3.5" />
+                    )}
+                    PDF
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[980px] border-collapse text-sm">

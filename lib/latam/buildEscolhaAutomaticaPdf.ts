@@ -309,12 +309,16 @@ export function buildEscolhaAutomaticaPdf(input: {
     size: 11,
     color: [0.75, 0.82, 0.95],
   });
+  const title =
+    groups.length === 1
+      ? ellipsize(`Escolha automatica · ${groups[0].name}`, 48)
+      : "Escolha automatica LATAM";
   canvas.text({
-    text: "Escolha automatica LATAM",
+    text: title,
     x: MARGIN,
     y: 48,
     font: "F2",
-    size: 18,
+    size: groups.length === 1 ? 16 : 18,
     color: C.white,
   });
   canvas.text({

@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   if (!session) return bad("Não autenticado", 401);
 
   const { searchParams } = new URL(req.url);
+  const ownerId = String(searchParams.get("ownerId") || "").trim();
   const data = await fetchEscolhaAutomaticaList({
     team: session.team,
     monthKey: searchParams.get("monthKey"),
@@ -36,13 +37,25 @@ export async function GET(req: NextRequest) {
     q: searchParams.get("q"),
   });
 
+  const rows = ownerId
+    ? data.rows.filter((r) => r.owner.id === ownerId || r.owner.login === ownerId)
+    : data.rows;
+  if (ownerId && rows.length === 0) return bad("Nenhuma conta deste responsável.", 404);
+
   const pdf = buildEscolhaAutomaticaPdf({
     monthLabel: monthLabel(data.monthKey),
     minFree: data.minFree,
-    rows: data.rows,
+    rows,
   });
 
-  const filename = `escolha-automatica-latam-${data.monthKey}-min${data.minFree}.pdf`;
+  const ownerLogin = rows[0]?.owner.login || "geral";
+  const who = ownerId
+    ? String(ownerLogin)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "pessoa"
+    : "todos";
+  const filename = `escolha-automatica-latam-${who}-${data.monthKey}-min${data.minFree}.pdf`;
   return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {
