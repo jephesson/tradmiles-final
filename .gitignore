@@ -47,3 +47,6 @@ next-env.d.ts
 # Amostras PII de documentos (só local)
 /private-doc-samples/
 prisma/dev.db
+
+# Projeto gerado pelo conversor do Safari
+/extension-safari/xcode/

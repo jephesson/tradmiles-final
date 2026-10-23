@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "TradeMiles LATAM Safari",
+  "version": "0.2.59",
+  "description": "Versão Safari: preenche passageiros e pagamento LATAM com dados do TradeMiles. Use junto da extensão Chrome — são pacotes separados.",
+  "permissions": ["storage", "activeTab", "tabs"],
+  "host_permissions": [
+    "https://www.latamairlines.com/*",
+    "https://latamairlines.com/*",
+    "https://www.trademiles.com.br/*",
+    "https://trademiles.com.br/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.latamairlines.com/*/pagamentos/passageiros*",
+        "https://www.latamairlines.com/*/v2/passageiros*",
+        "https://latamairlines.com/*/pagamentos/passageiros*",
+        "https://latamairlines.com/*/v2/passageiros*"
+      ],
+      "js": ["content/inject-page-hooks.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.latamairlines.com/*/pagamentos/passageiros*",
+        "https://www.latamairlines.com/*/v2/passageiros*",
+        "https://latamairlines.com/*/pagamentos/passageiros*",
+        "https://latamairlines.com/*/v2/passageiros*"
+      ],
+      "js": ["content/passengers.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.latamairlines.com/*/v2/pagamentos*",
+        "https://latamairlines.com/*/v2/pagamentos*"
+      ],
+      "js": ["content/payment.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/page-hooks.js"],
+      "matches": [
+        "https://www.latamairlines.com/*",
+        "https://latamairlines.com/*"
+      ]
+    }
+  ],
+  "action": {
+    "default_title": "TradeMiles LATAM Safari",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "safari": {
+      "strict_min_version": "16.4"
+    }
+  }
+}
