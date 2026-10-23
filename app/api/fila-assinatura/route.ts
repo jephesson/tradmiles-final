@@ -43,6 +43,7 @@ const cedenteSelect = {
   nomeCompleto: true,
   identificador: true,
   cpf: true,
+  telefone: true,
   owner: { select: { id: true, name: true } },
 } as const;
 
@@ -51,6 +52,7 @@ function cedenteOut(c: {
   nomeCompleto: string;
   identificador: string;
   cpf: string;
+  telefone: string | null;
   owner: { id: string; name: string } | null;
 }) {
   return {
@@ -58,6 +60,7 @@ function cedenteOut(c: {
     nome: c.nomeCompleto,
     identificador: c.identificador,
     cpfMask: maskCpf(c.cpf),
+    telefone: c.telefone || null,
     responsavel: c.owner,
   };
 }
@@ -66,6 +69,31 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
     const busca = String(req.nextUrl.searchParams.get("busca") || "").trim();
+
+    // Credenciais só quando abrem a chave (não vão junto na lista).
+    const credenciais = String(req.nextUrl.searchParams.get("credenciais") || "").trim();
+    if (credenciais) {
+      const item = await prisma.filaAssinatura.findFirst({
+        where: { id: credenciais, team: session.team },
+        select: {
+          cedente: {
+            select: {
+              id: true,
+              nomeCompleto: true,
+              identificador: true,
+              cpf: true,
+              emailCriado: true,
+              senhaEmail: true,
+              senhaLatamPass: true,
+              senhaLivelo: true,
+              emailRedirecionado: true,
+            },
+          },
+        },
+      });
+      if (!item) return bad("Cedente não está na fila.", 404);
+      return ok({ credenciais: item.cedente });
+    }
 
     if (busca) {
       const digits = busca.replace(/\D/g, "");

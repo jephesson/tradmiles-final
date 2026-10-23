@@ -2,19 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Ban,
-  Check,
   CheckCircle2,
+  Copy,
+  KeyRound,
   ListChecks,
   Loader2,
-  MessageCircleOff,
+  MessageCircle,
   Plus,
   RefreshCw,
   Search,
   Trash2,
-  UserX,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
+import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
+import {
+  VP_FIELD_LABEL,
+  VP_MODAL_BACKDROP,
+  VP_MODAL_PANEL,
+} from "@/app/dashboard/cedentes/visualizar/visualizarPontosUi";
 
 type Status = "AGUARDANDO" | "ASSINADO" | "ERRO";
 
@@ -23,7 +30,20 @@ type CedenteLite = {
   nome: string;
   identificador: string;
   cpfMask: string;
+  telefone: string | null;
   responsavel: { id: string; name: string } | null;
+};
+
+type Credenciais = {
+  id: string;
+  nomeCompleto: string;
+  identificador: string;
+  cpf: string;
+  emailCriado: string | null;
+  senhaEmail: string | null;
+  senhaLatamPass: string | null;
+  senhaLivelo: string | null;
+  emailRedirecionado: boolean;
 };
 
 type Item = {
@@ -36,20 +56,20 @@ type Item = {
   cedente: CedenteLite;
 };
 
-const STATUS_META: Record<Status, { label: string; on: string; badge: string }> = {
+const STATUS_META: Record<Status, { label: string; select: string; badge: string }> = {
   AGUARDANDO: {
     label: "Aguardando",
-    on: "bg-amber-500 text-white border-amber-500",
+    select: "bg-amber-50 text-amber-900 ring-amber-300",
     badge: "bg-amber-50 text-amber-800 ring-amber-200",
   },
   ASSINADO: {
     label: "Assinado",
-    on: "bg-emerald-600 text-white border-emerald-600",
+    select: "bg-emerald-50 text-emerald-900 ring-emerald-300",
     badge: "bg-emerald-50 text-emerald-800 ring-emerald-200",
   },
   ERRO: {
     label: "Erro",
-    on: "bg-red-600 text-white border-red-600",
+    select: "bg-red-50 text-red-800 ring-red-300",
     badge: "bg-red-50 text-red-700 ring-red-200",
   },
 };
@@ -64,8 +84,30 @@ const RESULT_LABEL: Record<Resultado, string> = {
 };
 
 // Larguras fixas nas colunas de status/ações para as linhas alinharem com o cabeçalho.
-const GRID_COLS_ADMIN = "lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_12.5rem_12.5rem_24rem]";
-const GRID_COLS_STAFF = "lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_12.5rem_12.5rem_2.5rem]";
+const GRID_COLS_ADMIN = "lg:grid-cols-[1.5rem_minmax(0,1fr)_7rem_9rem_9rem_13.5rem]";
+const GRID_COLS_STAFF = "lg:grid-cols-[1.5rem_minmax(0,1fr)_7rem_9rem_9rem_8rem]";
+
+const ICON_BTN =
+  "group relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 transition-colors";
+const ICON_BTN_NEUTRAL = cn(ICON_BTN, "bg-white text-slate-600 ring-slate-200/90 hover:bg-slate-50 hover:text-slate-900");
+const ICON_BTN_WHATS = cn(ICON_BTN, "bg-emerald-50 text-emerald-700 ring-emerald-200/90 hover:bg-emerald-100");
+
+function whatsappHref(telefone?: string | null) {
+  let d = String(telefone || "").replace(/\D+/g, "");
+  if (!d) return null;
+  while (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length < 12) return null;
+  return `https://wa.me/${d}`;
+}
+
+function Tip({ label }: { label: string }) {
+  return (
+    <span className="pointer-events-none absolute -top-8 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
+      {label}
+    </span>
+  );
+}
 
 function fmtWhen(iso: string) {
   try {
@@ -102,8 +144,8 @@ function StatusControl(props: {
   canEdit: boolean;
   onChange: (s: Status) => void;
 }) {
+  const m = STATUS_META[props.value];
   if (!props.canEdit) {
-    const m = STATUS_META[props.value];
     return (
       <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1", m.badge)}>
         {m.label}
@@ -111,25 +153,115 @@ function StatusControl(props: {
     );
   }
   return (
-    <div role="radiogroup" aria-label={props.program} className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-      {STATUS_ORDER.map((s) => {
-        const on = props.value === s;
-        return (
+    <select
+      aria-label={props.program}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value as Status)}
+      className={cn(
+        "h-9 w-full cursor-pointer rounded-lg border-0 px-2.5 text-xs font-semibold outline-none ring-1 focus:ring-2",
+        m.select
+      )}
+    >
+      {STATUS_ORDER.map((s) => (
+        <option key={s} value={s}>
+          {STATUS_META[s].label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function CopyField({ label, value }: { label: string; value: string | null }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-slate-50/90 p-3">
+      <div className={VP_FIELD_LABEL}>{label}</div>
+      <div className="mt-1 break-all font-medium text-slate-900">{value || "-"}</div>
+      {value ? (
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1200);
+            } catch {
+              /* ignore */
+            }
+          }}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
+        >
+          <Copy size={13} /> {copied ? "Copiado" : "Copiar"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Mesmas credenciais da tela de cedentes, com a senha Livelo junto e o código da LATAM. */
+function CredenciaisModal(props: { itemId: string; onClose: () => void }) {
+  const [data, setData] = useState<Credenciais | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    api<{ credenciais: Credenciais }>(`/api/fila-assinatura?credenciais=${encodeURIComponent(props.itemId)}`)
+      .then((d) => alive && setData(d.credenciais))
+      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Falha ao abrir credenciais."));
+    return () => {
+      alive = false;
+    };
+  }, [props.itemId]);
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button type="button" className={VP_MODAL_BACKDROP} aria-label="Fechar credenciais" onClick={props.onClose} />
+      <div className={cn(VP_MODAL_PANEL, "max-h-[90vh] overflow-y-auto")}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-bold tracking-tight text-slate-900">Credenciais para transação</div>
+            {data ? (
+              <div className="text-sm text-slate-500">
+                {data.nomeCompleto} • {data.identificador}
+              </div>
+            ) : null}
+          </div>
           <button
-            key={s}
             type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => !on && props.onChange(s)}
-            className={cn(
-              "rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors",
-              on ? STATUS_META[s].on : "border-transparent text-slate-500 hover:bg-slate-100"
-            )}
+            onClick={props.onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
+            title="Fechar"
           >
-            {STATUS_META[s].label}
+            <X size={16} />
           </button>
-        );
-      })}
+        </div>
+
+        {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+        {!data && !error ? (
+          <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Abrindo…
+          </div>
+        ) : null}
+
+        {data ? (
+          <>
+            <EmailNaoSincronizadoAviso
+              className="mb-4"
+              cedenteId={data.id}
+              emailRedirecionado={data.emailRedirecionado}
+              onMarked={() => setData((prev) => (prev ? { ...prev, emailRedirecionado: true } : prev))}
+            />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <CopyField label="CPF (login)" value={data.cpf} />
+              <CopyField label="Senha LATAM" value={data.senhaLatamPass} />
+              <CopyField label="Senha Livelo" value={data.senhaLivelo} />
+              <CopyField label="E-mail" value={data.emailCriado} />
+              <CopyField label="Senha do e-mail" value={data.senhaEmail} />
+            </div>
+            <VerificationCodeFetch className="mt-4" cedenteId={data.id} program="LATAM" email={data.emailCriado} />
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -261,6 +393,7 @@ export default function FilaAssinaturaClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [credItemId, setCredItemId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -411,7 +544,7 @@ export default function FilaAssinaturaClient() {
           <span>Colocado por</span>
           <span>LATAM Pass</span>
           <span>Livelo</span>
-          <span className="text-right">Ações</span>
+          <span>Ações</span>
         </div>
 
         {error ? <p className="px-5 py-4 text-sm font-medium text-red-600">{error}</p> : null}
@@ -431,35 +564,39 @@ export default function FilaAssinaturaClient() {
             {items.map((item, idx) => {
               const allSigned = item.latamStatus === "ASSINADO" && item.liveloStatus === "ASSINADO";
               const canRemove = isAdmin || item.addedBy.id === meId;
+              const waHref = whatsappHref(item.cedente.telefone);
+              const busy = busyId === item.id;
               return (
                 <li
                   key={item.id}
                   className={cn(
-                    "grid gap-3 px-4 py-3.5 sm:px-5 lg:items-center lg:gap-4",
+                    "grid grid-cols-2 items-center gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5 lg:gap-x-4 lg:gap-y-0",
                     GRID_COLS,
-                    allSigned && "bg-emerald-50/40"
+                    allSigned && "bg-emerald-50/40",
+                    busy && "opacity-60"
                   )}
                 >
                   <span className="hidden text-sm font-semibold tabular-nums text-slate-400 lg:block">{idx + 1}</span>
-                  <div className="min-w-0">
+
+                  <div className="col-span-2 min-w-0 lg:col-span-1">
                     <p className="truncate text-sm font-semibold text-slate-900">
                       <span className="mr-1.5 text-slate-400 lg:hidden">{idx + 1}.</span>
                       {item.cedente.nome}
                     </p>
                     <p className="truncate text-xs text-slate-500">
                       {item.cedente.identificador}
-                      {item.cedente.cpfMask ? ` • CPF: ${item.cedente.cpfMask}` : ""}
+                      {item.cedente.cpfMask ? ` • CPF ${item.cedente.cpfMask}` : ""}
+                      {item.cedente.responsavel ? ` • ${item.cedente.responsavel.name}` : ""}
                     </p>
-                    {item.cedente.responsavel ? (
-                      <p className="truncate text-xs text-slate-500">Resp.: {item.cedente.responsavel.name}</p>
-                    ) : null}
                   </div>
-                  <div className="min-w-0 text-xs text-slate-500">
+
+                  <div className="col-span-2 min-w-0 text-xs leading-tight text-slate-500 lg:col-span-1">
                     <span className="font-medium text-slate-700">{firstName(item.addedBy.name)}</span>
-                    <span className="block">{fmtWhen(item.createdAt)}</span>
+                    <span className="ml-1 lg:ml-0 lg:block">{fmtWhen(item.createdAt)}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3 lg:block">
-                    <span className="text-xs font-semibold text-slate-500 lg:hidden">LATAM Pass</span>
+
+                  <div className="min-w-0">
+                    <span className="mb-1 block text-[11px] font-semibold text-slate-500 lg:hidden">LATAM Pass</span>
                     <StatusControl
                       program="LATAM Pass"
                       value={item.latamStatus}
@@ -467,8 +604,8 @@ export default function FilaAssinaturaClient() {
                       onChange={(s) => void setStatus(item, "latamStatus", s)}
                     />
                   </div>
-                  <div className="flex items-center justify-between gap-3 lg:block">
-                    <span className="text-xs font-semibold text-slate-500 lg:hidden">Livelo</span>
+                  <div className="min-w-0">
+                    <span className="mb-1 block text-[11px] font-semibold text-slate-500 lg:hidden">Livelo</span>
                     <StatusControl
                       program="Livelo"
                       value={item.liveloStatus}
@@ -476,69 +613,74 @@ export default function FilaAssinaturaClient() {
                       onChange={(s) => void setStatus(item, "liveloStatus", s)}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+
+                  <div className="col-span-2 flex items-center gap-1.5 lg:col-span-1">
+                    {waHref ? (
+                      <a href={waHref} target="_blank" rel="noreferrer" className={ICON_BTN_WHATS} title="WhatsApp do cedente">
+                        <MessageCircle size={15} />
+                        <span className="sr-only">WhatsApp</span>
+                        <Tip label="WhatsApp" />
+                      </a>
+                    ) : (
+                      <span
+                        className={cn(ICON_BTN, "cursor-not-allowed bg-slate-50 text-slate-300 ring-slate-200/70")}
+                        title="Cedente sem telefone"
+                      >
+                        <MessageCircle size={15} />
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCredItemId(item.id)}
+                      className={ICON_BTN_NEUTRAL}
+                      title="Credenciais e código de verificação"
+                    >
+                      <KeyRound size={15} />
+                      <span className="sr-only">Credenciais</span>
+                      <Tip label="CPF/E-mail/Senhas/Código" />
+                    </button>
+
                     {isAdmin ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busyId === item.id}
-                          onClick={() => void close(item, "CONCLUIDO")}
-                          className={cn(
-                            "inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-50",
-                            allSigned
-                              ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                              : "border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                          )}
-                        >
-                          {busyId === item.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5" />
-                          )}
-                          Concluído
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === item.id}
-                          onClick={() => void close(item, "NEGADO")}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
-                        >
-                          <Ban className="h-3.5 w-3.5" />
-                          Negado
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === item.id}
-                          onClick={() => void close(item, "SEM_RESPOSTA")}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          <MessageCircleOff className="h-3.5 w-3.5" />
-                          Sem resposta
-                        </button>
-                      </>
-                    ) : null}
-                    {canRemove ? (
+                      <select
+                        aria-label={`Ações para ${item.cedente.nome}`}
+                        value=""
+                        disabled={busy}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "REMOVER") void remove(item);
+                          else if (v === "EXCLUIR") void deleteCadastro(item);
+                          else if (v) void close(item, v as Resultado);
+                        }}
+                        className={cn(
+                          "h-9 min-w-0 flex-1 cursor-pointer rounded-lg border-0 px-2.5 text-xs font-semibold outline-none ring-1 focus:ring-2",
+                          allSigned
+                            ? "bg-emerald-600 text-white ring-emerald-600"
+                            : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                        )}
+                      >
+                        <option value="" disabled>
+                          {busy ? "Salvando…" : allSigned ? "Concluir…" : "Fechar como…"}
+                        </option>
+                        <optgroup label="Fechar (sai da fila)">
+                          <option value="CONCLUIDO">✓ Concluído</option>
+                          <option value="NEGADO">⊘ Negado</option>
+                          <option value="SEM_RESPOSTA">… Sem resposta</option>
+                        </optgroup>
+                        <optgroup label="Outros">
+                          <option value="REMOVER">Tirar da fila</option>
+                          <option value="EXCLUIR">Excluir todo o cadastro</option>
+                        </optgroup>
+                      </select>
+                    ) : canRemove ? (
                       <button
                         type="button"
                         aria-label="Tirar da fila"
-                        title="Tirar da fila"
-                        disabled={busyId === item.id}
+                        disabled={busy}
                         onClick={() => void remove(item)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                        className={cn(ICON_BTN_NEUTRAL, "hover:bg-red-50 hover:text-red-600")}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        aria-label="Excluir todo o cadastro"
-                        title="Excluir todo o cadastro do cedente"
-                        disabled={busyId === item.id}
-                        onClick={() => void deleteCadastro(item)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                      >
-                        <UserX className="h-4 w-4" />
+                        <Trash2 size={15} />
+                        <Tip label="Tirar da fila" />
                       </button>
                     ) : null}
                   </div>
@@ -548,6 +690,8 @@ export default function FilaAssinaturaClient() {
           </ul>
         )}
       </div>
+
+      {credItemId ? <CredenciaisModal itemId={credItemId} onClose={() => setCredItemId(null)} /> : null}
     </div>
   );
 }
