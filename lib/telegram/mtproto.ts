@@ -642,6 +642,7 @@ export async function listTelegramMessages(
       const entity = await resolveChatEntity(client, chatId, accessHash);
       const messages = await client.getMessages(entity, { limit: 36 });
       const rows: TelegramMessageRow[] = [];
+      const jobs: Array<() => Promise<void>> = [];
       let thumbs = 0;
       let files = 0;
       for (const m of messages) {
@@ -649,21 +650,29 @@ export async function listTelegramMessages(
         const row = previewMessage(m as never);
         if (row.id <= 0) continue;
         if (row.hasPhoto && thumbs < 20) {
-          try {
-            const buf = await client.downloadMedia(m, { thumb: 1 });
-            row.thumb = bufferToJpegDataUrl(buf);
-            if (row.thumb) thumbs += 1;
-          } catch {
-            row.thumb = null;
-          }
+          thumbs += 1;
+          jobs.push(async () => {
+            try {
+              const buf = await client.downloadMedia(m, { thumb: 1 });
+              row.thumb = bufferToJpegDataUrl(buf);
+            } catch {
+              row.thumb = null;
+            }
+          });
         }
-        if (files < 12 && (!row.text || row.fileLabel)) {
-          const before = row.text;
-          await fillFromDocument(client, m, row);
-          if (row.text !== before) files += 1;
+        if (files < 12 && (m as TelegramRawMessage).document && (!row.text || row.fileLabel)) {
+          files += 1;
+          jobs.push(() => fillFromDocument(client, m, row));
         }
         rows.push(row);
       }
+      // Baixar uma por vez deixava a conversa lenta para abrir.
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(5, jobs.length) }, async () => {
+          while (next < jobs.length) await jobs[next++]();
+        })
+      );
       return rows;
     },
   });

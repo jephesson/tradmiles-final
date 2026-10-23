@@ -2,6 +2,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+import {
+  clearTelegramCache,
+  fetchTelegramStatus,
+  peekTelegramStatus,
+} from "@/lib/telegram/clientCache";
 
 export type TelegramLoginStatus = {
   configured: boolean;
@@ -15,13 +20,14 @@ export default function TelegramLoginForm(props: {
   children?: ReactNode;
   onStatus?: (s: TelegramLoginStatus) => void;
 }) {
-  const [loading, setLoading] = useState(true);
+  const [cachedStatus] = useState(() => peekTelegramStatus());
+  const [loading, setLoading] = useState(!cachedStatus);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [configured, setConfigured] = useState(true);
-  const [connected, setConnected] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [name, setName] = useState<string | null>(null);
+  const [configured, setConfigured] = useState(cachedStatus?.configured ?? true);
+  const [connected, setConnected] = useState(Boolean(cachedStatus?.connected));
+  const [status, setStatus] = useState<string | null>(cachedStatus?.status || null);
+  const [name, setName] = useState<string | null>(cachedStatus?.name || null);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -32,13 +38,11 @@ export default function TelegramLoginForm(props: {
     props.onStatus?.(next);
   }
 
-  async function loadStatus() {
-    setLoading(true);
+  async function loadStatus(fresh = true) {
+    if (fresh || !peekTelegramStatus()) setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/telegram", { cache: "no-store" });
-      const json = await res.json();
-      if (!json?.ok) throw new Error(json?.error || "Falha ao ver o Telegram.");
+      const json = await fetchTelegramStatus(fresh);
       const next: TelegramLoginStatus = {
         configured: Boolean(json.configured),
         connected: Boolean(json.connected),
@@ -62,7 +66,7 @@ export default function TelegramLoginForm(props: {
   }
 
   useEffect(() => {
-    void loadStatus();
+    void loadStatus(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -142,6 +146,7 @@ export default function TelegramLoginForm(props: {
     setBusy(true);
     try {
       await fetch("/api/telegram", { method: "DELETE" });
+      clearTelegramCache();
       setConnected(false);
       setStatus("DISCONNECTED");
       setName(null);

@@ -33,6 +33,7 @@ import {
   weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
+import { prefetchTelegram } from "@/lib/telegram/clientCache";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
   isProcessableLatamReceiptInput,
@@ -408,6 +409,11 @@ export default function NovaVendaClient({
 
   // ✅ agora vem do SERVER (cookie tm.session)
   const [me, setMe] = useState<UserLite | null>(initialMe);
+
+  // Telegram da venda já vai carregando enquanto preenche o resto.
+  useEffect(() => {
+    prefetchTelegram();
+  }, []);
 
   // ✅ fallback opcional (só tenta se por algum motivo initialMe não veio)
   useEffect(() => {
