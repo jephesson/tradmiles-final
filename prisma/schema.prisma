@@ -2308,6 +2308,12 @@ enum AssinaturaStatus {
   ERRO
 }
 
+enum FilaAssinaturaResultado {
+  CONCLUIDO
+  NEGADO
+  SEM_RESPOSTA
+}
+
 enum AnotacaoStatus {
   PENDENTE
   RESOLVIDO
@@ -2451,7 +2457,7 @@ model AgendaSwapRequest {
 }
 
 /// Fila de assinatura: equipe coloca o cedente, admin marca LATAM Pass e Livelo e conclui.
-/// Concluído (concludedAt) sai da fila.
+/// Ao fechar (concludedAt + resultado: concluído, negado ou sem resposta) sai da fila.
 model FilaAssinatura {
   id     String @id @default(cuid())
   team   String
@@ -2468,6 +2474,7 @@ model FilaAssinatura {
 
   concludedAt   DateTime?
   concludedById String?
+  resultado     FilaAssinaturaResultado?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

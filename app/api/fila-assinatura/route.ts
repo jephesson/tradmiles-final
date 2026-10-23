@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CedenteStatus, type AssinaturaStatus } from "@prisma/client";
+import { CedenteStatus, type AssinaturaStatus, type FilaAssinaturaResultado } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { EXCLUDED_CPF_PREFIX } from "@/lib/cedentes/activeCedenteWhere";
@@ -10,10 +10,12 @@ export const dynamic = "force-dynamic";
 
 /*
  * Fila de assinatura: qualquer um da equipe coloca o cedente;
- * o admin marca LATAM Pass / Livelo e conclui (concluído sai da fila).
+ * o admin marca LATAM Pass / Livelo e fecha como concluído, negado ou sem resposta
+ * (fechado sai da fila).
  */
 
 const STATUSES: AssinaturaStatus[] = ["AGUARDANDO", "ASSINADO", "ERRO"];
+const RESULTADOS: FilaAssinaturaResultado[] = ["CONCLUIDO", "NEGADO", "SEM_RESPOSTA"];
 
 function ok(data: unknown) {
   return NextResponse.json({ ok: true, data }, { headers: { "Cache-Control": "no-store" } });
@@ -165,6 +167,7 @@ export async function PATCH(req: NextRequest) {
       liveloStatus?: AssinaturaStatus;
       concludedAt?: Date;
       concludedById?: string;
+      resultado?: FilaAssinaturaResultado;
     } = {};
     if (body.latamStatus !== undefined) {
       if (!STATUSES.includes(body.latamStatus)) return bad("Status LATAM inválido.");
@@ -174,7 +177,10 @@ export async function PATCH(req: NextRequest) {
       if (!STATUSES.includes(body.liveloStatus)) return bad("Status Livelo inválido.");
       data.liveloStatus = body.liveloStatus;
     }
-    if (body.concluir) {
+    const resultado = body.resultado ?? (body.concluir ? "CONCLUIDO" : undefined);
+    if (resultado !== undefined) {
+      if (!RESULTADOS.includes(resultado)) return bad("Resultado inválido.");
+      data.resultado = resultado;
       data.concludedAt = new Date();
       data.concludedById = session.id;
     }

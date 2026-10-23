@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, CheckCircle2, ListChecks, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import {
+  Ban,
+  Check,
+  CheckCircle2,
+  ListChecks,
+  Loader2,
+  MessageCircleOff,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  UserX,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Status = "AGUARDANDO" | "ASSINADO" | "ERRO";
@@ -42,6 +54,18 @@ const STATUS_META: Record<Status, { label: string; on: string; badge: string }> 
   },
 };
 const STATUS_ORDER: Status[] = ["AGUARDANDO", "ASSINADO", "ERRO"];
+
+type Resultado = "CONCLUIDO" | "NEGADO" | "SEM_RESPOSTA";
+
+const RESULT_LABEL: Record<Resultado, string> = {
+  CONCLUIDO: "Concluído",
+  NEGADO: "Negado",
+  SEM_RESPOSTA: "Sem resposta",
+};
+
+// Larguras fixas nas colunas de status/ações para as linhas alinharem com o cabeçalho.
+const GRID_COLS_ADMIN = "lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_12.5rem_12.5rem_24rem]";
+const GRID_COLS_STAFF = "lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_12.5rem_12.5rem_2.5rem]";
 
 function fmtWhen(iso: string) {
   try {
@@ -271,20 +295,53 @@ export default function FilaAssinaturaClient() {
     }
   }
 
-  async function conclude(item: Item) {
+  async function close(item: Item, resultado: Resultado) {
     const allSigned = item.latamStatus === "ASSINADO" && item.liveloStatus === "ASSINADO";
-    if (!allSigned && !confirm(`${item.cedente.nome} ainda não está assinado nos dois. Concluir mesmo assim?`)) {
-      return;
-    }
+    const question =
+      resultado === "CONCLUIDO"
+        ? allSigned
+          ? null
+          : `${item.cedente.nome} ainda não está assinado nos dois. Concluir mesmo assim?`
+        : `Fechar ${item.cedente.nome} como "${RESULT_LABEL[resultado]}"? Sai da fila.`;
+    if (question && !confirm(question)) return;
     setBusyId(item.id);
     try {
       await api(`/api/fila-assinatura?id=${encodeURIComponent(item.id)}`, {
         method: "PATCH",
-        body: JSON.stringify({ concluir: true }),
+        body: JSON.stringify({ resultado }),
       });
       setItems((list) => list.filter((i) => i.id !== item.id));
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Não deu para concluir.");
+      alert(e instanceof Error ? e.message : "Não deu para fechar.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Apaga o cadastro do cedente inteiro (mesma rota da tela de cedentes, com senha).
+  async function deleteCadastro(item: Item) {
+    if (
+      !confirm(
+        `Excluir TODO o cadastro de ${item.cedente.nome}?\n\nIsso apaga o cedente do sistema, não só da fila, e não dá para desfazer.`
+      )
+    ) {
+      return;
+    }
+    const password = (prompt("Digite sua senha do login para confirmar:") ?? "").trim();
+    if (!password) return;
+    setBusyId(item.id);
+    try {
+      const res = await fetch("/api/cedentes/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [item.cedente.id], password }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Não deu para excluir o cadastro.");
+      if (!json.deleted) throw new Error("Cadastro não encontrado.");
+      setItems((list) => list.filter((i) => i.id !== item.id));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Não deu para excluir o cadastro.");
     } finally {
       setBusyId(null);
     }
@@ -303,10 +360,11 @@ export default function FilaAssinaturaClient() {
     }
   }
 
+  const GRID_COLS = isAdmin ? GRID_COLS_ADMIN : GRID_COLS_STAFF;
   const withError = items.filter((i) => i.latamStatus === "ERRO" || i.liveloStatus === "ERRO").length;
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-5">
+    <div className="mx-auto w-full max-w-7xl space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-800">
@@ -314,8 +372,8 @@ export default function FilaAssinaturaClient() {
           </span>
           <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900">Fila de assinatura</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Coloque o cedente na fila. {isAdmin ? "Você" : "O admin"} marca LATAM Pass e Livelo e conclui; o
-            concluído sai da fila.
+            Coloque o cedente na fila. {isAdmin ? "Você" : "O admin"} marca LATAM Pass e Livelo e fecha
+            como concluído, negado ou sem resposta; o que é fechado sai da fila.
           </p>
         </div>
         <button
@@ -342,12 +400,17 @@ export default function FilaAssinaturaClient() {
           ) : null}
         </div>
 
-        <div className="hidden grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_auto_auto_9.5rem] items-center gap-4 border-b border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 lg:grid">
+        <div
+          className={cn(
+            "hidden items-center gap-4 border-b border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 lg:grid",
+            GRID_COLS
+          )}
+        >
           <span>#</span>
           <span>Cedente</span>
           <span>Colocado por</span>
-          <span className="w-[13.5rem]">LATAM Pass</span>
-          <span className="w-[13.5rem]">Livelo</span>
+          <span>LATAM Pass</span>
+          <span>Livelo</span>
           <span className="text-right">Ações</span>
         </div>
 
@@ -372,7 +435,8 @@ export default function FilaAssinaturaClient() {
                 <li
                   key={item.id}
                   className={cn(
-                    "grid gap-3 px-4 py-3.5 sm:px-5 lg:grid-cols-[2rem_minmax(0,1.6fr)_minmax(0,1fr)_auto_auto_9.5rem] lg:items-center lg:gap-4",
+                    "grid gap-3 px-4 py-3.5 sm:px-5 lg:items-center lg:gap-4",
+                    GRID_COLS,
                     allSigned && "bg-emerald-50/40"
                   )}
                 >
@@ -394,7 +458,7 @@ export default function FilaAssinaturaClient() {
                     <span className="font-medium text-slate-700">{firstName(item.addedBy.name)}</span>
                     <span className="block">{fmtWhen(item.createdAt)}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3 lg:block lg:w-[13.5rem]">
+                  <div className="flex items-center justify-between gap-3 lg:block">
                     <span className="text-xs font-semibold text-slate-500 lg:hidden">LATAM Pass</span>
                     <StatusControl
                       program="LATAM Pass"
@@ -403,7 +467,7 @@ export default function FilaAssinaturaClient() {
                       onChange={(s) => void setStatus(item, "latamStatus", s)}
                     />
                   </div>
-                  <div className="flex items-center justify-between gap-3 lg:block lg:w-[13.5rem]">
+                  <div className="flex items-center justify-between gap-3 lg:block">
                     <span className="text-xs font-semibold text-slate-500 lg:hidden">Livelo</span>
                     <StatusControl
                       program="Livelo"
@@ -412,26 +476,46 @@ export default function FilaAssinaturaClient() {
                       onChange={(s) => void setStatus(item, "liveloStatus", s)}
                     />
                   </div>
-                  <div className="flex items-center justify-end gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
                     {isAdmin ? (
-                      <button
-                        type="button"
-                        disabled={busyId === item.id}
-                        onClick={() => void conclude(item)}
-                        className={cn(
-                          "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors disabled:opacity-50",
-                          allSigned
-                            ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                            : "border border-slate-200 text-slate-700 hover:bg-slate-50"
-                        )}
-                      >
-                        {busyId === item.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                        Concluído
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={busyId === item.id}
+                          onClick={() => void close(item, "CONCLUIDO")}
+                          className={cn(
+                            "inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition-colors disabled:opacity-50",
+                            allSigned
+                              ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                              : "border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                          )}
+                        >
+                          {busyId === item.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                          Concluído
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === item.id}
+                          onClick={() => void close(item, "NEGADO")}
+                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                          Negado
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === item.id}
+                          onClick={() => void close(item, "SEM_RESPOSTA")}
+                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          <MessageCircleOff className="h-3.5 w-3.5" />
+                          Sem resposta
+                        </button>
+                      </>
                     ) : null}
                     {canRemove ? (
                       <button
@@ -440,9 +524,21 @@ export default function FilaAssinaturaClient() {
                         title="Tirar da fila"
                         disabled={busyId === item.id}
                         onClick={() => void remove(item)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
                       >
                         <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        aria-label="Excluir todo o cadastro"
+                        title="Excluir todo o cadastro do cedente"
+                        disabled={busyId === item.id}
+                        onClick={() => void deleteCadastro(item)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      >
+                        <UserX className="h-4 w-4" />
                       </button>
                     ) : null}
                   </div>
