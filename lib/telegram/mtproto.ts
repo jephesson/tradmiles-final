@@ -453,11 +453,89 @@ function captionAndPreviewText(m: TelegramRawMessage) {
   return [caption, webText].filter(Boolean).join("\n").trim();
 }
 
+function isConcreteTelegramMessage(m: unknown): m is TelegramRawMessage {
+  if (!m || typeof m !== "object") return false;
+  return Number((m as { id?: unknown }).id || 0) > 0;
+}
+
+function sniffImageMime(raw: Buffer): string | null {
+  if (raw.length < 12) return null;
+  if (raw[0] === 0xff && raw[1] === 0xd8) return "image/jpeg";
+  if (raw[0] === 0x89 && raw[1] === 0x50) return "image/png";
+  if (raw[0] === 0x47 && raw[1] === 0x49) return "image/gif";
+  if (raw.slice(0, 4).toString("ascii") === "RIFF" && raw.slice(8, 12).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+  return null;
+}
+
+function isImageMessage(m: TelegramRawMessage): boolean {
+  if (m.photo) return true;
+  const mime = String(m.document?.mimeType || m.file?.mimeType || "");
+  const fileName = documentFileName(m.document, m.file);
+  if (isPdfDocument(mime, fileName) || isTextishDocument(mime, fileName)) return false;
+  if (/^image\//i.test(mime)) return true;
+  if (/\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(fileName)) return true;
+  const cls = String(m.media?.className || "");
+  if (/MessageMediaPhoto/i.test(cls)) return true;
+  if (/MessageMediaDocument/i.test(cls) && /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(fileName)) {
+    return true;
+  }
+  if (m.document && (!mime || /octet-stream/i.test(mime))) {
+    return /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(fileName) || !fileName;
+  }
+  return false;
+}
+
+async function fetchSelectedMessages(
+  client: TelegramClient,
+  entity: unknown,
+  wanted: number[]
+) {
+  const wantedSet = new Set(wanted);
+  const pick = (rows: unknown[]) =>
+    (rows || []).filter(
+      (m): m is TelegramRawMessage =>
+        isConcreteTelegramMessage(m) && wantedSet.has(Number((m as { id?: number }).id))
+    );
+
+  // getMessages({ ids }) no privado costuma vir MessageEmpty. A lista já veio do histórico.
+  const recent = await client.getMessages(entity as never, { limit: 80 });
+  let found = pick(recent as unknown[]);
+  if (found.length >= wanted.length) return found;
+
+  const merge = (extra: TelegramRawMessage[]) => {
+    const have = new Set(found.map((m) => Number(m.id)));
+    for (const m of extra) {
+      const id = Number(m.id);
+      if (!have.has(id)) {
+        found.push(m);
+        have.add(id);
+      }
+    }
+  };
+
+  try {
+    const byIds = await client.getMessages(entity as never, {
+      ids: wanted.map((id) => new Api.InputMessageID({ id })),
+    });
+    merge(pick(byIds as unknown[]));
+  } catch {
+    try {
+      const byIds = await client.getMessages(entity as never, { ids: wanted });
+      merge(pick(byIds as unknown[]));
+    } catch {
+      /* ids vazios */
+    }
+  }
+  return found;
+}
+
 function previewMessage(m: TelegramRawMessage): TelegramMessageRow {
   const text = captionAndPreviewText(m);
   const mime = String(m.document?.mimeType || m.file?.mimeType || "");
   const fileName = documentFileName(m.document, m.file);
-  const hasPhoto = Boolean(m.photo) || /^image\//i.test(mime);
+  const hasPhoto = isImageMessage(m);
   const hasFile = Boolean(m.document) && !hasPhoto;
   const dateRaw = m.date;
   const date =
@@ -567,6 +645,7 @@ export async function listTelegramMessages(
       let thumbs = 0;
       let files = 0;
       for (const m of messages) {
+        if (!isConcreteTelegramMessage(m)) continue;
         const row = previewMessage(m as never);
         if (row.id <= 0) continue;
         if (row.hasPhoto && thumbs < 20) {
@@ -604,31 +683,34 @@ export async function readTelegramMessages(
       const entity = await resolveChatEntity(client, chatId, accessHash);
       const wanted = (messageIds || []).map((n) => Math.trunc(Number(n))).filter((n) => n > 0);
       const messages = wanted.length
-        ? await client.getMessages(entity, { ids: wanted })
-        : await client.getMessages(entity, { limit: 12 });
+        ? await fetchSelectedMessages(client, entity, wanted)
+        : ((await client.getMessages(entity, { limit: 12 })) as unknown[]).filter(
+            isConcreteTelegramMessage
+          );
       const texts: string[] = [];
       const images: { mimeType: string; base64: string }[] = [];
       const chronological = [...messages].reverse();
       for (const m of chronological) {
-        const preview = previewMessage(m as never);
+        if (!isConcreteTelegramMessage(m)) continue;
+        const preview = previewMessage(m);
         await fillFromDocument(client, m, preview);
         if (preview.text) texts.push(preview.text);
-        const row = m as {
-          photo?: unknown;
-          document?: { mimeType?: string };
-        };
-        const mime = String(row.document?.mimeType || "");
-        const hasMedia = Boolean(row.photo) || /^image\//i.test(mime);
-        if (!hasMedia || images.length >= 8) continue;
+        if (!isImageMessage(m) || images.length >= 8) continue;
         try {
-          const buf = await client.downloadMedia(m, {});
+          const buf = await client.downloadMedia(m as never, {});
           const raw = Buffer.isBuffer(buf)
             ? buf
             : typeof buf === "string"
               ? Buffer.from(buf, "binary")
               : null;
           if (!raw || raw.length < 80) continue;
-          images.push({ mimeType: "image/jpeg", base64: raw.toString("base64") });
+          const declared = String(m.document?.mimeType || m.file?.mimeType || "");
+          const mime =
+            sniffImageMime(raw) ||
+            (/^image\//i.test(declared) ? declared : "") ||
+            (m.photo ? "image/jpeg" : "");
+          if (!mime) continue;
+          images.push({ mimeType: mime, base64: raw.toString("base64") });
         } catch {
           /* mídia que não baixa */
         }

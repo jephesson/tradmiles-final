@@ -11,7 +11,7 @@ Regras:
 6. CPF no formato 000.000.000-00 ou só dígitos; normalize para 11 dígitos quando possível.
 7. Datas com ponto (03.04.1969) → DD/MM/YYYY.
 8. Certidão de nascimento: nome do registrado, data, CPF se houver, sexo se houver.
-9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) da emissão atual. Junte Nome+Sobrenome em fullName. Ignore chat, milhas, voo, valores e fichas de OUTRA emissão.
+9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) da emissão atual. Também leia blocos "NOME:" / "CPF:" / "NASCIMENTO:" mesmo no meio de um print de conversa. Junte Nome+Sobrenome em fullName. Ignore só o papo e valores de milhas/voo — extraia os nomes, CPFs e nascimentos visíveis.
 10. Não invente CPF. Não invente sexo.
 11. Responda SOMENTE JSON válido no schema pedido.`;
 

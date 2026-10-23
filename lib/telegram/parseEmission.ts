@@ -423,7 +423,7 @@ export async function parseTelegramEmissionFromImages(
   const content: unknown[] = [
     {
       type: "text",
-      text: `Leia estas imagens do Telegram: print da busca LATAM (trecho, datas, milhas, 1 passageiro) e/ou ficha de passageiro.
+      text: `Leia estas imagens do Telegram/WhatsApp: print da busca LATAM (trecho, datas, milhas, 1 ou mais passageiros) e/ou ficha de passageiro (NOME / CPF / NASCIMENTO).
 JSON:
 {
   "origin": "IATA",

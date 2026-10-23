@@ -68,6 +68,15 @@ export async function POST(req: Request) {
     if (sessionEnc !== row.sessionEnc) {
       await prisma.telegramAccount.update({ where: { id: row.id }, data: { sessionEnc } });
     }
+    if (messageIds.length && !result.texts.length && !result.images.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Não trouxe o conteúdo das mensagens marcadas. Abra a conversa de novo e tente outra vez.",
+        },
+        { status: 400 }
+      );
+    }
 
     const examples = await loadEmissionExamples(sess.team, emission);
     const few = examplesAsFewShot(examples);
@@ -76,39 +85,36 @@ export async function POST(req: Request) {
       .join("\n\n");
 
     const chatText = result.texts.join("\n\n").trim();
+    const [parsedChat, vision, fromVision] = await Promise.all([
+      chatText
+        ? parsePassengerTextWithFallback(chatText, null, { expectedCount, emissionHint })
+        : Promise.resolve({ passengers: [] }),
+      result.images.length
+        ? extractPassengersFromImages(result.images, emissionHint)
+        : Promise.resolve({ passengers: [] }),
+      result.images.length ? parseTelegramEmissionFromImages(result.images) : Promise.resolve(null),
+    ]);
+
     let fromChat = "";
-    if (chatText) {
-      const parsed = await parsePassengerTextWithFallback(chatText, null, {
-        expectedCount,
-        emissionHint,
-      });
-      if (parsed.passengers.length) {
-        fromChat = parsed.passengers
-          .map((p) => {
-            const lines = [
-              [p.firstName, p.lastName].filter(Boolean).join(" "),
-              p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
-              p.cpf ? `CPF ${p.cpf}` : "",
-            ].filter(Boolean);
-            return lines.join("\n");
-          })
-          .join("\n\n");
-      } else {
-        fromChat = chatText;
-      }
+    if (parsedChat.passengers.length) {
+      fromChat = parsedChat.passengers
+        .map((p) => {
+          const lines = [
+            [p.firstName, p.lastName].filter(Boolean).join(" "),
+            p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
+            p.cpf ? `CPF ${p.cpf}` : "",
+          ].filter(Boolean);
+          return lines.join("\n");
+        })
+        .join("\n\n");
+    } else if (chatText) {
+      fromChat = chatText;
     }
 
-    let fromImages = "";
-    if (result.images.length) {
-      const vision = await extractPassengersFromImages(result.images, emissionHint);
-      fromImages = formatPassengersForSale(vision.passengers);
-    }
+    const fromImages = formatPassengersForSale(vision.passengers);
 
     const extracted = mergePassengerTexts(fromChat, fromImages);
     const combined = [chatText, fromImages].filter(Boolean).join("\n\n");
-    const fromVision = result.images.length
-      ? await parseTelegramEmissionFromImages(result.images)
-      : null;
     const fromText = await parseTelegramEmission(combined, emission);
     const flight = mergeParsedFlights(fromVision, fromText);
     const passengerText = (flight?.passengerText || extracted).trim();

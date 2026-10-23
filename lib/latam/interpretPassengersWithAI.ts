@@ -27,7 +27,7 @@ Regras:
 - Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
 - cpf só dígitos ou formatado BR; null se não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
-- Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
+- Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento, ou blocos NOME: / CPF: / NASCIMENTO:): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.
 - Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.`;
 
