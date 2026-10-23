@@ -4,6 +4,7 @@ import DashboardTopNav from "@/components/DashboardTopNav";
 import AuthGuard from "@/components/AuthGuard";
 import DashboardPresencePing from "./DashboardPresencePing";
 import AgendaRemnantsModal from "@/components/AgendaRemnantsModal";
+import AgendaSwapPopup from "@/components/AgendaSwapRequests";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default function DashboardLayout({
     <AuthGuard>
       <DashboardPresencePing />
       <AgendaRemnantsModal />
+      <AgendaSwapPopup />
       <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-slate-100 text-slate-900">
         <DashboardTopNav />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">

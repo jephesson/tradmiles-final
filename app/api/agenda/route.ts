@@ -310,6 +310,8 @@ export async function GET(req: NextRequest) {
       holidays,
       fill,
       canValidateHolidays: isAdmin,
+      meId: session.id,
+      isAdmin,
     });
   } catch (e: any) {
     return bad(e?.message || "Erro interno.", 500);
@@ -442,8 +444,11 @@ export async function PATCH(req: NextRequest) {
     const fillErr = await denyFillIfClosed(session.team, ym, isAdminRole(session.role));
     if (fillErr) return bad(fillErr, 403);
 
-    // troca/re-atribuição
+    // re-atribuição direta (sem aceite) fica só para admin; equipe usa /api/agenda/trocas
     if (body.swapToUserId) {
+      if (!isAdminRole(session.role)) {
+        return bad("Peça a troca para o colega: ela só vale depois que ele aceitar.", 403);
+      }
       const toUserId = String(body.swapToUserId || "").trim();
       if (!toUserId) return bad("swapToUserId inválido.");
 

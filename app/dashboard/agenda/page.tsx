@@ -18,6 +18,11 @@ import {
   isWeekendISO,
 } from "@/lib/agenda/shifts";
 import { officialHolidayName } from "@/lib/agenda/holidays";
+import {
+  AGENDA_CHANGED_EVENT,
+  AgendaSwapPanel,
+  SwapRequestForm,
+} from "@/components/AgendaSwapRequests";
 
 type ViewMode = "MES" | "SEMANA" | "DIA";
 
@@ -140,6 +145,8 @@ export default function AgendaPage() {
   const [canValidateHolidays, setCanValidateHolidays] = useState(false);
   const [fill, setFill] = useState<FillState | null>(null);
   const [fillBusy, setFillBusy] = useState<string | null>(null);
+  const [meId, setMeId] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [selectedISO, setSelectedISO] = useState<string>(() => {
     const now = new Date();
@@ -171,6 +178,8 @@ export default function AgendaPage() {
       setHolidays(json.data.holidays || []);
       setCanValidateHolidays(!!json.data.canValidateHolidays);
       setFill(json.data.fill || null);
+      setMeId(json.data.meId || "");
+      setIsAdmin(!!json.data.isAdmin);
     } catch (e: any) {
       alert(e?.message || "Erro ao carregar.");
     } finally {
@@ -180,6 +189,14 @@ export default function AgendaPage() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesBR]);
+
+  // troca aceita (aqui ou no pop-up) muda a agenda
+  useEffect(() => {
+    const onChange = () => void load();
+    window.addEventListener(AGENDA_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(AGENDA_CHANGED_EVENT, onChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesBR]);
 
@@ -492,6 +509,8 @@ export default function AgendaPage() {
           </button>
         </div>
       </div>
+
+      <AgendaSwapPanel />
 
       {fill ? (
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -1016,8 +1035,23 @@ export default function AgendaPage() {
               ) : null}
             </dl>
 
+            {activeEvent.type === "SHIFT" && meId && activeEvent.dateISO >= todayISOBrLocal() ? (
+              <div className="mt-5">
+                <SwapRequestForm
+                  key={activeEvent.id}
+                  event={activeEvent}
+                  meId={meId}
+                  members={members}
+                  onDone={() => setActiveEvent(null)}
+                />
+              </div>
+            ) : null}
+
+            {isAdmin ? (
             <div className="mt-5 space-y-3 rounded-xl border border-slate-100 bg-white p-4">
-              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Trocar responsável</div>
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Trocar responsável direto (admin)
+              </div>
               <div className="flex flex-wrap gap-2">
                 {members
                   .filter((m) => m.id !== activeEvent.user.id)
@@ -1034,6 +1068,7 @@ export default function AgendaPage() {
                   ))}
               </div>
             </div>
+            ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
               <button

@@ -264,6 +264,8 @@ model User {
   agendaAuditsActor           AgendaAudit[]        @relation("AgendaAuditActor")
   agendaMemberColors          AgendaMemberColor[]  @relation("AgendaMemberColorUser")
   agendaHolidaysValidated     AgendaHoliday[]      @relation("AgendaHolidayValidatedBy")
+  agendaSwapsRequested        AgendaSwapRequest[]  @relation("AgendaSwapRequester")
+  agendaSwapsReceived         AgendaSwapRequest[]  @relation("AgendaSwapTarget")
   anotacoesCreated            Anotacao[]           @relation("AnotacaoCreatedBy")
   latamPromoListItemsAdded    LatamPromoListItem[] @relation("LatamPromoListItemAddedBy")
   latamPromoListItemsReviewed LatamPromoListItem[] @relation("LatamPromoListItemReviewedBy")
@@ -2290,6 +2292,13 @@ enum AgendaAuditAction {
   SWAP
 }
 
+enum AgendaSwapStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELED
+}
+
 enum AnotacaoStatus {
   PENDENTE
   RESOLVIDO
@@ -2333,6 +2342,9 @@ model AgendaEvent {
   updatedAt DateTime @updatedAt
 
   audits AgendaAudit[]
+
+  swapsGiven    AgendaSwapRequest[] @relation("AgendaSwapFromEvent")
+  swapsReceived AgendaSwapRequest[] @relation("AgendaSwapToEvent")
 
   @@index([team, dateISO])
   @@index([team, userId, dateISO])
@@ -2399,6 +2411,34 @@ model AgendaMemberColor {
   @@unique([team, userId], map: "uniq_agenda_member_color_team_user")
   @@index([team])
   @@map("agenda_member_colors")
+}
+
+/// Pedido de troca de turno entre funcionários; só vale depois que o outro aceita.
+/// fromEvent (do solicitante) vai para o alvo; toEvent (do alvo) vai para o solicitante.
+model AgendaSwapRequest {
+  id     String           @id @default(cuid())
+  team   String
+  status AgendaSwapStatus @default(PENDING)
+
+  requesterId String
+  requester   User   @relation("AgendaSwapRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  targetId    String
+  target      User   @relation("AgendaSwapTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  fromEventId String?
+  fromEvent   AgendaEvent? @relation("AgendaSwapFromEvent", fields: [fromEventId], references: [id], onDelete: Cascade)
+  toEventId   String?
+  toEvent     AgendaEvent? @relation("AgendaSwapToEvent", fields: [toEventId], references: [id], onDelete: Cascade)
+
+  note        String?
+  respondedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, targetId, status])
+  @@index([team, requesterId, status])
+  @@map("agenda_swap_requests")
 }
 
 /// Admin trava ou libera o preenchimento deste mês e do próximo.
