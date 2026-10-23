@@ -166,6 +166,7 @@ model User {
 
   // Cedentes em que o usuário é o "responsável" (owner)
   cedentesOwned Cedente[] @relation("CedenteOwner")
+  filaAssinaturasAdicionadas FilaAssinatura[] @relation("FilaAssinaturaAddedBy")
 
   // Cedentes que ele revisou (aprovou/reprovou)
   cedentesReviewed Cedente[] @relation("CedenteReviewedBy")
@@ -673,6 +674,8 @@ model Cedente {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  filaAssinaturas FilaAssinatura[]
 
   @@index([status])
   @@index([ownerId])
@@ -2299,6 +2302,12 @@ enum AgendaSwapStatus {
   CANCELED
 }
 
+enum AssinaturaStatus {
+  AGUARDANDO
+  ASSINADO
+  ERRO
+}
+
 enum AnotacaoStatus {
   PENDENTE
   RESOLVIDO
@@ -2439,6 +2448,33 @@ model AgendaSwapRequest {
   @@index([team, targetId, status])
   @@index([team, requesterId, status])
   @@map("agenda_swap_requests")
+}
+
+/// Fila de assinatura: equipe coloca o cedente, admin marca LATAM Pass e Livelo e conclui.
+/// Concluído (concludedAt) sai da fila.
+model FilaAssinatura {
+  id     String @id @default(cuid())
+  team   String
+
+  cedenteId String
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+
+  latamStatus  AssinaturaStatus @default(AGUARDANDO)
+  liveloStatus AssinaturaStatus @default(AGUARDANDO)
+  note         String?
+
+  addedById String
+  addedBy   User   @relation("FilaAssinaturaAddedBy", fields: [addedById], references: [id], onDelete: Restrict)
+
+  concludedAt   DateTime?
+  concludedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([team, concludedAt])
+  @@index([cedenteId])
+  @@map("fila_assinaturas")
 }
 
 /// Admin trava ou libera o preenchimento deste mês e do próximo.

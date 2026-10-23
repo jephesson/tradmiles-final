@@ -1132,6 +1132,12 @@ export default function Sidebar() {
           </NavLink>
         </Accordion>
 
+        <TopLink
+          href="/dashboard/fila-assinatura"
+          title="Fila de assinatura"
+          accent="sky"
+        />
+
         {/* ================= OUTROS ================= */}
         <Accordion
           title="Outros"
@@ -1366,6 +1372,34 @@ function NavLink({
     >
       {children}
     </Link>
+  );
+}
+
+/** Item de primeiro nível que é só um link (sem submenu). */
+function TopLink({ href, title, accent }: { href: string; title: string; accent?: Accent }) {
+  const pathname = usePathname();
+  const active = pathname === href || pathname.startsWith(href + "/");
+  return (
+    <div style={accentStyle(accent)}>
+      <Link
+        href={href}
+        className={cn(
+          "group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold tracking-tight transition-all",
+          active
+            ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
+            : "text-slate-800 hover:bg-slate-100/85"
+        )}
+      >
+        <span
+          className={cn(
+            "h-5 w-1 shrink-0 rounded-full transition-colors",
+            active ? "bg-[var(--accent)]" : "bg-slate-200 group-hover:bg-slate-300"
+          )}
+          aria-hidden
+        />
+        <span className="truncate">{title}</span>
+      </Link>
+    </div>
   );
 }
 
