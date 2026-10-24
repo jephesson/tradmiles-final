@@ -82,25 +82,34 @@ export async function loadAttendance(team: string, month: string) {
     })),
   });
 
-  const creditOps = computed.people.flatMap((p) =>
+  const wantedCredits = computed.people.flatMap((p) =>
     p.ledger
       .filter((l) => l.origin === "CREDIT" && l.saleId)
-      .map((l) =>
-        prisma.attendanceEmissionCredit.upsert({
-          where: { saleId: l.saleId! },
-          create: {
-            team,
-            userId: p.userId,
-            saleId: l.saleId!,
-            dateISO: l.dateISO,
-            hours: 1,
-            note: l.note,
-          },
-          update: {},
-        })
-      )
+      .map((l) => ({
+        team,
+        userId: p.userId,
+        saleId: l.saleId!,
+        dateISO: l.dateISO,
+        hours: 1,
+        note: l.note,
+      }))
   );
-  if (creditOps.length) await prisma.$transaction(creditOps);
+  if (wantedCredits.length) {
+    const saleIds = wantedCredits.map((c) => c.saleId);
+    const existing = await prisma.attendanceEmissionCredit.findMany({
+      where: { saleId: { in: saleIds } },
+      select: { saleId: true },
+    });
+    const have = new Set(existing.map((e) => e.saleId));
+    const missing = wantedCredits.filter((c) => !have.has(c.saleId));
+    const CHUNK = 80;
+    for (let i = 0; i < missing.length; i += CHUNK) {
+      await prisma.attendanceEmissionCredit.createMany({
+        data: missing.slice(i, i + CHUNK),
+        skipDuplicates: true,
+      });
+    }
+  }
 
   const winner = computed.people.find((p) => p.isWinner) || null;
   return { period, people: computed.people, winner, award };
