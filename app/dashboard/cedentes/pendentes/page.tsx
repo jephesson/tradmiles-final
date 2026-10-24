@@ -4,6 +4,32 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { isProgramCreacaoPendente } from "@/lib/cedentes/programCreacaoPendente";
 
+type ReviewKind = "APROVAR_FILA" | "APROVAR" | "RECUSAR";
+
+const REVIEW_CONFIRM: Record<
+  ReviewKind,
+  { title: string; text: string; button: string; buttonCls: string }
+> = {
+  APROVAR_FILA: {
+    title: "Aprovar e colocar na Fila de assinatura?",
+    text: "O cedente é aprovado e entra no fim da Fila de assinatura.",
+    button: "Sim, aprovar + fila",
+    buttonCls: "bg-black text-white hover:bg-slate-900",
+  },
+  APROVAR: {
+    title: "Apenas aprovar?",
+    text: "O cedente é aprovado e não entra na Fila de assinatura.",
+    button: "Sim, apenas aprovar",
+    buttonCls: "bg-slate-800 text-white hover:bg-slate-900",
+  },
+  RECUSAR: {
+    title: "Recusar cadastro?",
+    text: "O cedente é reprovado e sai da lista de pendentes.",
+    button: "Sim, recusar",
+    buttonCls: "bg-red-600 text-white hover:bg-red-700",
+  },
+};
+
 type Owner = { id: string; name: string; login?: string | null; team?: string | null };
 
 type Referrer = { id: string; identificador: string; nomeCompleto: string };
@@ -86,9 +112,9 @@ function programPendingLabels(c: Item) {
 
 export default function CedentesPendentesPage() {
   const [items, setItems] = useState<Item[]>([]);
-  // Cedente aguardando a escolha: aprovar com ou sem Fila de assinatura.
-  const [approveAsk, setApproveAsk] = useState<string | null>(null);
-  const [approving, setApproving] = useState(false);
+  // Ação escolhida esperando confirmação no pop-up.
+  const [confirmAsk, setConfirmAsk] = useState<{ id: string; kind: ReviewKind } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -444,17 +470,24 @@ export default function CedentesPendentesPage() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
-                  onClick={() => setApproveAsk(c.id)}
+                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR_FILA" })}
                   className="rounded-xl bg-black px-3 py-2 text-sm text-white hover:bg-slate-900"
                 >
-                  Aprovar e enviar para lista
+                  Aprovar + Fila de assinatura
                 </button>
 
                 <button
-                  onClick={() => void review(c.id, "REJECT")}
-                  className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR" })}
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
                 >
-                  Reprovar
+                  Apenas aprovar
+                </button>
+
+                <button
+                  onClick={() => setConfirmAsk({ id: c.id, kind: "RECUSAR" })}
+                  className="rounded-xl border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                >
+                  Recusar
                 </button>
               </div>
             </div>
@@ -462,48 +495,39 @@ export default function CedentesPendentesPage() {
         })}
       </div>
 
-      {approveAsk ? (
+      {confirmAsk ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="text-lg font-bold text-slate-900">Aprovar cedente</div>
-            <p className="mt-1 text-sm text-slate-600">
-              {items.find((c) => c.id === approveAsk)?.nomeCompleto || "Cedente"} — colocar também na Fila de
-              assinatura? Entra no fim da fila.
+            <div className="text-lg font-bold text-slate-900">{REVIEW_CONFIRM[confirmAsk.kind].title}</div>
+            <p className="mt-1 text-sm font-semibold text-slate-800">
+              {items.find((c) => c.id === confirmAsk.id)?.nomeCompleto || "Cedente"}
             </p>
-            <div className="mt-5 flex flex-col gap-2">
+            <p className="mt-1 text-sm text-slate-600">{REVIEW_CONFIRM[confirmAsk.kind].text}</p>
+            <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                disabled={approving}
-                onClick={async () => {
-                  setApproving(true);
-                  await review(approveAsk, "APPROVE", true);
-                  setApproving(false);
-                  setApproveAsk(null);
-                }}
-                className="h-11 rounded-xl bg-black text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                disabled={confirming}
+                onClick={() => setConfirmAsk(null)}
+                className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                Aprovar + Fila de assinatura
+                Cancelar
               </button>
               <button
                 type="button"
-                disabled={approving}
+                disabled={confirming}
                 onClick={async () => {
-                  setApproving(true);
-                  await review(approveAsk, "APPROVE", false);
-                  setApproving(false);
-                  setApproveAsk(null);
+                  setConfirming(true);
+                  const { id, kind } = confirmAsk;
+                  await review(id, kind === "RECUSAR" ? "REJECT" : "APPROVE", kind === "APROVAR_FILA");
+                  setConfirming(false);
+                  setConfirmAsk(null);
                 }}
-                className="h-11 rounded-xl border border-slate-300 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                className={cn(
+                  "h-10 rounded-xl px-4 text-sm font-semibold disabled:opacity-50",
+                  REVIEW_CONFIRM[confirmAsk.kind].buttonCls
+                )}
               >
-                Aprovar sem fila
-              </button>
-              <button
-                type="button"
-                disabled={approving}
-                onClick={() => setApproveAsk(null)}
-                className="h-10 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-              >
-                {approving ? "Aprovando…" : "Cancelar"}
+                {confirming ? "Salvando…" : REVIEW_CONFIRM[confirmAsk.kind].button}
               </button>
             </div>
           </div>
