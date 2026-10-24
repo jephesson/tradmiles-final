@@ -15,6 +15,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const text = String(body?.text || body?.passengerText || "");
   const expectedCount = Math.max(0, Math.trunc(Number(body?.expectedCount) || 0));
+  const travelDate = body?.travelDate ? String(body.travelDate) : null;
   const titular = {
     email: body?.titular?.email ? String(body.titular.email) : null,
     phone: body?.titular?.phone ? String(body.titular.phone) : null,
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
 
   const out = await parsePassengerTextWithFallback(text, titular, {
     expectedCount,
+    travelDate,
   });
 
   return NextResponse.json({

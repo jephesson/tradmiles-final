@@ -1,5 +1,7 @@
 import { onlyDigits, isValidCpf } from "@/lib/cpf";
 
+export type LatamPaxKind = "ADT" | "CHD" | "INF";
+
 export type ParsedPassenger = {
   firstName: string;
   lastName: string;
@@ -88,6 +90,69 @@ const LABELED_LINE_RE = new RegExp(
 );
 
 export { isValidCpf, onlyDigits } from "@/lib/cpf";
+
+function isoDateOnly(raw: string | null | undefined): string | null {
+  const s = String(raw || "").trim();
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (!br) return null;
+  let year = Number(br[3]);
+  if (br[3].length === 2) year += year >= 50 ? 1900 : 2000;
+  const month = Number(br[2]);
+  const day = Number(br[1]);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayISORecife() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Recife",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+/** LATAM: bebê < 2 na data do voo; criança 2–11; adulto 12+. */
+export function latamPaxKindFromBirth(
+  birth: string | null | undefined,
+  travelISO?: string | null
+): LatamPaxKind {
+  const b = isoDateOnly(birth);
+  const t = isoDateOnly(travelISO) || todayISORecife();
+  if (!b) return "ADT";
+  const [by, bm, bd] = b.split("-").map(Number);
+  const [ty, tm, td] = t.split("-").map(Number);
+  let years = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) years -= 1;
+  if (years < 2) return "INF";
+  if (years < 12) return "CHD";
+  return "ADT";
+}
+
+const PAX_KIND_RANK: Record<string, number> = { ADT: 0, CHD: 1, INF: 2 };
+
+/** Ordem da LATAM: adultos, depois crianças, depois bebês (estável dentro do tipo). */
+export function sortPassengersAdultChildInfant<
+  T extends {
+    birthDate?: string | null;
+    birthDateBR?: string | null;
+    paxType?: string | null;
+  },
+>(passengers: T[], travelISO?: string | null): T[] {
+  return passengers
+    .map((p, index) => {
+      const typed = String(p.paxType || "").toUpperCase();
+      const kind =
+        typed === "ADT" || typed === "CHD" || typed === "INF"
+          ? typed
+          : latamPaxKindFromBirth(p.birthDate || p.birthDateBR, travelISO);
+      return { p, index, rank: PAX_KIND_RANK[kind] ?? 0 };
+    })
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((row) => row.p);
+}
 
 export function generateValidCpf(): string {
   const n: number[] = [];
@@ -1208,7 +1273,8 @@ export function passengerParseNeedsAi(
 
 export function parsePassengerText(
   raw: string,
-  titular?: TitularContact | null
+  titular?: TitularContact | null,
+  travelISO?: string | null
 ): ParsedPassenger[] {
   const text = preprocessPassengerText(raw);
   if (!text) return [];
@@ -1244,5 +1310,8 @@ export function parsePassengerText(
       return meta;
     });
 
-  return applySharedContacts(parsed, text, titular);
+  return sortPassengersAdultChildInfant(
+    applySharedContacts(parsed, text, titular),
+    travelISO
+  );
 }

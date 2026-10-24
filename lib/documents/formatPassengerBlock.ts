@@ -1,4 +1,5 @@
 import type { ExtractedPassenger } from "./types";
+import { sortPassengersAdultChildInfant } from "@/lib/latam/parsePassengerText";
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -31,7 +32,7 @@ export function formatPassengerBlock(p: ExtractedPassenger): string {
 }
 
 export function formatPassengersForSale(passengers: ExtractedPassenger[]): string {
-  return passengers
+  return sortPassengersAdultChildInfant(passengers)
     .map(formatPassengerBlock)
     .filter(Boolean)
     .join("\n\n");

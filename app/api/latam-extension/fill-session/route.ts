@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import {
   type ParsedPassenger,
   type TitularContact,
+  sortPassengersAdultChildInfant,
 } from "@/lib/latam/parsePassengerText";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
 import {
@@ -232,18 +233,22 @@ export async function PUT(req: Request) {
     ? body.passengers
     : null;
   const expectedCount = Math.max(0, Math.trunc(Number(body?.expectedCount) || 0));
+  const travelDate = body?.travelDate ? String(body.travelDate) : null;
   if (!passengers && typeof body?.passengerText === "string") {
     const parsed = await parsePassengerTextWithFallback(
       body.passengerText,
       titular,
-      { expectedCount }
+      { expectedCount, travelDate }
     );
     passengers = parsed.passengers;
   }
   if (!passengers) {
     passengers = (await getFillSession(session.userId))?.passengers || [];
   }
-  passengers = passengers.filter((p) => Boolean(p?.birthDate && p?.firstName));
+  passengers = sortPassengersAdultChildInfant(
+    passengers.filter((p) => Boolean(p?.birthDate && p?.firstName)),
+    travelDate
+  );
   // Garante fallback do titular em quem ainda estiver sem contato
   passengers = passengers.map((p) => ({
     ...p,

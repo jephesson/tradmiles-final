@@ -22,6 +22,7 @@ import {
   isValidCpf,
   parsePassengerText,
   passengerParseNeedsAi,
+  latamPaxKindFromBirth,
 } from "@/lib/latam/parsePassengerText";
 import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
 import { buildSmilesSearchUrl } from "@/lib/cotacao-passagens";
@@ -441,9 +442,9 @@ export default function BiometriaWizardModal({
   const latamRegexPassengers = useMemo(
     () =>
       useLatamExtension
-        ? parsePassengerText(latamPassengerText, latamTitularContact)
+        ? parsePassengerText(latamPassengerText, latamTitularContact, searchOutbound)
         : [],
-    [useLatamExtension, latamPassengerText, latamTitularContact]
+    [useLatamExtension, latamPassengerText, latamTitularContact, searchOutbound]
   );
 
   const latamParsedPassengers = latamAiPassengers ?? latamRegexPassengers;
@@ -480,6 +481,7 @@ export default function BiometriaWizardModal({
           body: JSON.stringify({
             text: latamPassengerText,
             expectedCount: expectedPassengerCount,
+            travelDate: searchOutbound || null,
             titular: latamTitularContact,
           }),
         });
@@ -512,6 +514,7 @@ export default function BiometriaWizardModal({
     expectedPassengerCount,
     latamRegexPassengers.length,
     latamTitularContact,
+    searchOutbound,
   ]);
 
   useEffect(() => {
@@ -1039,6 +1042,7 @@ export default function BiometriaWizardModal({
           passengerText: latamPassengerText,
           passengers: latamParsedPassengers,
           expectedCount: expectedPassengerCount,
+          travelDate: searchOutbound || null,
           paymentCardId: latamPaymentCardId || null,
           saleHint: extractedOrderId || searchLink || null,
         }),
@@ -2043,6 +2047,15 @@ export default function BiometriaWizardModal({
                                     .filter(Boolean)
                                     .join(" ") || "(sem nome)"}
                                 </b>
+                                {(() => {
+                                  const kind = latamPaxKindFromBirth(
+                                    p.birthDate,
+                                    searchOutbound
+                                  );
+                                  if (kind === "CHD") return " · Criança";
+                                  if (kind === "INF") return " · Bebê";
+                                  return "";
+                                })()}
                                 {p.gender
                                   ? ` · ${p.gender === "F" ? "Fem" : "Masc"}`
                                   : ""}

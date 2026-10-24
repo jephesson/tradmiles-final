@@ -295,11 +295,16 @@ function finishFlight(partial: {
   inf?: number;
   trip?: "IDA" | "IDA_VOLTA";
 }): TelegramParsedFlight | null {
-  const passengers = partial.passengers.map((p) => ({
-    ...p,
-    paxType: classifyPaxType(p.birthDate, partial.outbound),
-    birthDateBR: p.birthDateBR || isoToBr(p.birthDate),
-  }));
+  const RANK = { ADT: 0, CHD: 1, INF: 2 } as const;
+  const passengers = partial.passengers
+    .map((p) => ({
+      ...p,
+      paxType: classifyPaxType(p.birthDate, partial.outbound),
+      birthDateBR: p.birthDateBR || isoToBr(p.birthDate),
+    }))
+    .map((p, index) => ({ p, index }))
+    .sort((a, b) => RANK[a.p.paxType] - RANK[b.p.paxType] || a.index - b.index)
+    .map((row) => row.p);
   const counted = passengers.length ? countTypes(passengers) : {
     adt: Math.max(1, Number(partial.adt) || 1),
     chd: Math.max(0, Number(partial.chd) || 0),

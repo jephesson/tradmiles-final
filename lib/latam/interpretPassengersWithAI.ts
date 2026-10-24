@@ -4,6 +4,7 @@ import {
   isValidCpf,
   parsePassengerText,
   passengerParseNeedsAi,
+  sortPassengersAdultChildInfant,
 } from "@/lib/latam/parsePassengerText";
 
 const SYSTEM = `Você extrai passageiros de textos de reserva / WhatsApp / Telegram / documentos BR.
@@ -27,6 +28,7 @@ Regras:
 - Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
 - cpf só dígitos ou formatado BR; null se não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
+- Ordem da lista: adultos (12+), depois crianças (2–11), depois bebês (<2).
 - Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento, ou blocos NOME: / CPF: / NASCIMENTO:): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.
 - Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.`;
@@ -204,12 +206,12 @@ function parseCompletenessScore(
 export async function parsePassengerTextWithFallback(
   raw: string,
   titular?: TitularContact | null,
-  opts?: { expectedCount?: number; emissionHint?: string }
+  opts?: { expectedCount?: number; emissionHint?: string; travelDate?: string | null }
 ): Promise<{
   passengers: ParsedPassenger[];
   source: "regex" | "openai";
 }> {
-  const regex = parsePassengerText(raw, titular);
+  const regex = parsePassengerText(raw, titular, opts?.travelDate);
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
 
   const needsAi =
@@ -237,7 +239,10 @@ export async function parsePassengerTextWithFallback(
         parseCompletenessScore(withContact, expected) >=
           parseCompletenessScore(regex, expected)
       ) {
-        return { passengers: withContact, source: "openai" };
+        return {
+          passengers: sortPassengersAdultChildInfant(withContact, opts?.travelDate),
+          source: "openai",
+        };
       }
     }
   } catch {
