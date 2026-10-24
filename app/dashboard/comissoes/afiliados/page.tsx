@@ -255,7 +255,7 @@ export default function AffiliateCommissionsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Comissões de afiliados</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Comissões de afiliados</h1>
           <p className="text-sm text-slate-600">
             Pagamentos e acompanhamento das comissões geradas nas vendas indicadas.
           </p>
@@ -378,7 +378,10 @@ export default function AffiliateCommissionsPage() {
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <div className="overflow-auto rounded-xl border">
-            <table className="w-full text-sm">
+            <p className="px-3 pt-2 text-[11px] text-slate-500 lg:hidden">
+              Deslize a tabela para o lado para ver todas as colunas.
+            </p>
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
                   <th className="px-3 py-2 text-left">Afiliado</th>

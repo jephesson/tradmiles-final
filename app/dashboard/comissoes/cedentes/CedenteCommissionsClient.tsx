@@ -414,7 +414,7 @@ export default function CedenteCommissionsClient() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               Lucros & Comissões
             </div>
-            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
               Comissões · Cedentes
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
@@ -600,6 +600,9 @@ export default function CedenteCommissionsClient() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        <p className="text-[11px] text-slate-500 lg:hidden">
+          Deslize a tabela para o lado para ver todas as colunas.
+        </p>
         <div className="overflow-x-auto">
           <table className="min-w-[1080px] w-full text-sm">
             <thead className="bg-slate-50/90">

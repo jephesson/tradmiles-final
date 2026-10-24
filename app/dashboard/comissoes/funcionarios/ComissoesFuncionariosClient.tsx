@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Banknote,
@@ -330,7 +330,7 @@ const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-slat
 const CONTROL_INPUT =
   "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
 const CONTROL_SELECT =
-  "h-10 w-full min-w-[12rem] rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10";
+  "h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10 sm:min-w-[12rem]";
 
 function KPI({
   label,
@@ -418,7 +418,7 @@ function shareBpsLabel(bps: number) {
   return `${pct.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
 }
 
-function ClickableMoneyCell({
+function ClickableMoney({
   cents,
   onClick,
   className,
@@ -429,18 +429,35 @@ function ClickableMoneyCell({
 }) {
   const clickable = (cents || 0) > 0 && !!onClick;
   if (!clickable) {
-    return <td className={cn("px-4 py-3 tabular-nums text-slate-800", className)}>{fmtMoneyBR(cents)}</td>;
+    return <span className={cn("tabular-nums text-slate-800", className)}>{fmtMoneyBR(cents)}</span>;
   }
   return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-lg px-1 py-0.5 font-medium tabular-nums text-slate-900 underline decoration-slate-300 decoration-dotted underline-offset-2 transition hover:bg-slate-100 hover:decoration-slate-500",
+        className
+      )}
+      title="Ver vendas que compõem este valor"
+    >
+      {fmtMoneyBR(cents)}
+    </button>
+  );
+}
+
+function ClickableMoneyCell({
+  cents,
+  onClick,
+  className,
+}: {
+  cents: number;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
     <td className={cn("px-4 py-3 tabular-nums", className)}>
-      <button
-        type="button"
-        onClick={onClick}
-        className="rounded-lg px-1 py-0.5 font-medium text-slate-900 underline decoration-slate-300 decoration-dotted underline-offset-2 transition hover:bg-slate-100 hover:decoration-slate-500"
-        title="Ver vendas que compõem este valor"
-      >
-        {fmtMoneyBR(cents)}
-      </button>
+      <ClickableMoney cents={cents} onClick={onClick} />
     </td>
   );
 }
@@ -455,6 +472,15 @@ function Pill({ kind, text }: { kind: "ok" | "warn" | "muted"; text: string }) {
 
   return (
     <span className={cn("inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold", cls)}>{text}</span>
+  );
+}
+
+function MobileStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-0.5 text-sm font-medium text-slate-900">{value}</div>
+    </div>
   );
 }
 
@@ -977,21 +1003,23 @@ export default function ComissoesFuncionariosClient() {
   }, [reportUsers, reportUserId]);
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 p-4 pb-10">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-3">
+    <div className="mx-auto max-w-[1600px] space-y-5 pb-8 sm:space-y-6 sm:p-4 sm:pb-10">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 shadow-sm">
             <Users className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden />
             Comissões
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Comissões — Funcionários</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Comissões — Funcionários
+            </h1>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2.5">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-end">
           {isAdmin ? (
-            <div className="flex flex-col gap-1">
+            <div className="flex w-full flex-col gap-1 sm:w-auto">
               <label className={cn(FIELD_LABEL, "inline-flex items-center gap-1")}>
                 <Eye className="h-3 w-3" />
                 Ver como
@@ -1011,7 +1039,7 @@ export default function ComissoesFuncionariosClient() {
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-1">
+          <div className="flex w-full flex-col gap-1 sm:w-auto">
             <label className={FIELD_LABEL}>Dia</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={CONTROL_INPUT} />
           </div>
@@ -1020,7 +1048,7 @@ export default function ComissoesFuncionariosClient() {
             type="button"
             onClick={() => loadDay(date)}
             disabled={loading}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50 sm:w-auto"
           >
             <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Carregando..." : "Atualizar"}
@@ -1032,7 +1060,7 @@ export default function ComissoesFuncionariosClient() {
             type="button"
             onClick={() => computeDay(date, { force: false })}
             disabled={!canCompute || computing}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50 sm:w-auto"
             title={`Computa sem apagar pendentes • ${computeTitle}`}
           >
             <Calculator className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
@@ -1043,7 +1071,7 @@ export default function ComissoesFuncionariosClient() {
             type="button"
             onClick={() => computeDay(date, { force: true })}
             disabled={!canCompute || computing}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:pointer-events-none disabled:opacity-50 sm:w-auto"
             title={`Apaga payouts não pagos do dia e refaz o cálculo. ${computeTitle}`}
           >
             <RotateCcw className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
@@ -1054,7 +1082,7 @@ export default function ComissoesFuncionariosClient() {
             type="button"
             onClick={() => payAllPending(date, "local")}
             disabled={!isClosedDay || payingKey === "__all__" || loading}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50 sm:w-auto"
             title={
               isClosedDay
                 ? "Marcar todos os pendentes deste dia como pagos (sem PIX)"
@@ -1067,7 +1095,7 @@ export default function ComissoesFuncionariosClient() {
             type="button"
             onClick={() => payAllPending(date, "inter")}
             disabled={!isClosedDay || payingKey === "__all__" || loading}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:pointer-events-none disabled:opacity-50 sm:w-auto"
             title={
               isClosedDay
                 ? "Enviar PIX pelo Inter para todos os pendentes"
@@ -1158,7 +1186,7 @@ export default function ComissoesFuncionariosClient() {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40 lg:block">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -1357,6 +1385,162 @@ export default function ComissoesFuncionariosClient() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="space-y-3 lg:hidden">
+        {(day?.rows || []).map((r) => {
+          const b = r.breakdown;
+          const { c1, c2, c3 } = c123FromBreakdown(b);
+          const isMissing = String(r.id || "").startsWith("missing:");
+          const isPaid = !!r.paidById;
+          const awaitingInter =
+            !isPaid &&
+            (r.interPix?.status === "AWAITING_APPROVAL" ||
+              r.interPix?.status === "PROCESSING" ||
+              r.interPix?.status === "CREATED");
+          const canPay = !isMissing && !isPaid && !awaitingInter && isClosedDay;
+          const paying = payingKey === `${date}|${r.userId}`;
+          const displayName = firstName(r.user.name, r.user.login);
+          const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
+          return (
+            <article
+              key={r.id}
+              className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/40"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900">{displayName}</div>
+                  <div className="text-xs text-slate-500">{r.user.login}</div>
+                </div>
+                {isPaid ? (
+                  <Pill kind="ok" text="PAGO" />
+                ) : awaitingInter ? (
+                  <Pill kind="warn" text="AGUARDANDO INTER" />
+                ) : r.interPix?.status === "FAILED" ? (
+                  <Pill kind="warn" text="PIX FALHOU" />
+                ) : (
+                  <Pill kind={isClosedDay ? "warn" : "muted"} text="PENDENTE" />
+                )}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                <MobileStat label="Vendas" value={String(b?.salesCount ?? 0)} />
+                <MobileStat
+                  label={`C1 (${qualifiesC1BonusDate(date) ? "1,5%" : "1%"})`}
+                  value={
+                    <ClickableMoney cents={c1} onClick={() => openDetailModal(r.user, "c1")} />
+                  }
+                />
+                <MobileStat
+                  label="C2"
+                  value={<ClickableMoney cents={c2} onClick={() => openDetailModal(r.user, "c2")} />}
+                />
+                <MobileStat
+                  label="C3"
+                  value={<ClickableMoney cents={c3} onClick={() => openDetailModal(r.user, "c3")} />}
+                />
+                <MobileStat
+                  label="Imposto"
+                  value={
+                    <ClickableMoney
+                      cents={impostoTotalCents(r)}
+                      onClick={
+                        (r.monthlyBonusTaxCents || 0) > 0
+                          ? () => openDetailModal(r.user, "bonus", date, r)
+                          : undefined
+                      }
+                    />
+                  }
+                />
+                <MobileStat
+                  label="Taxa embarque"
+                  value={
+                    <ClickableMoney cents={r.feeCents || 0} onClick={() => openDetailModal(r.user, "fee")} />
+                  }
+                />
+                <MobileStat
+                  label="Balcão"
+                  value={fmtMoneyBR(r.balcaoCommissionCents || 0)}
+                />
+                {showMonthlyBonus ? (
+                  <MobileStat
+                    label="Bônus bruto"
+                    value={
+                      <ClickableMoney
+                        cents={r.monthlyBonusGrossCents || 0}
+                        className="text-violet-800"
+                        onClick={() => openDetailModal(r.user, "bonus", date, r)}
+                      />
+                    }
+                  />
+                ) : null}
+                <MobileStat
+                  label="Lucro s/ taxa"
+                  value={
+                    <span className={cn("font-semibold", lucroCellCls)}>{fmtMoneyBR(lucroSemTaxa)}</span>
+                  }
+                />
+                <MobileStat
+                  label="Descontos"
+                  value={
+                    isPaid || !canManage ? (
+                      <span className="tabular-nums text-rose-800">
+                        {fmtMoneyBR(r.discountCents || 0)}
+                      </span>
+                    ) : (
+                      <input
+                        className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm tabular-nums text-slate-900 shadow-sm outline-none focus:border-slate-300 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50"
+                        value={discountDrafts[r.userId] ?? centsToInput(r.discountCents || 0)}
+                        onChange={(e) =>
+                          setDiscountDrafts((prev) => ({ ...prev, [r.userId]: e.target.value }))
+                        }
+                        onBlur={() => saveDiscount(date, r.userId, isMissing, isPaid)}
+                        disabled={isMissing}
+                        inputMode="decimal"
+                      />
+                    )
+                  }
+                />
+              </div>
+
+              <div className="mt-3 flex items-end justify-between gap-3 border-t border-slate-100 pt-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Líquido
+                  </div>
+                  <div className={cn("text-lg font-bold tabular-nums", liquidoCellCls)}>
+                    {fmtMoneyBR(liquidoComBalcaoCents(r))}
+                  </div>
+                </div>
+                {canManage ? (
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => payRow(date, r.userId, "local")}
+                      disabled={!canPay || paying || payingKey === "__all__"}
+                      className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm disabled:opacity-50"
+                    >
+                      {paying ? "..." : "Marcar pago"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => payRow(date, r.userId, "inter")}
+                      disabled={!canPay || paying || payingKey === "__all__"}
+                      className="h-9 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {paying ? "..." : "Enviar PIX"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+        {!day?.rows?.length ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-10 text-center text-sm text-slate-500">
+            Sem dados para este dia.
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
