@@ -542,7 +542,7 @@ export default function ComprasClient() {
               <ShoppingCart className="h-3.5 w-3.5" aria-hidden />
               Gestão de pontos
             </div>
-            <h1 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">Compras</h1>
+            <h1 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">Compras</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
               Visualize, edite, libere ou cancele compras de pontos.
             </p>
@@ -672,6 +672,9 @@ export default function ComprasClient() {
           </div>
         </div>
 
+        <p className="px-3 pb-1 text-[11px] text-slate-500 lg:hidden">
+          Deslize a tabela para o lado para ver todas as colunas.
+        </p>
         <div className="overflow-x-auto p-2 md:p-3">
         <table className="min-w-[1180px] w-full text-sm">
           <thead>

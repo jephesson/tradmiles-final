@@ -401,7 +401,7 @@ export default function CedentesVisualizarLiveloClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Livelo</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Cedentes • Livelo</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
               Pontos Livelo, status do clube e último tier (se não houver clube: “Nunca assinado”).
             </p>

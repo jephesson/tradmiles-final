@@ -1,7 +1,7 @@
 import { cn } from "@/lib/cn";
 
 /** Layout da página (alinhado a Vendas / Nova venda) */
-export const VP_PAGE_SHELL = "mx-auto max-w-[1800px] space-y-6 p-5 pb-12 sm:p-8";
+export const VP_PAGE_SHELL = "mx-auto max-w-[1800px] space-y-5 p-0 pb-8 sm:space-y-6 sm:p-8";
 
 export const VP_FIELD_LABEL =
   "text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500";

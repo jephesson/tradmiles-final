@@ -9,9 +9,10 @@ import {
   type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChevronRight, LogOut, Settings } from "lucide-react";
+import { ChevronRight, LogOut, Settings, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
+import { useDashboardNav } from "@/components/DashboardNavContext";
 
 const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
@@ -630,8 +631,38 @@ export default function Sidebar() {
   /* =========================
    * UI
    * ========================= */
+  const { open: mobileOpen, setOpen: setMobileOpen } = useDashboardNav();
+
   return (
-    <aside className="flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64">
+    <>
+    {mobileOpen ? (
+      <button
+        type="button"
+        className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
+        aria-label="Fechar menu"
+        onClick={() => setMobileOpen(false)}
+      />
+    ) : null}
+    <aside
+      className={cn(
+        "flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64",
+        "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:transition-transform max-lg:duration-200",
+        mobileOpen
+          ? "max-lg:translate-x-0 max-lg:pointer-events-auto"
+          : "max-lg:-translate-x-full max-lg:pointer-events-none"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 px-3 py-2.5 lg:hidden">
+        <span className="text-sm font-semibold text-slate-800">Menu</span>
+        <button
+          type="button"
+          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+          aria-label="Fechar menu"
+          onClick={() => setMobileOpen(false)}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
@@ -1304,6 +1335,7 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }
 

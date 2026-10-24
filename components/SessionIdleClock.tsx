@@ -269,7 +269,7 @@ export default function SessionIdleClock() {
         remainingRatio={remainingMs / SESSION_IDLE_MS}
         tone={tone}
       />
-      <div className="min-w-[7.2rem] leading-tight">
+      <div className="hidden min-w-[7.2rem] leading-tight sm:block">
         <div className="text-[13px] font-semibold tabular-nums tracking-wide text-white">
           {pad(hour)}:{pad(minute)}
         </div>

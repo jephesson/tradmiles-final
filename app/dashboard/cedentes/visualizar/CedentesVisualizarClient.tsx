@@ -269,7 +269,7 @@ export default function CedentesVisualizarClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Todos</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Cedentes • Todos</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
               Cedentes aprovados com saldos por programa e responsável.
             </p>

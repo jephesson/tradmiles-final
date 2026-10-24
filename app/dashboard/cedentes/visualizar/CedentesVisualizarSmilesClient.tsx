@@ -255,7 +255,7 @@ export default function CedentesVisualizarSmilesClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Smiles</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Cedentes • Smiles</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
               Pontos aprovados, pendentes, total esperado e passageiros disponíveis em 2026 (Smiles).
             </p>

@@ -260,7 +260,7 @@ export default function CedentesVisualizarIberiaClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Iberia</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Cedentes • Iberia</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
               Só aparece quem já tem senha Iberia gravada. Pontos com score médio operacional (0 a 10).
             </p>

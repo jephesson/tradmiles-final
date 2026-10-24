@@ -2,6 +2,7 @@
 import Sidebar from "@/components/Sidebar";
 import DashboardTopNav from "@/components/DashboardTopNav";
 import AuthGuard from "@/components/AuthGuard";
+import { DashboardNavProvider } from "@/components/DashboardNavContext";
 import DashboardPresencePing from "./DashboardPresencePing";
 import AgendaRemnantsModal from "@/components/AgendaRemnantsModal";
 import AgendaSwapPopup from "@/components/AgendaSwapRequests";
@@ -18,17 +19,19 @@ export default function DashboardLayout({
       <DashboardPresencePing />
       <AgendaRemnantsModal />
       <AgendaSwapPopup />
-      <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-slate-100 text-slate-900">
-        <DashboardTopNav />
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <Sidebar />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-[#f4f7fb]">
-            <div className="flex min-h-full w-full flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8">
-              {children}
-            </div>
-          </main>
+      <DashboardNavProvider>
+        <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-slate-100 text-slate-900">
+          <DashboardTopNav />
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <Sidebar />
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-[#f4f7fb]">
+              <div className="flex min-h-full w-full flex-1 flex-col px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
+                {children}
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+      </DashboardNavProvider>
     </AuthGuard>
   );
 }

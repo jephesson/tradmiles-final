@@ -1933,7 +1933,7 @@ export default function NovaVendaClient({
   ];
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-5 p-4 pb-10 sm:p-6">
+    <div className="mx-auto max-w-[1800px] space-y-5 pb-8 sm:p-6 sm:pb-10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

@@ -305,7 +305,7 @@ export default function CedentesVisualizarLatamClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-balance text-3xl font-bold tracking-tight text-slate-950 sm:text-[2rem] sm:leading-tight">
+            <h1 className="text-balance text-2xl font-bold tracking-tight text-slate-950 sm:text-[2rem] sm:leading-tight">
               Cedentes • LATAM
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">

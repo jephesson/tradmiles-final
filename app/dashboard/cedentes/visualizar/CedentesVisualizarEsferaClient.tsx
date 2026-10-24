@@ -198,7 +198,7 @@ export default function CedentesVisualizarEsferaClient() {
             Gestão de pontos
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Cedentes • Esfera</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Cedentes • Esfera</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
               Pontos Esfera com score médio operacional (0 a 10).
             </p>

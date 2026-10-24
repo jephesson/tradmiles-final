@@ -10,6 +10,7 @@ import {
   Home,
   LayoutDashboard,
   Mail,
+  Menu,
   Percent,
   ShoppingBag,
   ShoppingCart,
@@ -19,6 +20,7 @@ import { cn } from "@/lib/cn";
 import EmailAlertasNav from "@/components/EmailAlertasNav";
 import { getSession, type Session } from "@/lib/auth";
 import SessionIdleClock from "@/components/SessionIdleClock";
+import { useDashboardNav } from "@/components/DashboardNavContext";
 
 const NAVY = "#0c2340";
 
@@ -99,7 +101,7 @@ function UserChip({ session }: { session: Session | null }) {
   return (
     <Link
       href="/dashboard/conta"
-      className="flex min-w-0 max-w-[16rem] items-center gap-2.5 rounded-2xl bg-white/10 px-2 py-1.5 ring-1 ring-white/15 transition hover:bg-white/15"
+      className="flex min-w-0 max-w-[16rem] items-center gap-2.5 rounded-2xl bg-white/10 px-1.5 py-1.5 ring-1 ring-white/15 transition hover:bg-white/15 sm:px-2"
       title="Conta e senha"
     >
       <div
@@ -108,7 +110,7 @@ function UserChip({ session }: { session: Session | null }) {
       >
         {userInitials(session.name)}
       </div>
-      <div className="min-w-0 leading-tight">
+      <div className="hidden min-w-0 leading-tight sm:block">
         <div className="truncate text-[13px] font-semibold text-white">{session.name}</div>
         <div className="mt-0.5 truncate text-[10px] text-white/70">
           @{session.login}
@@ -122,6 +124,7 @@ function UserChip({ session }: { session: Session | null }) {
 
 export default function DashboardTopNav() {
   const pathname = usePathname() || "";
+  const { open, setOpen } = useDashboardNav();
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [session, setSessionState] = useState<Session | null>(null);
 
@@ -162,10 +165,19 @@ export default function DashboardTopNav() {
 
   return (
     <header
-      className="z-40 shrink-0 border-b border-white/10 shadow-[0_8px_24px_-12px_rgba(12,35,64,0.45)]"
+      className="z-50 shrink-0 border-b border-white/10 shadow-[0_8px_24px_-12px_rgba(12,35,64,0.45)]"
       style={{ backgroundColor: NAVY }}
     >
-      <div className="flex items-center gap-3 px-3 py-2 sm:px-4">
+      <div className="flex items-center gap-2 px-2 py-2 sm:gap-3 sm:px-4">
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white/90 hover:bg-white/10 lg:hidden"
+          aria-label={open ? "Fechar menu" : "Abrir menu"}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2.5 pr-1">
           <Image
             src="/trademiles.png"
@@ -196,7 +208,7 @@ export default function DashboardTopNav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
+                    "hidden h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors lg:inline-flex",
                     active
                       ? "bg-white text-[#0c2340] shadow-sm"
                       : "text-white/75 hover:bg-white/10 hover:text-white"
@@ -208,9 +220,11 @@ export default function DashboardTopNav() {
               );
             })}
 
-            <EmailAlertasNav />
+            <span className="hidden lg:inline-flex">
+              <EmailAlertasNav />
+            </span>
 
-            <span className="mx-1 hidden h-5 w-px shrink-0 bg-white/20 sm:block" aria-hidden />
+            <span className="mx-1 hidden h-5 w-px shrink-0 bg-white/20 lg:block" aria-hidden />
 
             <Link
               href="/dashboard/vendas"
@@ -234,7 +248,8 @@ export default function DashboardTopNav() {
               )}
             >
               <LayoutDashboard className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="whitespace-nowrap">Painel de vendas</span>
+              <span className="hidden whitespace-nowrap sm:inline">Painel de vendas</span>
+              <span className="sm:hidden">Painel</span>
               <span
                 className={cn(
                   "inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1 py-0.5 text-[10px] font-bold tabular-nums leading-none",
@@ -252,12 +267,14 @@ export default function DashboardTopNav() {
             {ACTION_ITEMS.map((item) => {
               const active = item.match(pathname);
               const Icon = item.icon;
+              const hideOnPhone = item.href.includes("comissoes");
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-bold transition-colors",
+                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-bold transition-colors sm:px-3",
+                    hideOnPhone && "hidden sm:inline-flex",
                     active
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/20 hover:bg-emerald-400/25"
