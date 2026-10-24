@@ -86,6 +86,9 @@ function programPendingLabels(c: Item) {
 
 export default function CedentesPendentesPage() {
   const [items, setItems] = useState<Item[]>([]);
+  // Cedente aguardando a escolha: aprovar com ou sem Fila de assinatura.
+  const [approveAsk, setApproveAsk] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -163,7 +166,7 @@ export default function CedentesPendentesPage() {
     setLoading(false);
   }
 
-  async function review(id: string, action: "APPROVE" | "REJECT") {
+  async function review(id: string, action: "APPROVE" | "REJECT", addToFila = false) {
     const points = draft[id] || {
       pontosLatam: 0,
       pontosSmiles: 0,
@@ -172,15 +175,6 @@ export default function CedentesPendentesPage() {
     };
 
     const payload: Record<string, unknown> = { action };
-
-    // Ao aprovar, pergunta se já entra na Fila de assinatura (vai para o fim da fila).
-    let addToFila = false;
-    if (action === "APPROVE") {
-      const nome = items.find((c) => c.id === id)?.nomeCompleto || "este cedente";
-      addToFila = confirm(
-        `Colocar ${nome} na Fila de assinatura?\n\nOK = aprovar e colocar no fim da fila\nCancelar = só aprovar`
-      );
-    }
 
     if (action === "APPROVE") {
       payload.points = {
@@ -450,7 +444,7 @@ export default function CedentesPendentesPage() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
-                  onClick={() => void review(c.id, "APPROVE")}
+                  onClick={() => setApproveAsk(c.id)}
                   className="rounded-xl bg-black px-3 py-2 text-sm text-white hover:bg-slate-900"
                 >
                   Aprovar e enviar para lista
@@ -467,6 +461,54 @@ export default function CedentesPendentesPage() {
           );
         })}
       </div>
+
+      {approveAsk ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="text-lg font-bold text-slate-900">Aprovar cedente</div>
+            <p className="mt-1 text-sm text-slate-600">
+              {items.find((c) => c.id === approveAsk)?.nomeCompleto || "Cedente"} — colocar também na Fila de
+              assinatura? Entra no fim da fila.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={approving}
+                onClick={async () => {
+                  setApproving(true);
+                  await review(approveAsk, "APPROVE", true);
+                  setApproving(false);
+                  setApproveAsk(null);
+                }}
+                className="h-11 rounded-xl bg-black text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+              >
+                Aprovar + Fila de assinatura
+              </button>
+              <button
+                type="button"
+                disabled={approving}
+                onClick={async () => {
+                  setApproving(true);
+                  await review(approveAsk, "APPROVE", false);
+                  setApproving(false);
+                  setApproveAsk(null);
+                }}
+                className="h-11 rounded-xl border border-slate-300 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Aprovar sem fila
+              </button>
+              <button
+                type="button"
+                disabled={approving}
+                onClick={() => setApproveAsk(null)}
+                className="h-10 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+              >
+                {approving ? "Aprovando…" : "Cancelar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
