@@ -124,6 +124,68 @@ export function buildClientChargeMessage(args: ClientChargeMessageInput): string
   return lines.join("\n");
 }
 
+export type PendingTelegramChargeLine = {
+  locator?: string | null;
+  numero: string;
+  program: string;
+  passengers: number;
+  amountCents: number;
+  isCancelFine?: boolean;
+  clienteNome?: string | null;
+  firstPassengerLastName?: string | null;
+};
+
+function briefPendingDesc(line: PendingTelegramChargeLine, withCliente: boolean) {
+  const bits: string[] = [];
+  if (line.isCancelFine) bits.push("multa CPF");
+  const program = String(line.program || "").trim();
+  if (program) bits.push(program);
+  const pax = Math.max(0, Math.floor(Number(line.passengers) || 0));
+  if (pax > 0) bits.push(`${fmtInt(pax)} pax`);
+  const last = String(line.firstPassengerLastName || "").trim();
+  if (last && !line.isCancelFine) bits.push(last.toUpperCase());
+  if (withCliente) {
+    const cliente = String(line.clienteNome || "").trim();
+    if (cliente) bits.push(cliente);
+  }
+  return bits.join(", ");
+}
+
+/** Lista curta para Telegram: localizador, valor e total das pendências. */
+export function buildPendingTelegramChargeMessage(args: {
+  lines: PendingTelegramChargeLine[];
+  clienteNome?: string | null;
+}): string {
+  const items = (args.lines || []).filter((line) => Math.max(0, Math.floor(Number(line.amountCents) || 0)) > 0);
+  const headerCliente = String(args.clienteNome || "").trim();
+  const uniqueClients = new Set(
+    items.map((line) => String(line.clienteNome || "").trim()).filter(Boolean)
+  );
+  const withCliente = !headerCliente && uniqueClients.size > 1;
+
+  const out: string[] = [];
+  out.push(headerCliente ? `Cobrança pendente — ${headerCliente}` : "Cobrança pendente");
+  out.push("");
+
+  let total = 0;
+  for (const line of items) {
+    const amount = Math.max(0, Math.floor(Number(line.amountCents) || 0));
+    total += amount;
+    const loc = String(line.locator || "").trim().toUpperCase() || String(line.numero || "").trim();
+    const desc = briefPendingDesc(line, withCliente);
+    out.push(desc ? `${loc} — ${desc} — ${fmtMoneyBR(amount)}` : `${loc} — ${fmtMoneyBR(amount)}`);
+  }
+
+  out.push("");
+  out.push(`Total: ${fmtMoneyBR(total)}`);
+  out.push("");
+  out.push("Pix: 63817773000185 (CNPJ)");
+  out.push("Nome: Vias Aereas");
+  out.push("Banco: Inter");
+
+  return out.join("\n");
+}
+
 /** Monta a mensagem a partir de uma linha de venda do painel. */
 export function buildClientChargeMessageFromSale(sale: {
   date: string;

@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
-import { buildClientChargeMessageFromSale } from "@/lib/vendas/buildClientChargeMessage";
+import {
+  buildClientChargeMessageFromSale,
+  buildPendingTelegramChargeMessage,
+} from "@/lib/vendas/buildClientChargeMessage";
 import {
   cancelFinePaxCount,
   computeCancelFineTotalCents,
@@ -187,6 +190,7 @@ type SaleRow = {
   paidAt?: string | null;
   cancelFineCents?: number;
   locator: string | null;
+  firstPassengerLastName?: string | null;
 
   // ✅ vem da API (aparece só no modal)
   feeCardLabel?: string | null;
@@ -375,6 +379,7 @@ export default function VendasClient() {
   const [chargeMsgOpen, setChargeMsgOpen] = useState(false);
   const [chargeMsg, setChargeMsg] = useState("");
   const [chargeMsgTitle, setChargeMsgTitle] = useState("");
+  const [chargeMsgKind, setChargeMsgKind] = useState<"full" | "pending">("full");
 
   // Cancelar localizador + multa CPF
   const [cancelTarget, setCancelTarget] = useState<SaleRow | null>(null);
@@ -408,6 +413,40 @@ export default function VendasClient() {
     const msg = buildClientChargeMessageFromSale({ ...r, totalCents: chargeCents });
     setChargeMsg(msg);
     setChargeMsgTitle(`${r.cliente.nome} · ${r.locator || r.numero}`);
+    setChargeMsgKind("full");
+    setChargeMsgOpen(true);
+  }
+
+  function openPendingTelegramCharge() {
+    if (nextCursor) {
+      alert("Ainda há mais vendas na lista. Clique em carregar o restante antes de gerar a cobrança.");
+      return;
+    }
+    const pending = filtered.filter((r) => pendingCentsOfSale(r) > 0);
+    if (pending.length === 0) {
+      alert("Nenhuma pendência no filtro atual.");
+      return;
+    }
+    const msg = buildPendingTelegramChargeMessage({
+      clienteNome: selectedClient?.nome || null,
+      lines: pending.map((r) => ({
+        locator: r.locator,
+        numero: r.numero,
+        program: r.program,
+        passengers: r.passengers,
+        amountCents: pendingCentsOfSale(r),
+        isCancelFine: saleHasUnpaidCancelFine(r),
+        clienteNome: r.cliente?.nome || null,
+        firstPassengerLastName: r.firstPassengerLastName || null,
+      })),
+    });
+    setChargeMsg(msg);
+    setChargeMsgTitle(
+      selectedClient
+        ? `${pending.length} localizador${pending.length === 1 ? "" : "es"} · ${selectedClient.nome}`
+        : `${pending.length} localizador${pending.length === 1 ? "" : "es"} pendentes`
+    );
+    setChargeMsgKind("pending");
     setChargeMsgOpen(true);
   }
 
@@ -1325,6 +1364,15 @@ export default function VendasClient() {
           >
             <RefreshCw className={cn("h-4 w-4 text-slate-500", loading && "animate-spin")} strokeWidth={2} aria-hidden />
             {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+          <button
+            type="button"
+            onClick={openPendingTelegramCharge}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sky-200/90 bg-sky-50 px-4 text-sm font-medium text-sky-900 shadow-sm transition hover:border-sky-300 hover:bg-sky-100"
+            title="Mensagem curta de cobrança pendente para colar no Telegram"
+          >
+            <MessageSquareText className="h-4 w-4 shrink-0 opacity-80" strokeWidth={2} aria-hidden />
+            Cobrança Telegram
           </button>
           <button
             type="button"
@@ -2365,7 +2413,9 @@ export default function VendasClient() {
                 onChange={(e) => setChargeMsg(e.target.value)}
               />
               <div className="mt-2 text-[11px] text-slate-500">
-                Mesma mensagem do final da venda (valores, PIX Vias Aéreas e avisos).
+                {chargeMsgKind === "pending"
+                  ? "Lista curta para colar no Telegram: localizador, descrição, valor e total."
+                  : "Mesma mensagem do final da venda (valores, PIX Vias Aéreas e avisos)."}
               </div>
             </div>
 
