@@ -8,11 +8,17 @@ import {
   useSearchParams,
   type ReadonlyURLSearchParams,
 } from "next/navigation";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ChevronRight, LogOut, Settings, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 import { useDashboardNav } from "@/components/DashboardNavContext";
+
+const NavChrome = createContext({ mobile: false });
+function useNavChrome() {
+  return useContext(NavChrome);
+}
 
 const STRICT_NOQUERY_ACTIVE_PATHS = new Set<string>([
   "/dashboard/cedentes/visualizar",
@@ -633,31 +639,10 @@ export default function Sidebar() {
    * ========================= */
   const { open: mobileOpen, setOpen: setMobileOpen } = useDashboardNav();
 
-  return (
+  const NavTree = () => (
     <>
-    <aside
-      className={cn(
-        "flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64",
-        "max-lg:fixed max-lg:inset-0 max-lg:z-[60] max-lg:h-[100dvh] max-lg:w-full max-lg:max-w-none max-lg:transition-transform max-lg:duration-200",
-        mobileOpen
-          ? "max-lg:translate-x-0 max-lg:pointer-events-auto"
-          : "max-lg:-translate-x-full max-lg:pointer-events-none"
-      )}
-    >
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3.5 lg:hidden">
-        <span className="text-base font-semibold text-slate-900">Menu</span>
-        <button
-          type="button"
-          className="rounded-xl p-2 text-slate-600 hover:bg-slate-100"
-          aria-label="Fechar menu"
-          onClick={() => setMobileOpen(false)}
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col">
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 max-lg:space-y-1.5 max-lg:px-3 max-lg:py-3 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
+        <NavScroll>
         {session?.role === "socio" ? (
           <Accordion
             title="Financeiro"
@@ -1286,47 +1271,49 @@ export default function Sidebar() {
         </Accordion>
         </>
         )}
-        </nav>
+        </NavScroll>
 
-        <div className="shrink-0 border-t border-slate-200/50 px-2.5 py-3">
-          <Image
-            src="/vias-aereas-mark.png"
-            alt="Vias Aéreas — Conectando destinos, realizando sonhos"
-            width={200}
-            height={200}
-            className="mx-auto h-auto max-h-[88px] w-full max-w-[168px] object-contain opacity-90"
-          />
-        </div>
+        <BrandMark />
       </div>
+      <NavFooter
+        isAdmin={session?.role === "admin"}
+        isSocio={session?.role === "socio"}
+        onLogout={() => void doLogout()}
+      />
+    </>
+  );
 
-      <div className="shrink-0 space-y-2 border-t border-slate-200/55 bg-white/90 p-3 backdrop-blur-md max-lg:p-4 max-lg:pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {session?.role === "admin" ? (
-          <Link
-            href="/dashboard/configuracoes"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70 transition hover:bg-slate-50 hover:shadow-lg hover:ring-slate-300/70"
-          >
-            <Settings className="h-4 w-4 shrink-0 text-sky-600" strokeWidth={2} aria-hidden />
-            Configurações
-          </Link>
-        ) : null}
-        {session?.role === "socio" ? (
-          <Link
-            href="/dashboard/conta"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70 transition hover:bg-slate-50 hover:shadow-lg hover:ring-slate-300/70"
-          >
-            Alterar senha
-          </Link>
-        ) : null}
-        <button
-          type="button"
-          onClick={doLogout}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/25 transition hover:bg-slate-800"
-        >
-          <LogOut className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} />
-          Sair
-        </button>
-      </div>
-    </aside>
+  return (
+    <>
+      <NavChrome.Provider value={{ mobile: false }}>
+        <aside className="hidden h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64 lg:flex">
+          <NavTree />
+        </aside>
+      </NavChrome.Provider>
+      {mobileOpen
+        ? createPortal(
+            <NavChrome.Provider value={{ mobile: true }}>
+              <div className="fixed inset-0 z-[80] flex h-[100dvh] w-full flex-col bg-slate-100 lg:hidden">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+                  <div>
+                    <p className="text-lg font-bold tracking-tight text-slate-900">Menu</p>
+                    <p className="text-xs text-slate-500">Toque numa seção para abrir as telas</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-700"
+                    aria-label="Fechar menu"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <NavTree />
+              </div>
+            </NavChrome.Provider>,
+            document.body
+          )
+        : null}
     </>
   );
 }
@@ -1334,6 +1321,91 @@ export default function Sidebar() {
 /* =========================
  * COMPONENTES AUXILIARES
  * ========================= */
+
+function NavScroll({ children }: { children: ReactNode }) {
+  const { mobile } = useNavChrome();
+  return (
+    <nav
+      className={cn(
+        "min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]",
+        mobile ? "space-y-3 px-3 py-3" : "space-y-1 px-2 py-2"
+      )}
+    >
+      {children}
+    </nav>
+  );
+}
+
+function BrandMark() {
+  const { mobile } = useNavChrome();
+  if (mobile) return null;
+  return (
+    <div className="shrink-0 border-t border-slate-200/50 px-2.5 py-3">
+      <Image
+        src="/vias-aereas-mark.png"
+        alt="Vias Aéreas — Conectando destinos, realizando sonhos"
+        width={200}
+        height={200}
+        className="mx-auto h-auto max-h-[88px] w-full max-w-[168px] object-contain opacity-90"
+      />
+    </div>
+  );
+}
+
+function NavFooter({
+  isAdmin,
+  isSocio,
+  onLogout,
+}: {
+  isAdmin: boolean;
+  isSocio: boolean;
+  onLogout: () => void;
+}) {
+  const { mobile } = useNavChrome();
+  return (
+    <div
+      className={cn(
+        "shrink-0 space-y-2 border-t border-slate-200/55 bg-white/90 p-3 backdrop-blur-md",
+        mobile && "p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      )}
+    >
+      {isAdmin ? (
+        <Link
+          href="/dashboard/configuracoes"
+          className={cn(
+            "flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70 transition hover:bg-slate-50",
+            mobile && "h-12 text-base"
+          )}
+        >
+          <Settings className="h-4 w-4 shrink-0 text-sky-600" strokeWidth={2} aria-hidden />
+          Configurações
+        </Link>
+      ) : null}
+      {isSocio ? (
+        <Link
+          href="/dashboard/conta"
+          className={cn(
+            "flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-md shadow-slate-900/[0.05] ring-1 ring-slate-200/70",
+            mobile && "h-12 text-base"
+          )}
+        >
+          Alterar senha
+        </Link>
+      ) : null}
+      <button
+        type="button"
+        onClick={onLogout}
+        className={cn(
+          "flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/25 transition hover:bg-slate-800",
+          mobile && "h-12 text-base"
+        )}
+      >
+        <LogOut className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2} />
+        Sair
+      </button>
+    </div>
+  );
+}
 
 function paramsEqual(
   current: ReadonlyURLSearchParams | null,
@@ -1364,6 +1436,7 @@ function NavLink({
   className?: string;
   exact?: boolean;
 }) {
+  const { mobile } = useNavChrome();
   const pathname = usePathname();
   const search = useSearchParams();
 
@@ -1385,12 +1458,13 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "relative block rounded-xl px-3 py-2 pl-5 text-[13px] font-medium transition-colors max-lg:py-3.5 max-lg:text-[16px]",
+        "relative block rounded-xl px-3 py-2 pl-5 text-[13px] font-medium transition-colors",
+        mobile && "rounded-none border-b border-slate-100 px-4 py-4 pl-4 text-[16px] last:border-b-0",
         active
           ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
           : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
-        "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
-        active ? "before:bg-[var(--accent)]" : "before:bg-transparent",
+        !mobile && "before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-1 before:rounded-full",
+        !mobile && (active ? "before:bg-[var(--accent)]" : "before:bg-transparent"),
         className
       )}
     >
@@ -1401,6 +1475,7 @@ function NavLink({
 
 /** Item de primeiro nível que é só um link (sem submenu). */
 function TopLink({ href, title, accent }: { href: string; title: string; accent?: Accent }) {
+  const { mobile } = useNavChrome();
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(href + "/");
   return (
@@ -1408,7 +1483,8 @@ function TopLink({ href, title, accent }: { href: string; title: string; accent?
       <Link
         href={href}
         className={cn(
-          "group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold tracking-tight transition-all max-lg:py-3.5 max-lg:text-[16px]",
+          "group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold tracking-tight transition-all",
+          mobile && "rounded-2xl bg-white px-4 py-4 text-[16px] ring-1 ring-slate-200/80",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
             : "text-slate-800 hover:bg-slate-100/85"
@@ -1442,13 +1518,18 @@ function Accordion({
   accent?: Accent;
   children: ReactNode;
 }) {
+  const { mobile } = useNavChrome();
   return (
-    <div className="space-y-1" style={accentStyle(accent)}>
+    <div
+      className={cn("space-y-1", mobile && "overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/80")}
+      style={accentStyle(accent)}
+    >
       <button
         type="button"
         onClick={onToggle}
         className={cn(
-          "group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-all max-lg:py-3.5 max-lg:text-[16px]",
+          "group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-all",
+          mobile && "rounded-none px-4 py-4 text-[17px]",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
             : "text-slate-800 hover:bg-slate-100/85"
@@ -1475,7 +1556,17 @@ function Accordion({
           aria-hidden
         />
       </button>
-      {open && <div className="space-y-1 border-l border-slate-200/70 pl-2.5 ml-3">{children}</div>}
+      {open && (
+        <div
+          className={
+            mobile
+              ? "border-t border-slate-100"
+              : "ml-3 space-y-1 border-l border-slate-200/70 pl-2.5"
+          }
+        >
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -1497,17 +1588,22 @@ function SubAccordion({
   variant?: "default" | "nav";
   active?: boolean;
 }) {
+  const { mobile } = useNavChrome();
   const isNav = variant === "nav";
 
   const rowClass = cn(
     isNav
       ? cn(
-          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors max-lg:py-3.5 max-lg:text-[16px]",
+          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors",
+          mobile && "rounded-none px-4 py-4 text-[16px]",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]/80 shadow-sm"
             : "text-slate-600 hover:bg-slate-100/80"
         )
-      : "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100/90 max-lg:py-3.5 max-lg:text-[15px]"
+      : cn(
+          "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100/90",
+          mobile && "rounded-none px-4 py-3.5 text-[15px]"
+        )
   );
 
   if (href) {
@@ -1547,7 +1643,11 @@ function SubAccordion({
           </button>
         </div>
 
-        {open && <div className="pl-4 space-y-1">{children}</div>}
+        {open && (
+          <div className={mobile ? "border-t border-slate-100" : "space-y-1 pl-4"}>
+            {children}
+          </div>
+        )}
       </>
     );
   }
@@ -1575,8 +1675,9 @@ function SubAccordion({
       {open && (
         <div
           className={cn(
-            "space-y-1 pl-4",
-            isNav && "border-l border-slate-200/70 pl-3 ml-3"
+            mobile
+              ? "border-t border-slate-100"
+              : cn("space-y-1 pl-4", isNav && "ml-3 border-l border-slate-200/70 pl-3")
           )}
         >
           {children}
