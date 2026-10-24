@@ -173,6 +173,15 @@ export default function CedentesPendentesPage() {
 
     const payload: Record<string, unknown> = { action };
 
+    // Ao aprovar, pergunta se já entra na Fila de assinatura (vai para o fim da fila).
+    let addToFila = false;
+    if (action === "APPROVE") {
+      const nome = items.find((c) => c.id === id)?.nomeCompleto || "este cedente";
+      addToFila = confirm(
+        `Colocar ${nome} na Fila de assinatura?\n\nOK = aprovar e colocar no fim da fila\nCancelar = só aprovar`
+      );
+    }
+
     if (action === "APPROVE") {
       payload.points = {
         pontosLatam: Number(points.pontosLatam || 0),
@@ -198,6 +207,22 @@ export default function CedentesPendentesPage() {
 
     const json = await res.json().catch(() => null);
     if (!json?.ok) return alert(json?.error || "Erro ao revisar");
+
+    if (addToFila) {
+      const filaRes = await fetch("/api/fila-assinatura", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cedenteId: id }),
+      }).catch(() => null);
+      const filaJson = await filaRes?.json().catch(() => null);
+      if (!filaJson?.ok) {
+        alert(
+          `Cedente aprovado, mas não entrou na Fila de assinatura: ${
+            filaJson?.error || "falha de conexão"
+          }. Coloque pela tela da fila.`
+        );
+      }
+    }
 
     await load();
   }
