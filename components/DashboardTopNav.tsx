@@ -110,7 +110,7 @@ function UserChip({ session }: { session: Session | null }) {
       >
         {userInitials(session.name)}
       </div>
-      <div className="hidden min-w-0 leading-tight sm:block">
+      <div className="hidden min-w-0 leading-tight lg:block">
         <div className="truncate text-[13px] font-semibold text-white">{session.name}</div>
         <div className="mt-0.5 truncate text-[10px] text-white/70">
           @{session.login}
@@ -171,33 +171,35 @@ export default function DashboardTopNav() {
       <div className="flex items-center gap-2 px-2 py-2 sm:gap-3 sm:px-4">
         <button
           type="button"
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white/90 hover:bg-white/10 lg:hidden"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white/90 hover:bg-white/10 lg:hidden"
           aria-label={open ? "Fechar menu" : "Abrir menu"}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-6 w-6" />
         </button>
-        <Link href="/dashboard" className="flex shrink-0 items-center gap-2.5 pr-1">
+        <Link href="/dashboard" className="flex min-w-0 shrink-0 items-center gap-2.5 pr-1">
           <Image
             src="/trademiles.png"
             alt=""
             width={36}
             height={36}
             unoptimized
-            className="h-9 w-9 object-contain"
+            className="h-8 w-8 object-contain lg:h-9 lg:w-9"
           />
-          <div className="hidden leading-tight sm:block">
-            <div className="text-[13px] font-semibold tracking-tight text-white">TradeMiles</div>
-            <div className="text-[10px] text-white/55">Vias Aéreas</div>
+          <div className="min-w-0 leading-tight">
+            <div className="truncate text-[13px] font-semibold tracking-tight text-white">TradeMiles</div>
+            <div className="hidden text-[10px] text-white/55 lg:block">Vias Aéreas</div>
           </div>
         </Link>
 
         {isSocioUser ? (
-          <div className="min-w-0 flex-1 text-sm font-semibold text-white">Dívida cartões</div>
+          <div className="hidden min-w-0 flex-1 text-sm font-semibold text-white lg:block">
+            Dívida cartões
+          </div>
         ) : (
           <nav
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             aria-label="Atalhos principais"
           >
             {ITEMS.map((item) => {
@@ -208,7 +210,7 @@ export default function DashboardTopNav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "hidden h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors lg:inline-flex",
+                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold transition-colors",
                     active
                       ? "bg-white text-[#0c2340] shadow-sm"
                       : "text-white/75 hover:bg-white/10 hover:text-white"
@@ -220,11 +222,9 @@ export default function DashboardTopNav() {
               );
             })}
 
-            <span className="hidden lg:inline-flex">
-              <EmailAlertasNav />
-            </span>
+            <EmailAlertasNav />
 
-            <span className="mx-1 hidden h-5 w-px shrink-0 bg-white/20 lg:block" aria-hidden />
+            <span className="mx-1 h-5 w-px shrink-0 bg-white/20" aria-hidden />
 
             <Link
               href="/dashboard/vendas"
@@ -248,8 +248,7 @@ export default function DashboardTopNav() {
               )}
             >
               <LayoutDashboard className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="hidden whitespace-nowrap sm:inline">Painel de vendas</span>
-              <span className="sm:hidden">Painel</span>
+              <span className="whitespace-nowrap">Painel de vendas</span>
               <span
                 className={cn(
                   "inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1 py-0.5 text-[10px] font-bold tabular-nums leading-none",
@@ -267,14 +266,12 @@ export default function DashboardTopNav() {
             {ACTION_ITEMS.map((item) => {
               const active = item.match(pathname);
               const Icon = item.icon;
-              const hideOnPhone = item.href.includes("comissoes");
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-bold transition-colors sm:px-3",
-                    hideOnPhone && "hidden sm:inline-flex",
+                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-bold transition-colors",
                     active
                       ? "bg-emerald-500 text-white shadow-sm"
                       : "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/20 hover:bg-emerald-400/25"
@@ -288,8 +285,10 @@ export default function DashboardTopNav() {
           </nav>
         )}
 
-        <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-          <SessionIdleClock />
+        <div className="ml-auto flex shrink-0 items-center gap-2 pl-1">
+          <div className="hidden lg:block">
+            <SessionIdleClock />
+          </div>
           <UserChip session={session} />
         </div>
       </div>

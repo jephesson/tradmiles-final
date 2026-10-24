@@ -635,37 +635,29 @@ export default function Sidebar() {
 
   return (
     <>
-    {mobileOpen ? (
-      <button
-        type="button"
-        className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
-        aria-label="Fechar menu"
-        onClick={() => setMobileOpen(false)}
-      />
-    ) : null}
     <aside
       className={cn(
         "flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64",
-        "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:transition-transform max-lg:duration-200",
+        "max-lg:fixed max-lg:inset-0 max-lg:z-[60] max-lg:h-[100dvh] max-lg:w-full max-lg:max-w-none max-lg:transition-transform max-lg:duration-200",
         mobileOpen
           ? "max-lg:translate-x-0 max-lg:pointer-events-auto"
           : "max-lg:-translate-x-full max-lg:pointer-events-none"
       )}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200/70 px-3 py-2.5 lg:hidden">
-        <span className="text-sm font-semibold text-slate-800">Menu</span>
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3.5 lg:hidden">
+        <span className="text-base font-semibold text-slate-900">Menu</span>
         <button
           type="button"
-          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+          className="rounded-xl p-2 text-slate-600 hover:bg-slate-100"
           aria-label="Fechar menu"
           onClick={() => setMobileOpen(false)}
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2 max-lg:space-y-1.5 max-lg:px-3 max-lg:py-3 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
         {session?.role === "socio" ? (
           <Accordion
             title="Financeiro"
@@ -1307,7 +1299,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <div className="shrink-0 space-y-2 border-t border-slate-200/55 bg-white/90 p-3 backdrop-blur-md">
+      <div className="shrink-0 space-y-2 border-t border-slate-200/55 bg-white/90 p-3 backdrop-blur-md max-lg:p-4 max-lg:pb-[max(1rem,env(safe-area-inset-bottom))]">
         {session?.role === "admin" ? (
           <Link
             href="/dashboard/configuracoes"
@@ -1393,7 +1385,7 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "relative block rounded-xl px-3 py-2 pl-5 text-[13px] font-medium transition-colors",
+        "relative block rounded-xl px-3 py-2 pl-5 text-[13px] font-medium transition-colors max-lg:py-3.5 max-lg:text-[16px]",
         active
           ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
           : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900",
@@ -1416,7 +1408,7 @@ function TopLink({ href, title, accent }: { href: string; title: string; accent?
       <Link
         href={href}
         className={cn(
-          "group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold tracking-tight transition-all",
+          "group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold tracking-tight transition-all max-lg:py-3.5 max-lg:text-[16px]",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
             : "text-slate-800 hover:bg-slate-100/85"
@@ -1456,7 +1448,7 @@ function Accordion({
         type="button"
         onClick={onToggle}
         className={cn(
-          "group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-all",
+          "group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-all max-lg:py-3.5 max-lg:text-[16px]",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-border)]/80"
             : "text-slate-800 hover:bg-slate-100/85"
@@ -1510,12 +1502,12 @@ function SubAccordion({
   const rowClass = cn(
     isNav
       ? cn(
-          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors",
+          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors max-lg:py-3.5 max-lg:text-[16px]",
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent-text)] ring-1 ring-[var(--accent-border)]/80 shadow-sm"
             : "text-slate-600 hover:bg-slate-100/80"
         )
-      : "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100/90"
+      : "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100/90 max-lg:py-3.5 max-lg:text-[15px]"
   );
 
   if (href) {
