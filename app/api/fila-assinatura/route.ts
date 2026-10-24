@@ -118,18 +118,23 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const items = await prisma.filaAssinatura.findMany({
-      where: { team: session.team, concludedAt: null },
-      include: {
-        cedente: { select: cedenteSelect },
-        addedBy: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "asc" },
-    });
+    const [items, me] = await Promise.all([
+      prisma.filaAssinatura.findMany({
+        where: { team: session.team, concludedAt: null },
+        include: {
+          cedente: { select: cedenteSelect },
+          addedBy: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.user.findUnique({ where: { id: session.id }, select: { name: true } }),
+    ]);
 
     return ok({
       isAdmin: isAdminRole(session.role),
       meId: session.id,
+      // nome de quem está logado, para a mensagem do WhatsApp
+      meName: me?.name || session.login,
       items: items.map((i) => ({
         id: i.id,
         latamStatus: i.latamStatus,

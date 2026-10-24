@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
+  FileText,
   KeyRound,
   ListChecks,
   Loader2,
@@ -15,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { mensagemInicioAtendimento, TERMO_ACEITE } from "@/lib/cedentes/termoAceite";
 import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
@@ -92,13 +96,68 @@ const ICON_BTN =
 const ICON_BTN_NEUTRAL = cn(ICON_BTN, "bg-white text-slate-600 ring-slate-200/90 hover:bg-slate-50 hover:text-slate-900");
 const ICON_BTN_WHATS = cn(ICON_BTN, "bg-emerald-50 text-emerald-700 ring-emerald-200/90 hover:bg-emerald-100");
 
-function whatsappHref(telefone?: string | null) {
+function whatsappHref(telefone?: string | null, text?: string) {
   let d = String(telefone || "").replace(/\D+/g, "");
   if (!d) return null;
   while (d.startsWith("00")) d = d.slice(2);
   if (d.length === 10 || d.length === 11) d = `55${d}`;
   if (d.length < 12) return null;
-  return `https://wa.me/${d}`;
+  return `https://wa.me/${d}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}
+
+function TermoCard() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(TERMO_ACEITE);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      alert("Não deu para copiar. Selecione o texto e copie manualmente.");
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex items-center gap-3 px-4 py-3 sm:px-5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+          <FileText className="h-4 w-4" />
+        </span>
+        <button type="button" onClick={() => setOpen((v) => !v)} className="min-w-0 flex-1 text-left">
+          <p className="text-sm font-semibold text-slate-900">Termo de ciência e aceite</p>
+          <p className="truncate text-xs text-slate-500">
+            R$ 80 por bloco · média de R$ 80/mês por pelo menos 4 meses · {open ? "ocultar" : "ver texto"}
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? "Ocultar termo" : "Ver termo"}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+        >
+          <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
+        </button>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className={cn(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-sm font-semibold transition-colors",
+            copied ? "bg-emerald-600 text-white" : "bg-slate-900 text-white hover:bg-slate-800"
+          )}
+        >
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {copied ? "Copiado" : "Copiar termo"}
+        </button>
+      </div>
+      {open ? (
+        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-100 bg-slate-50/60 px-4 py-3 font-sans text-[13px] leading-relaxed text-slate-700 sm:px-5">
+          {TERMO_ACEITE}
+        </pre>
+      ) : null}
+    </div>
+  );
 }
 
 function Tip({ label }: { label: string }) {
@@ -390,6 +449,7 @@ export default function FilaAssinaturaClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [meId, setMeId] = useState("");
+  const [meName, setMeName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -398,10 +458,13 @@ export default function FilaAssinaturaClient() {
   async function load() {
     setLoading(true);
     try {
-      const data = await api<{ items: Item[]; isAdmin: boolean; meId: string }>("/api/fila-assinatura");
+      const data = await api<{ items: Item[]; isAdmin: boolean; meId: string; meName: string }>(
+        "/api/fila-assinatura"
+      );
       setItems(data.items);
       setIsAdmin(data.isAdmin);
       setMeId(data.meId);
+      setMeName(data.meName || "");
       setError("");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Falha ao carregar a fila.");
@@ -521,6 +584,8 @@ export default function FilaAssinaturaClient() {
 
       <AddToQueue onAdded={() => void load()} />
 
+      <TermoCard />
+
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
           <p className="text-sm font-semibold text-slate-900">
@@ -564,7 +629,14 @@ export default function FilaAssinaturaClient() {
             {items.map((item, idx) => {
               const allSigned = item.latamStatus === "ASSINADO" && item.liveloStatus === "ASSINADO";
               const canRemove = isAdmin || item.addedBy.id === meId;
-              const waHref = whatsappHref(item.cedente.telefone);
+              const waHref = whatsappHref(
+                item.cedente.telefone,
+                mensagemInicioAtendimento({
+                  cedenteNome: item.cedente.nome,
+                  remetenteNome: meName,
+                  responsavelNome: item.cedente.responsavel?.name,
+                })
+              );
               const busy = busyId === item.id;
               return (
                 <li
@@ -616,10 +688,16 @@ export default function FilaAssinaturaClient() {
 
                   <div className="col-span-2 flex items-center gap-1.5 lg:col-span-1">
                     {waHref ? (
-                      <a href={waHref} target="_blank" rel="noreferrer" className={ICON_BTN_WHATS} title="WhatsApp do cedente">
+                      <a
+                        href={waHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={ICON_BTN_WHATS}
+                        title="Abrir WhatsApp com a mensagem de início do atendimento"
+                      >
                         <MessageCircle size={15} />
                         <span className="sr-only">WhatsApp</span>
-                        <Tip label="WhatsApp" />
+                        <Tip label="WhatsApp com mensagem pronta" />
                       </a>
                     ) : (
                       <span
