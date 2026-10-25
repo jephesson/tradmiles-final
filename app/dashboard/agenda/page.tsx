@@ -132,6 +132,55 @@ function maskBRDate(v: string) {
   return parts.join("/").slice(0, 10);
 }
 
+const WEEKDAY_SHORT = ["D", "S", "T", "Q", "Q", "S", "S"];
+const WEEKDAY_LONG = [
+  "Domingo",
+  "Segunda",
+  "Terça",
+  "Quarta",
+  "Quinta",
+  "Sexta",
+  "Sábado",
+];
+
+function EventChip({
+  ev,
+  memberColor,
+  onPick,
+  compact,
+}: {
+  ev: AgendaEvent;
+  memberColor: Map<string, string>;
+  onPick: (ev: AgendaEvent) => void;
+  compact?: boolean;
+}) {
+  const color = memberColor.get(ev.user.id) || "#111827";
+  const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
+  const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
+  const label =
+    ev.type === "ABSENCE"
+      ? `Ausência · ${ev.user.name}`
+      : `${ev.startHHMM}–${ev.endHHMM} · ${ev.user.name}`;
+  return (
+    <button
+      type="button"
+      className={cn(
+        "w-full rounded-lg border text-left font-medium leading-tight shadow-sm transition hover:brightness-[0.98]",
+        compact ? "px-1.5 py-1 text-[10px] sm:text-[11px]" : "px-3 py-2 text-sm"
+      )}
+      style={{ backgroundColor: bg, borderColor: bd }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onPick(ev);
+      }}
+      title={ev.note ? `${label}\n\n${ev.note}` : label}
+    >
+      <div className={compact ? "truncate" : ""}>{label}</div>
+    </button>
+  );
+}
+
 export default function AgendaPage() {
   const [view, setView] = useState<ViewMode>("MES");
   const [mesBR, setMesBR] = useState(() => brMonthFromDate(new Date()));
@@ -434,9 +483,9 @@ export default function AgendaPage() {
   );
 
   return (
-    <div className="min-h-0 space-y-6 bg-gradient-to-b from-slate-50/80 to-white p-4 sm:p-6 lg:p-8">
+    <div className="min-h-0 space-y-4 bg-gradient-to-b from-slate-50/80 to-white sm:space-y-6 sm:p-0 lg:p-0">
       {/* Header */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/40 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm shadow-slate-200/40 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -474,7 +523,7 @@ export default function AgendaPage() {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-          <div className="inline-flex rounded-xl border border-slate-200/90 bg-slate-100/80 p-1">
+          <div className="inline-flex w-full rounded-xl border border-slate-200/90 bg-slate-100/80 p-1 sm:w-auto">
             {(
               [
                 ["MES", "Mês"],
@@ -486,7 +535,7 @@ export default function AgendaPage() {
                 key={k}
                 type="button"
                 className={cn(
-                  "rounded-lg px-3.5 py-2 text-sm font-semibold transition",
+                  "flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition sm:flex-none sm:px-3.5",
                   view === k
                     ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80"
                     : "text-slate-600 hover:text-slate-900"
@@ -610,10 +659,143 @@ export default function AgendaPage() {
       {/* Views */}
       {view === "MES" && (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm shadow-slate-200/30 sm:p-5">
-          <p className="mb-3 text-xs text-slate-500">
+          <p className="mb-3 hidden text-xs text-slate-500 lg:block">
             Fim de semana em lilás. Feriado nacional oficial em azul — o admin valida o dia para liberar C1 +50%.
           </p>
-          <div className="grid grid-cols-7 gap-1.5 pb-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:gap-2 sm:text-xs">
+
+          <div className="grid grid-cols-7 gap-1 pb-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">
+            {WEEKDAY_SHORT.map((d, i) => (
+              <div key={`${d}-${i}`}>{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1 lg:hidden">
+            {monthDays.map((c, idx) => {
+              if (!c.iso) {
+                return <div key={idx} className="min-h-11" />;
+              }
+              const dayEvents = eventsByISO.get(c.iso) || [];
+              const dayGaps = gapsByISO.get(c.iso) || [];
+              const isSelected = selectedISO === c.iso;
+              const isToday = c.iso === todayIso;
+              const weekend = isWeekendISO(c.iso);
+              const holiday =
+                holidayByISO.get(c.iso) ||
+                (officialHolidayName(c.iso)
+                  ? {
+                      dateISO: c.iso,
+                      dateBR: brFromISO(c.iso),
+                      name: officialHolidayName(c.iso),
+                      validated: false,
+                    }
+                  : null);
+              return (
+                <button
+                  key={c.iso}
+                  type="button"
+                  onClick={() => setSelectedISO(c.iso!)}
+                  className={cn(
+                    "flex min-h-11 flex-col items-center justify-center rounded-xl px-0.5 py-1 text-xs font-bold tabular-nums",
+                    holiday
+                      ? "bg-sky-100 text-sky-950"
+                      : weekend
+                        ? "bg-violet-50 text-violet-950"
+                        : "text-slate-800",
+                    isSelected && "ring-2 ring-teal-500 ring-offset-1",
+                    isToday && !isSelected && "bg-teal-600 text-white"
+                  )}
+                >
+                  {c.day}
+                  <span className="mt-0.5 flex h-1.5 items-center justify-center gap-0.5">
+                    {dayEvents.slice(0, 3).map((ev) => (
+                      <span
+                        key={ev.id}
+                        className="h-1.5 w-1.5 rounded-full"
+                        style={{
+                          backgroundColor:
+                            ev.type === "ABSENCE"
+                              ? "#EF4444"
+                              : memberColor.get(ev.user.id) || "#0f766e",
+                        }}
+                      />
+                    ))}
+                    {dayGaps.length > 0 && dayEvents.length < 3 ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 lg:hidden">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  {WEEKDAY_LONG[weekdaySunIndexUTC(selectedISO)]}
+                </div>
+                <div className="text-base font-bold text-slate-900">
+                  {brFromISO(selectedISO)}
+                  {selectedISO === todayIso ? " · hoje" : ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={!canFillView}
+                className="inline-flex h-9 items-center gap-1 rounded-xl bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-40"
+                onClick={() => openCreate(selectedISO)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Cadastrar
+              </button>
+            </div>
+            {(() => {
+              const holiday =
+                holidayByISO.get(selectedISO) ||
+                (officialHolidayName(selectedISO)
+                  ? {
+                      dateISO: selectedISO,
+                      dateBR: brFromISO(selectedISO),
+                      name: officialHolidayName(selectedISO)!,
+                      validated: false,
+                    }
+                  : null);
+              const dayEvents = eventsByISO.get(selectedISO) || [];
+              const dayGaps = gapsByISO.get(selectedISO) || [];
+              return (
+                <div className="mt-3 space-y-1.5">
+                  {holiday ? (
+                    <div className="rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-950">
+                      {holiday.name}
+                      {holiday.validated ? " · C1 +50%" : ""}
+                    </div>
+                  ) : null}
+                  {dayEvents.map((ev) => (
+                    <EventChip
+                      key={ev.id}
+                      ev={ev}
+                      memberColor={memberColor}
+                      onPick={setActiveEvent}
+                    />
+                  ))}
+                  {dayGaps.map((g, i) => (
+                    <div
+                      key={`${g.kind}-${g.startHHMM}-${i}`}
+                      className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-900"
+                    >
+                      Vago {g.label} {g.startHHMM}–{g.endHHMM}
+                    </div>
+                  ))}
+                  {!holiday && !dayEvents.length && !dayGaps.length ? (
+                    <p className="py-2 text-center text-xs text-slate-500">
+                      Nada neste dia.
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="hidden grid-cols-7 gap-1.5 pb-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 lg:grid lg:gap-2 lg:text-xs">
             <div>Dom</div>
             <div>Seg</div>
             <div>Ter</div>
@@ -623,7 +805,7 @@ export default function AgendaPage() {
             <div>Sáb</div>
           </div>
 
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          <div className="hidden grid-cols-7 gap-1.5 lg:grid lg:gap-2">
             {monthDays.map((c, idx) => {
               if (!c.iso) {
                 return (
@@ -827,8 +1009,8 @@ export default function AgendaPage() {
 
       {/* Modal cadastro */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xl shadow-slate-900/20">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-[2px] sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-slate-200/80 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-bold text-slate-900">Novo registro</div>
@@ -990,8 +1172,8 @@ export default function AgendaPage() {
 
       {/* Drawer/Modal evento (ações) */}
       {activeEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 shadow-2xl shadow-slate-900/20">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-[2px] sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-slate-200/80 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div className="text-lg font-bold text-slate-900">Detalhes</div>
               <button
@@ -1201,17 +1383,23 @@ function WeekHourGrid({
     { kind: "NOITE", label: "Noite 18–00" },
   ];
 
-  return (
-    <div className="overflow-x-auto">
-      <div className="grid min-w-[56rem] grid-cols-7 gap-2">
-        {days.map((iso) => {
+  const dayCols = days.map((iso) => {
           const list = eventsByISO.get(iso) || [];
           const dayGaps = gapsByISO.get(iso) || [];
           const weekend = isWeekendISO(iso);
           const holiday = holidayByISO.get(iso);
-          return (
+          return { iso, list, dayGaps, weekend, holiday };
+        });
+
+  function DayCol({
+    iso,
+    list,
+    dayGaps,
+    weekend,
+    holiday,
+  }: (typeof dayCols)[number]) {
+    return (
             <div
-              key={iso}
               className={cn(
                 "rounded-xl border p-2",
                 holiday
@@ -1249,22 +1437,15 @@ function WeekHourGrid({
                         {b.label}
                       </div>
                       <div className="mt-1 space-y-1">
-                        {inBand.map((ev) => {
-                          const color = memberColor.get(ev.user.id) || "#111827";
-                          const bg = ev.type === "ABSENCE" ? "rgba(239,68,68,0.10)" : hexToRgba(color, 0.14);
-                          const bd = ev.type === "ABSENCE" ? "#EF4444" : color;
-                          return (
-                            <button
-                              key={ev.id}
-                              type="button"
-                              className="w-full rounded border px-1.5 py-1 text-left text-[11px] font-medium"
-                              style={{ borderColor: bd, backgroundColor: bg }}
-                              onClick={() => onPick(ev)}
-                            >
-                              {ev.startHHMM}–{ev.endHHMM} · {ev.user.name.split(" ")[0]}
-                            </button>
-                          );
-                        })}
+                        {inBand.map((ev) => (
+                          <EventChip
+                            key={ev.id}
+                            ev={ev}
+                            memberColor={memberColor}
+                            onPick={onPick}
+                            compact
+                          />
+                        ))}
                         {gBand.map((g, i) => (
                           <div
                             key={`${g.startHHMM}-${i}`}
@@ -1279,9 +1460,23 @@ function WeekHourGrid({
                 })}
               </div>
             </div>
-          );
-        })}
+    );
+  }
+
+  return (
+    <>
+      <div className="space-y-3 lg:hidden">
+        {dayCols.map((d) => (
+          <DayCol key={d.iso} {...d} />
+        ))}
       </div>
-    </div>
+      <div className="hidden overflow-x-auto lg:block">
+      <div className="grid min-w-[56rem] grid-cols-7 gap-2">
+        {dayCols.map((d) => (
+          <DayCol key={d.iso} {...d} />
+        ))}
+      </div>
+      </div>
+    </>
   );
 }

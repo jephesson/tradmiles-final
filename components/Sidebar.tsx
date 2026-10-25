@@ -659,6 +659,7 @@ export default function Sidebar() {
           </Accordion>
         ) : (
         <>
+        <MobileAgendaLink />
         {/* ================= CADASTRO ================= */}
         <Accordion
           title="Cadastro"
@@ -1333,6 +1334,16 @@ function NavScroll({ children }: { children: ReactNode }) {
     >
       {children}
     </nav>
+  );
+}
+
+function MobileAgendaLink() {
+  const { mobile } = useNavChrome();
+  if (!mobile) return null;
+  return (
+    <NavLink href="/dashboard/agenda" className="mb-1 font-semibold">
+      Agenda
+    </NavLink>
   );
 }
 
