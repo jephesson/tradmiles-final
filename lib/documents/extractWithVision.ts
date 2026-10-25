@@ -1,4 +1,5 @@
 import type { DocumentExtractResult, ExtractedPassenger } from "./types";
+import { normalizeCpfInput } from "@/lib/latam/parsePassengerText";
 
 export const DOCUMENT_EXTRACT_SYSTEM = `Você lê documentos de identidade brasileiros (RG antigo/novo, CIN, CNH física/digital, comprovante CPF, certidão de nascimento) em fotos — e também prints de WhatsApp/Telegram com ficha de passageiro.
 
@@ -8,7 +9,7 @@ Regras:
 3. Extraia TODOS os passageiros visíveis (1, 2, 3 ou mais). Duas fichas/docs na mesma imagem → dois passageiros. Várias imagens → una o conjunto sem duplicar a mesma pessoa.
 4. Campos: fullName, birthDateBR (DD/MM/YYYY), cpf (11 dígitos se legível), gender (M|F só se o doc tiver Sexo; NÃO invente pelo nome), documentNumber (RG se sem CPF), sourceDocs, confidence, notes.
 5. Asteriscos, campos rasurados ou ilegíveis → null nesse campo + note.
-6. CPF no formato 000.000.000-00 ou só dígitos; normalize para 11 dígitos quando possível.
+6. CPF é STRING com exatamente 11 dígitos, inclusive zeros à esquerda (ex.: "03323904206"). Nunca envie como número JSON — o zero some e o sistema gera outro CPF.
 7. Datas com ponto (03.04.1969) → DD/MM/YYYY.
 8. Certidão de nascimento: nome do registrado, data, CPF se houver, sexo se houver.
 9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) E também bolhas SEM rótulo. Padrão comum no Zap:
@@ -31,7 +32,7 @@ export function buildExtractUserPrompt(imageCount: number, emissionHint = "") {
     {
       "fullName": "string",
       "birthDateBR": "DD/MM/YYYY ou null",
-      "cpf": "11 dígitos ou null",
+      "cpf": "string com 11 dígitos (preserve zero à esquerda) ou null",
       "email": "string ou null",
       "phone": "string ou null",
       "gender": "M" | "F" | null,
@@ -76,8 +77,8 @@ function normalizePassenger(raw: any): ExtractedPassenger | null {
     .replace(/\s+/g, " ");
   if (!fullName || fullName.length < 3) return null;
 
-  let cpf = onlyDigits(String(raw?.cpf || ""));
-  if (cpf.length !== 11) cpf = "";
+  let cpf = normalizeCpfInput(raw?.cpf) || "";
+  if (cpf && /^[1-9]\d9\d{8}$/.test(cpf)) cpf = "";
 
   const emailRaw = String(raw?.email || "").trim().toLowerCase();
   const email = emailRaw.includes("@") ? emailRaw : null;

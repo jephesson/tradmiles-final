@@ -171,10 +171,20 @@ export function generateValidCpf(): string {
   return n.join("");
 }
 
+/**
+ * CPF com 11 dígitos. Se a IA mandar número e o zero da frente sumir
+ * (03323904206 → 3323904206), recoloca o zero.
+ */
+export function normalizeCpfInput(raw: unknown): string | null {
+  const d = onlyDigits(String(raw ?? ""));
+  if (d.length === 11) return d;
+  if (d.length === 10) return d.padStart(11, "0");
+  return null;
+}
+
 /** Mantém 11 dígitos mesmo com checksum inválido (para avisar, não apagar). */
 function extractCpfDigits(s: string | null | undefined): string | null {
-  const d = onlyDigits(String(s || ""));
-  return d.length === 11 ? d : null;
+  return normalizeCpfInput(s);
 }
 
 function withCpfMeta<T extends { cpf: string | null }>(

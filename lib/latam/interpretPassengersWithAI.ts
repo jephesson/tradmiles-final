@@ -2,6 +2,7 @@ import type { ParsedPassenger, TitularContact } from "@/lib/latam/parsePassenger
 import {
   generateValidCpf,
   isValidCpf,
+  normalizeCpfInput,
   parsePassengerText,
   passengerParseNeedsAi,
   sortPassengersAdultChildInfant,
@@ -26,7 +27,7 @@ Regras:
 - fullName = nome completo como na passagem (sem rótulos tipo "Pax", "bebê", "do bebê").
 - birthDate é OBRIGATÓRIO quando aparecer no texto (DD/MM/YYYY ou YYYY-MM-DD).
 - Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
-- cpf só dígitos ou formatado BR; null se não houver.
+- cpf é STRING com 11 dígitos, inclusive zeros à esquerda (ex.: "03323904206"). Nunca envie CPF como número JSON (o zero some). null só se realmente não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
 - Ordem da lista: adultos (12+), depois crianças (2–11), depois bebês (<2).
 - Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento, ou blocos NOME: / CPF: / NASCIMENTO:): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
@@ -86,15 +87,38 @@ function splitFullName(full: string): { firstName: string; lastName: string } {
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
-function mapAiPassenger(raw: any, block: string): ParsedPassenger | null {
+function recoverCpfFromText(text: string, used: Set<string>): string | null {
+  const formatted = [
+    ...String(text || "").matchAll(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g),
+  ].map((m) => onlyDigits(m[0]));
+  const raw11 = [...String(text || "").matchAll(/\b\d{11}\b/g)].map((m) => m[0]);
+  const raw10 = [...String(text || "").matchAll(/\b\d{10}\b/g)].map((m) =>
+    m[0].padStart(11, "0")
+  );
+  for (const d of [...formatted, ...raw11, ...raw10]) {
+    const cpf = normalizeCpfInput(d);
+    if (!cpf || used.has(cpf)) continue;
+    // Celular BR (DDD + 9) não é CPF
+    if (/^[1-9]\d9\d{8}$/.test(cpf)) continue;
+    return cpf;
+  }
+  return null;
+}
+
+function mapAiPassenger(
+  raw: any,
+  block: string,
+  usedCpfs: Set<string>
+): ParsedPassenger | null {
   const fullName = String(raw?.fullName || "")
     .replace(/^(?:pax\s+do\s+beb[eê]|pax|beb[eê]|do\s+beb[eê])\s*[:\-–.]?\s*/i, "")
     .trim();
   if (!fullName) return null;
   const { firstName, lastName } = splitFullName(fullName);
   const birthDate = parseAiBirthDate(raw?.birthDate);
-  let cpf = onlyDigits(String(raw?.cpf || ""));
-  if (cpf.length !== 11) cpf = "";
+  let cpf = normalizeCpfInput(raw?.cpf) || "";
+  if (cpf && usedCpfs.has(cpf)) cpf = "";
+  if (!cpf) cpf = recoverCpfFromText(block, usedCpfs) || "";
   const genderRaw = String(raw?.gender || "").toUpperCase();
   const gender = genderRaw === "M" || genderRaw === "F" ? genderRaw : null;
   const email = raw?.email ? String(raw.email).trim().toLowerCase() : null;
@@ -180,9 +204,13 @@ export async function interpretPassengersWithAI(
     const data = JSON.parse(String(raw));
     const list = Array.isArray(data?.passengers) ? data.passengers : [];
     const out: ParsedPassenger[] = [];
+    const usedCpfs = new Set<string>();
     for (const item of list) {
-      const mapped = mapAiPassenger(item, String(text || ""));
-      if (mapped) out.push(mapped);
+      const mapped = mapAiPassenger(item, String(text || ""), usedCpfs);
+      if (mapped) {
+        if (mapped.cpf) usedCpfs.add(mapped.cpf);
+        out.push(mapped);
+      }
     }
     return out.length ? out : null;
   } catch {
@@ -196,9 +224,44 @@ function parseCompletenessScore(
 ): number {
   const withDob = passengers.filter((p) => p.birthDate && p.firstName).length;
   const missingDob = passengers.filter((p) => p.firstName && !p.birthDate).length;
-  let score = withDob * 10 - missingDob * 8;
+  const realCpf = passengers.filter((p) => p.cpf && !p.cpfGenerated).length;
+  const genCpf = passengers.filter((p) => p.cpfGenerated).length;
+  let score = withDob * 10 - missingDob * 8 + realCpf * 8 - genCpf * 4;
   if (expected > 0) score -= Math.abs(withDob - expected) * 6;
   return score;
+}
+
+function nameKey(p: ParsedPassenger) {
+  return `${p.firstName || ""} ${p.lastName || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fillCpfFromRegex(
+  ai: ParsedPassenger[],
+  regex: ParsedPassenger[]
+): ParsedPassenger[] {
+  const withCpf = regex.filter((r) => r.cpf && !r.cpfGenerated);
+  if (!withCpf.length) return ai;
+  const missing = ai.filter((p) => !p.cpf || p.cpfGenerated);
+  return ai.map((p) => {
+    if (p.cpf && !p.cpfGenerated) return p;
+    const key = nameKey(p);
+    const byName = withCpf.find((r) => nameKey(r) === key);
+    const match =
+      byName ||
+      (withCpf.length === 1 && missing.length === 1 ? withCpf[0] : null);
+    if (!match?.cpf) return p;
+    return {
+      ...p,
+      cpf: match.cpf,
+      cpfValid: match.cpfValid,
+      cpfGenerated: false,
+    };
+  });
 }
 
 /**
@@ -229,13 +292,14 @@ export async function parsePassengerTextWithFallback(
       emissionHint: opts?.emissionHint,
     });
     if (ai?.length) {
-      const withContact = ai
-        .filter((p) => p.firstName && p.birthDate)
-        .map((p) => ({
-          ...p,
-          email: p.email || titular?.email || null,
-          phone: p.phone || titular?.phone || null,
-        }));
+      const withContact = fillCpfFromRegex(
+        ai.filter((p) => p.firstName && p.birthDate),
+        regex
+      ).map((p) => ({
+        ...p,
+        email: p.email || titular?.email || null,
+        phone: p.phone || titular?.phone || null,
+      }));
       if (
         withContact.length &&
         parseCompletenessScore(withContact, expected) >=
