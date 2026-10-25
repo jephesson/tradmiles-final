@@ -30,7 +30,9 @@ Regras:
 - Inclua bebês (isInfant=true). Não invente passageiros.
 - Ordem da lista: adultos (12+), depois crianças (2–11), depois bebês (<2).
 - Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento, ou blocos NOME: / CPF: / NASCIMENTO:): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
-- Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax.
+- WhatsApp sem rótulo também: nome completo numa linha, CPF (11 dígitos) na seguinte, data (DD/MM/YYYY) na outra; e-mail e telefone podem vir em mensagens seguintes. Extraia mesmo assim.
+- Ignore horários de bolha (14:51), print de busca de voo (milhas, horários, aeroportos) e o papo. Não invente passageiro a partir disso.
+- Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax — mas se houver um passageiro, associe o e-mail/telefone a ele.
 - Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.`;
 
 function onlyDigits(s: string) {

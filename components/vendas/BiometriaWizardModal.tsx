@@ -433,6 +433,7 @@ export default function BiometriaWizardModal({
   const openedOnce = useRef(false);
   const lastCedenteId = useRef(cedenteId);
   const pendingTelegramPrep = useRef(false);
+  const lastLatamPrepKey = useRef("");
 
   const expectedPassengerCount = Math.max(
     0,
@@ -515,29 +516,6 @@ export default function BiometriaWizardModal({
     latamRegexPassengers.length,
     latamTitularContact,
     searchOutbound,
-  ]);
-
-  useEffect(() => {
-    if (!pendingTelegramPrep.current) return;
-    if (step !== "extension") return;
-    if (!useLatamExtension) return;
-    if (!latamPassengerText.trim()) {
-      pendingTelegramPrep.current = false;
-      return;
-    }
-    if (latamAiParsing) return;
-    if (latamParsedPassengers.some((p) => !p.birthDate)) {
-      pendingTelegramPrep.current = false;
-      return;
-    }
-    pendingTelegramPrep.current = false;
-    void syncLatamExtensionSession(true);
-  }, [
-    step,
-    useLatamExtension,
-    latamPassengerText,
-    latamAiParsing,
-    latamParsedPassengers,
   ]);
 
   const cpf = creds?.cpf || "";
@@ -1070,6 +1048,37 @@ export default function BiometriaWizardModal({
       setLatamExtSyncing(false);
     }
   }
+
+  const latamPrepKey = latamParsedPassengers
+    .map((p) => `${p.firstName}|${p.lastName}|${p.cpf}|${p.birthDate}|${p.email}|${p.phone}`)
+    .join(";");
+
+  useEffect(() => {
+    if (!open || step !== "extension") return;
+    if (!useLatamExtension) return;
+    if (latamAiParsing || docExtracting) return;
+    if (!latamParsedPassengers.length) {
+      lastLatamPrepKey.current = "";
+      return;
+    }
+    if (latamParsedPassengers.some((p) => !p.birthDate)) return;
+    if (lastLatamPrepKey.current === latamPrepKey) return;
+
+    const t = window.setTimeout(() => {
+      lastLatamPrepKey.current = latamPrepKey;
+      pendingTelegramPrep.current = false;
+      void syncLatamExtensionSession(true);
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [
+    open,
+    step,
+    useLatamExtension,
+    latamAiParsing,
+    docExtracting,
+    latamPrepKey,
+    latamParsedPassengers,
+  ]);
 
   // Ao entrar no passo: carrega cartões e pré-seleciona o padrão de taxa
   useEffect(() => {
@@ -2003,7 +2012,7 @@ export default function BiometriaWizardModal({
                         onChange={(e) => setLatamPassengerText(e.target.value)}
                         onPaste={onPassengerPaste}
                         placeholder={
-                          "Isabella Angelis\nNasc 08/07/1982\nCPF 71912231115\n\nOvidio Angelis\n...\n\nemail@exemplo.com\n11999999999\n(1 e-mail + 1 tel → todos; se omitir → titular do cartão)"
+                          "Rosiele Dias Vieira\n03323904206\n12/02/1997\n\nemail@exemplo.com\n81999999999\n\n(nome + CPF + data, mesmo sem rótulo; 1 e-mail + 1 tel → todos)"
                         }
                       />
                       {docExtractError ? (

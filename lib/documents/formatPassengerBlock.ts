@@ -27,6 +27,9 @@ export function formatPassengerBlock(p: ExtractedPassenger): string {
 
   const sex = genderLabel(p.gender);
   if (sex) lines.push(`Sexo ${sex}`);
+  if (p.email?.trim()) lines.push(p.email.trim());
+  const phone = onlyDigits(p.phone || "");
+  if (phone.length >= 10) lines.push(phone);
 
   return lines.join("\n");
 }

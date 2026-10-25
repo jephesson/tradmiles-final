@@ -4,6 +4,8 @@ export type ExtractedPassenger = {
   birthDateBR: string | null; // DD/MM/YYYY
   cpf: string | null; // só dígitos ou formatado
   gender: "M" | "F" | null;
+  email?: string | null;
+  phone?: string | null;
   /** RG / registro quando CPF ausente */
   documentNumber: string | null;
   sourceDocs: string[]; // ex.: ["RG_verso", "CNH"]

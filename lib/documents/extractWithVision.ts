@@ -11,9 +11,15 @@ Regras:
 6. CPF no formato 000.000.000-00 ou só dígitos; normalize para 11 dígitos quando possível.
 7. Datas com ponto (03.04.1969) → DD/MM/YYYY.
 8. Certidão de nascimento: nome do registrado, data, CPF se houver, sexo se houver.
-9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) da emissão atual. Também leia blocos "NOME:" / "CPF:" / "NASCIMENTO:" mesmo no meio de um print de conversa. Junte Nome+Sobrenome em fullName. Ignore só o papo e valores de milhas/voo — extraia os nomes, CPFs e nascimentos visíveis.
-10. Não invente CPF. Não invente sexo.
-11. Responda SOMENTE JSON válido no schema pedido.`;
+9. Print de Telegram/WhatsApp: leia fichas/tabelas (Nome, Sobrenome, CPF, Data de nascimento) E também bolhas SEM rótulo. Padrão comum no Zap:
+   - linha 1: nome completo
+   - linha 2: CPF (11 dígitos, com ou sem pontuação)
+   - linha 3: data de nascimento DD/MM/YYYY
+   - bolhas seguintes: e-mail e telefone
+   Extraia esses passageiros. Junte Nome+Sobrenome em fullName. Extraia email e phone se visíveis.
+10. Ignore papo, horário da mensagem (14:51), print de busca de voo (origem/destino, milhas, duração). NÃO invente passageiro a partir do card de voo.
+11. Não invente CPF. Não invente sexo.
+12. Responda SOMENTE JSON válido no schema pedido.`;
 
 export function buildExtractUserPrompt(imageCount: number, emissionHint = "") {
   const scope = emissionHint
@@ -26,6 +32,8 @@ export function buildExtractUserPrompt(imageCount: number, emissionHint = "") {
       "fullName": "string",
       "birthDateBR": "DD/MM/YYYY ou null",
       "cpf": "11 dígitos ou null",
+      "email": "string ou null",
+      "phone": "string ou null",
       "gender": "M" | "F" | null,
       "documentNumber": "string ou null",
       "sourceDocs": ["CNH"|"RG_frente"|"RG_verso"|"CIN"|"CPF"|"CERTIDAO"|"OUTRO"],
@@ -71,10 +79,17 @@ function normalizePassenger(raw: any): ExtractedPassenger | null {
   let cpf = onlyDigits(String(raw?.cpf || ""));
   if (cpf.length !== 11) cpf = "";
 
+  const emailRaw = String(raw?.email || "").trim().toLowerCase();
+  const email = emailRaw.includes("@") ? emailRaw : null;
+  const phoneDig = onlyDigits(String(raw?.phone || raw?.telefone || ""));
+  const phone = phoneDig.length >= 10 ? phoneDig.replace(/^55/, "") : null;
+
   return {
     fullName,
     birthDateBR: normalizeBirth(raw?.birthDateBR ?? raw?.nascimento),
     cpf: cpf || null,
+    email,
+    phone,
     gender: normalizeGender(raw?.gender ?? raw?.sexo),
     documentNumber: String(raw?.documentNumber || raw?.rg || "").trim() || null,
     sourceDocs: Array.isArray(raw?.sourceDocs)

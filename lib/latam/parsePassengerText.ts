@@ -530,6 +530,16 @@ function preprocessPassengerText(raw: string): string {
   t = t.replace(/ *\n */g, "\n");
   t = t.replace(/\n{3,}/g, "\n\n");
 
+  // Horário de bolha do Zap (14:51) — não é dado de pax
+  t = t.replace(/^\s*\d{1,2}:\d{2}\s*$/gm, "");
+
+  // Zap manda nome / CPF / data em linhas (às vezes com linha em branco no meio)
+  t = t.replace(
+    /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' ]{2,80})\n+\s*(\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}|\d{11})\n+\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g,
+    "$1\n$2\n$3"
+  );
+  t = t.replace(/\n{3,}/g, "\n\n");
+
   // "Nome :" / "Nome:Valor" / "CPF - 015..." → "Label: valor"
   t = t.replace(
     new RegExp(
@@ -996,6 +1006,10 @@ function extractFloatingContacts(text: string): {
 
 function lineLooksLikeName(trimmed: string): boolean {
   if (!trimmed || EMAIL_RE.test(trimmed)) return false;
+  if (/^[A-Za-zÀ-ÿ].*>\s*[A-Za-zÀ-ÿ]/.test(trimmed)) return false;
+  if (/\b(milhas|duração|duracao|parada|operado pela|por pessoa)\b/i.test(trimmed))
+    return false;
+  if (/^\s*(comprar\s+voos|mais\s+econ[oô]mico)\b/i.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
     /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|passaporte|passport|rne|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero)\b/i.test(
@@ -1264,7 +1278,8 @@ export function passengerParseNeedsAi(
   const real = passengers.filter((p) => !isGhostPassenger(p));
   if (passengers.some(isGhostPassenger)) return true;
   if (real.some((p) => !p.birthDate || !p.firstName)) return true;
-  if (!real.length && (expected > 0 || String(rawText || "").trim().length > 40)) {
+  const raw = String(rawText || "").trim();
+  if (!real.length && (expected > 0 || raw.length > 12)) {
     return true;
   }
   if (expected > 0 && real.length !== expected) return true;
