@@ -59,26 +59,28 @@ export default function ParceirosClient() {
   }, [load]);
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden font-sans">
+    <main className="relative min-h-screen overflow-hidden font-sans">
       <LoginSkyBackdrop />
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-lg flex-col px-4 py-10 sm:px-6">
-        <header className="mb-8 flex flex-col items-center text-center">
-          <Image
-            src="/trademiles.png"
-            alt="TradeMiles"
-            width={88}
-            height={88}
-            unoptimized
-            className="h-20 w-20 object-contain sm:h-24 sm:w-24"
-          />
-          <h1 className="mt-3 text-2xl font-semibold text-white drop-shadow-sm">Parceiros</h1>
-          <p className="mt-1 max-w-sm text-sm text-white/85">
-            Estoque LATAM e atendentes online da Vias Aéreas.
-          </p>
-        </header>
+      <div className="relative z-10 grid min-h-screen place-items-center px-4 py-10 sm:px-6 sm:py-12">
+        <section className="w-full max-w-[440px] overflow-hidden rounded-3xl border border-white/70 bg-white/95 shadow-[0_24px_48px_-12px_rgba(12,35,64,0.14)] backdrop-blur-sm">
+          <div className="space-y-6 px-7 pb-2 pt-8 sm:px-9 sm:pt-9">
+            <header className="flex flex-col items-center text-center">
+              <div className="flex items-center justify-center gap-4 sm:gap-5">
+                <Image
+                  src="/trademiles.png"
+                  alt=""
+                  width={88}
+                  height={88}
+                  unoptimized
+                  className="h-20 w-20 shrink-0 object-contain sm:h-24 sm:w-24"
+                />
+                <div className="min-w-0 text-left">
+                  <h1 className="text-lg font-semibold text-slate-900 sm:text-xl">Parceiros</h1>
+                  <p className="mt-0.5 text-sm text-slate-500">Estoque LATAM e atendentes online</p>
+                </div>
+              </div>
+            </header>
 
-        <section className="overflow-hidden rounded-3xl border border-white/70 bg-white/95 shadow-[0_24px_48px_-12px_rgba(12,35,64,0.14)] backdrop-blur-sm">
-          <div className="space-y-6 px-5 py-6 sm:px-7">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">LATAM Pass</h2>
               <p className="mt-1 text-xs text-slate-500">
@@ -153,7 +155,7 @@ export default function ParceirosClient() {
             </div>
           </div>
 
-          <footer className="border-t border-slate-200/80 bg-slate-50/90 px-5 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-7">
+          <footer className="border-t border-slate-200/80 bg-slate-50/90 px-7 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-9">
             <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
             <p className="mt-0.5 text-slate-400">CNPJ: 63.817.773/0001-85</p>
             <a href="/login" className="mt-2 inline-block text-xs font-medium text-sky-700 hover:underline">
