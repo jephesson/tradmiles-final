@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, requireSession } from "@/lib/require-session";
 import { parsePixCadastro } from "@/lib/inter/pix-key";
+import { parseWhatsappInput } from "@/lib/whatsapp";
 import { countCedentesByOwner, serializeCedenteBreakdown } from "@/lib/cedentes/ownerCounts";
 
 export const runtime = "nodejs";
@@ -47,6 +48,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       employeeId: true,
       pixTipo: true,
       chavePix: true,
+      whatsapp: true,
       role: true,
       team: true,
       isActive: true,
@@ -71,6 +73,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         employeeId: u.employeeId ?? null,
         pixTipo: u.pixTipo ?? null,
         chavePix: u.chavePix ?? null,
+        whatsapp: u.whatsapp ?? null,
         team: u.team,
         role: u.role,
         isActive: u.isActive,
@@ -128,6 +131,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           employeeId: true,
           pixTipo: true,
           chavePix: true,
+          whatsapp: true,
           team: true,
           role: true,
           isActive: true,
@@ -147,6 +151,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
             employeeId: updated.employeeId ?? null,
             pixTipo: updated.pixTipo ?? null,
             chavePix: updated.chavePix ?? null,
+            whatsapp: updated.whatsapp ?? null,
             team: updated.team,
             role: updated.role,
             isActive: updated.isActive,
@@ -180,6 +185,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ ok: false, error: pix.error }, { status: 400, headers: noCacheHeaders() });
   }
 
+  const wa = parseWhatsappInput(body?.whatsapp);
+  if (!wa.ok) {
+    return NextResponse.json({ ok: false, error: wa.error }, { status: 400, headers: noCacheHeaders() });
+  }
+
   try {
     const updated = await prisma.user.update({
       where: { id },
@@ -188,6 +198,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         login,
         cpf: cpf ? cpf : null,
         employeeId,
+        whatsapp: wa.value,
         ...(pix.skip ? {} : { pixTipo: pix.pixTipo, chavePix: pix.chavePix }),
       },
       select: {
@@ -198,6 +209,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         employeeId: true,
         pixTipo: true,
         chavePix: true,
+        whatsapp: true,
         team: true,
         role: true,
         isActive: true,
@@ -217,6 +229,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           employeeId: updated.employeeId ?? null,
           pixTipo: updated.pixTipo ?? null,
           chavePix: updated.chavePix ?? null,
+          whatsapp: updated.whatsapp ?? null,
           team: updated.team,
           role: updated.role,
           isActive: updated.isActive,

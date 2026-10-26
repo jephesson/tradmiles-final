@@ -30,3 +30,15 @@ export function buildWhatsAppLink(e164: string, text?: string) {
   if (!text) return base;
   return `${base}?text=${encodeURIComponent(text)}`;
 }
+
+export function parseWhatsappInput(
+  raw: unknown
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: null };
+  if (typeof raw !== "string") return { ok: false, error: "WhatsApp inválido." };
+  const t = raw.trim();
+  if (!t) return { ok: true, value: null };
+  const e164 = normalizeBRPhoneToE164(t);
+  if (!e164) return { ok: false, error: "WhatsApp inválido. Informe DDD + número." };
+  return { ok: true, value: e164 };
+}

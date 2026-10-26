@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { parsePixCadastro } from "@/lib/inter/pix-key";
+import { parseWhatsappInput } from "@/lib/whatsapp";
 import { countCedentesByOwner, serializeCedenteBreakdown } from "@/lib/cedentes/ownerCounts";
 
 export const runtime = "nodejs";
@@ -55,6 +56,7 @@ export async function GET() {
         employeeId: true, // ✅
         pixTipo: true,
         chavePix: true,
+        whatsapp: true,
         role: true,
         team: true,
         isActive: true,
@@ -74,6 +76,7 @@ export async function GET() {
       employeeId: u.employeeId ?? null,
       pixTipo: u.pixTipo ?? null,
       chavePix: u.chavePix ?? null,
+      whatsapp: u.whatsapp ?? null,
       team: u.team,
       role: u.role,
       isActive: u.isActive,
@@ -138,6 +141,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: pix.error }, { status: 400, headers: noCacheHeaders() });
     }
 
+    const wa = parseWhatsappInput(body?.whatsapp);
+    if (!wa.ok) {
+      return NextResponse.json({ ok: false, error: wa.error }, { status: 400, headers: noCacheHeaders() });
+    }
+
     const exists = await prisma.user.findUnique({ where: { login } });
     if (exists) {
       return NextResponse.json(
@@ -157,6 +165,7 @@ export async function POST(req: NextRequest) {
         team,
         role,
         passwordHash: sha256(password),
+        whatsapp: wa.value,
         ...(pix.skip ? {} : { pixTipo: pix.pixTipo, chavePix: pix.chavePix }),
       },
       select: {
@@ -167,6 +176,7 @@ export async function POST(req: NextRequest) {
         employeeId: true,
         pixTipo: true,
         chavePix: true,
+        whatsapp: true,
         team: true,
         role: true,
         createdAt: true,

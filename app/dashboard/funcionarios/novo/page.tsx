@@ -33,6 +33,7 @@ export default function NovoFuncionarioPage() {
   const [login, setLogin] = useState("");
   const [pixTipo, setPixTipo] = useState<"CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA">("CPF");
   const [chavePix, setChavePix] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
 
   const TEAM_FIXED = "@vias_aereas";
   const [team] = useState(TEAM_FIXED);
@@ -71,6 +72,7 @@ export default function NovoFuncionarioPage() {
         password,
         pixTipo,
         chavePix: chavePix.trim(),
+        whatsapp: whatsapp.trim(),
       };
 
       if (!payload.name) throw new Error("Nome obrigatório.");
@@ -160,6 +162,19 @@ export default function NovoFuncionarioPage() {
             onChange={(e) => setChavePix(e.target.value)}
             placeholder="CPF / e-mail / telefone / aleatória"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">WhatsApp (página de parceiros)</label>
+          <input
+            className="w-full rounded-xl border px-3 py-2"
+            value={whatsapp}
+            onChange={(e) => setWhatsapp(e.target.value)}
+            placeholder="DDD + número, ex: 53 99976-0707"
+          />
+          <div className="mt-1 text-xs text-slate-500">
+            Bolinha de WhatsApp na página pública /parceiros, sem revelar o nome.
+          </div>
         </div>
 
         <div>

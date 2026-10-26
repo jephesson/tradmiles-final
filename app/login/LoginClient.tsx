@@ -249,6 +249,9 @@ export default function LoginClient() {
             <footer className="border-t border-slate-200/80 bg-slate-50/90 px-7 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-9">
               <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
               <p className="mt-0.5 text-slate-400">CNPJ: 63.817.773/0001-85</p>
+              <a href="/parceiros" className="mt-2 inline-block text-xs font-medium text-sky-700 hover:underline">
+                Área de parceiros
+              </a>
             </footer>
           </form>
 

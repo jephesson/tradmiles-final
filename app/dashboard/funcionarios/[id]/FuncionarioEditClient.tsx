@@ -13,6 +13,7 @@ type FuncItem = {
   cpf: string | null;
   pixTipo?: PixTipo | null;
   chavePix?: string | null;
+  whatsapp?: string | null;
   team: string;
   role: string;
   isActive?: boolean;
@@ -58,6 +59,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
   const [login, setLogin] = useState("");
   const [pixTipo, setPixTipo] = useState<PixTipo>("CPF");
   const [chavePix, setChavePix] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
 
   // troca de senha
   const [oldPassword, setOldPassword] = useState("");
@@ -95,6 +97,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
       setLogin(u.login || "");
       setPixTipo(u.pixTipo || "CPF");
       setChavePix(u.chavePix || "");
+      setWhatsapp(u.whatsapp || "");
     } catch (e: any) {
       setMsg(e?.message || "Erro");
     } finally {
@@ -125,6 +128,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
         login: login.trim().toLowerCase(),
         pixTipo,
         chavePix: chavePix.trim(),
+        whatsapp: whatsapp.trim(),
       };
 
       if (!payload.name) throw new Error("Nome obrigatório.");
@@ -297,6 +301,19 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
           <div>
             <label className="block text-sm mb-1">Login</label>
             <input className="w-full rounded-xl border px-3 py-2" value={login} onChange={(e) => setLogin(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1">WhatsApp (página de parceiros)</label>
+            <input
+              className="w-full rounded-xl border px-3 py-2"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              placeholder="DDD + número, ex: 53 99976-0707"
+            />
+            <div className="mt-1 text-xs text-slate-500">
+              Aparece só como bolinha de WhatsApp quando o funcionário estiver online. O nome não é exibido.
+            </div>
           </div>
 
           <div>

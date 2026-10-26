@@ -159,6 +159,9 @@ model User {
   /** Último ping de presença no dashboard (ex.: página inicial). */
   lastPresenceAt DateTime?
 
+  /** WhatsApp na página pública de parceiros (E.164 sem +). */
+  whatsapp String?
+
   workSessions              WorkSession[]              @relation("WorkSessionUser")
   attendanceEmissionCredits AttendanceEmissionCredit[] @relation("AttendanceCreditUser")
   attendanceAwards          AttendanceAward[]          @relation("AttendanceAwardUser")
