@@ -9,20 +9,20 @@ const waGreen = "#25D366";
 
 type Payload = {
   latam: { maxAccount: number; total: number; minAccountThreshold: number };
-  online: { label: string; whatsappUrl: string | null }[];
+  online: { name: string; whatsappUrl: string | null }[];
 };
 
 function fmtPts(n: number) {
   return n.toLocaleString("pt-BR");
 }
 
-function WhatsAppBubble({ href }: { href: string }) {
+function WhatsAppBubble({ href, name }: { href: string; name: string }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Abrir WhatsApp"
+      aria-label={`WhatsApp de ${name}`}
       className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-md shadow-emerald-700/25 transition hover:scale-105 hover:brightness-110"
       style={{ backgroundColor: waGreen }}
     >
@@ -73,7 +73,7 @@ export default function ParceirosClient() {
           />
           <h1 className="mt-3 text-2xl font-semibold text-white drop-shadow-sm">Parceiros</h1>
           <p className="mt-1 max-w-sm text-sm text-white/85">
-            Estoque LATAM e atendentes online da Vias Aéreas. Sem identificação de nomes.
+            Estoque LATAM e atendentes online da Vias Aéreas.
           </p>
         </header>
 
@@ -126,9 +126,9 @@ export default function ParceirosClient() {
                 </p>
               ) : (
                 <ul className="mt-3 space-y-2">
-                  {data.online.map((p) => (
+                  {data.online.map((p, i) => (
                     <li
-                      key={p.label}
+                      key={`${p.name}-${i}`}
                       className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
                     >
                       <div className="flex min-w-0 items-center gap-3">
@@ -137,12 +137,12 @@ export default function ParceirosClient() {
                           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                         </span>
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-slate-800">{p.label}</div>
+                          <div className="truncate text-sm font-medium text-slate-800">{p.name}</div>
                           <div className="text-xs text-slate-500">Online agora</div>
                         </div>
                       </div>
                       {p.whatsappUrl ? (
-                        <WhatsAppBubble href={p.whatsappUrl} />
+                        <WhatsAppBubble href={p.whatsappUrl} name={p.name} />
                       ) : (
                         <span className="text-xs text-slate-400">WhatsApp indisponível</span>
                       )}

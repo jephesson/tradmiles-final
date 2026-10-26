@@ -43,15 +43,16 @@ export async function GET() {
           role: { in: ["staff", "admin"] },
           lastPresenceAt: { gte: since },
         },
-        select: { whatsapp: true, lastPresenceAt: true },
+        select: { name: true, whatsapp: true, lastPresenceAt: true },
         orderBy: { lastPresenceAt: "desc" },
       }),
     ]);
 
-    const online = staff.map((u, i) => {
+    const online = staff.map((u) => {
       const wa = (u.whatsapp || "").replace(/\D/g, "");
+      const name = (u.name || "").trim() || "Atendente";
       return {
-        label: `Atendente ${i + 1}`,
+        name,
         whatsappUrl: wa ? buildWhatsAppLink(wa, WA_TEXT) : null,
       };
     });

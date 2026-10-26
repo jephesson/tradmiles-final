@@ -173,7 +173,7 @@ export default function NovoFuncionarioPage() {
             placeholder="DDD + número, ex: 53 99976-0707"
           />
           <div className="mt-1 text-xs text-slate-500">
-            Bolinha de WhatsApp na página pública /parceiros, sem revelar o nome.
+            Nome e bolinha de WhatsApp na página pública /parceiros quando estiver online.
           </div>
         </div>
 

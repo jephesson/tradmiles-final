@@ -312,7 +312,7 @@ export default function FuncionarioEditClient({ id }: { id: string }) {
               placeholder="DDD + número, ex: 53 99976-0707"
             />
             <div className="mt-1 text-xs text-slate-500">
-              Aparece só como bolinha de WhatsApp quando o funcionário estiver online. O nome não é exibido.
+              Aparece na página pública /parceiros junto com o nome quando o funcionário estiver online.
             </div>
           </div>
 
