@@ -173,10 +173,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const hasCard = hasOwn(body, "feeCardLabel");
   const hasPoints = hasOwn(body, "points");
   const hasMilheiro = hasOwn(body, "milheiroCents");
+  const hasFee = hasOwn(body, "embarqueFeeCents");
 
-  if (!hasCard && !hasPoints && !hasMilheiro) {
+  if (!hasCard && !hasPoints && !hasMilheiro && !hasFee) {
     return NextResponse.json(
-      { ok: false, error: "Informe ao menos cartão, pontos ou milheiro para alterar." },
+      {
+        ok: false,
+        error: "Informe ao menos cartão, pontos, milheiro ou taxa de embarque para alterar.",
+      },
       { status: 400 }
     );
   }
@@ -272,12 +276,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       const nextFeeCardLabel = hasCard ? cleanCardLabel(body.feeCardLabel) : sale.feeCardLabel;
       const nextPoints = hasPoints ? clampInt(body.points) : sale.points;
       const nextMilheiroCents = hasMilheiro ? clampInt(body.milheiroCents) : sale.milheiroCents;
+      const nextEmbarqueFeeCents = hasFee ? clampInt(body.embarqueFeeCents) : sale.embarqueFeeCents;
 
       if (nextPoints <= 0) throw new Error("Quantidade de pontos inválida.");
       if (nextMilheiroCents <= 0) throw new Error("Valor do milheiro inválido.");
+      if (nextEmbarqueFeeCents < 0) throw new Error("Taxa de embarque inválida.");
 
       const nextPointsValueCents = calcPointsValueCents(nextPoints, nextMilheiroCents);
-      const nextTotalCents = nextPointsValueCents + sale.embarqueFeeCents;
+      const nextTotalCents = nextPointsValueCents + nextEmbarqueFeeCents;
       const nextCommissionCents = calcCommissionCents(nextPointsValueCents, employeeC1Bps, sale.date, holidayISOs);
       const nextBonusCents = calcBonusCents(
         nextPoints,
@@ -290,6 +296,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         nextFeeCardLabel !== sale.feeCardLabel ||
         nextPoints !== sale.points ||
         nextMilheiroCents !== sale.milheiroCents ||
+        nextEmbarqueFeeCents !== sale.embarqueFeeCents ||
         nextPointsValueCents !== sale.pointsValueCents ||
         nextTotalCents !== sale.totalCents;
 
@@ -346,6 +353,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           feeCardLabel: nextFeeCardLabel,
           points: nextPoints,
           milheiroCents: nextMilheiroCents,
+          embarqueFeeCents: nextEmbarqueFeeCents,
           pointsValueCents: nextPointsValueCents,
           totalCents: nextTotalCents,
           commissionCents: nextCommissionCents,

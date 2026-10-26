@@ -339,6 +339,13 @@ function auditChanges(log: SaleAuditLog) {
       `Milheiro: ${fmtMoneyBR(before.milheiroCents || 0)} → ${fmtMoneyBR(after.milheiroCents || 0)}`
     );
   }
+  if (before.embarqueFeeCents !== after.embarqueFeeCents) {
+    changes.push(
+      `Taxa de embarque: ${fmtMoneyBR(before.embarqueFeeCents || 0)} → ${fmtMoneyBR(
+        after.embarqueFeeCents || 0
+      )}`
+    );
+  }
   if (before.pointsValueCents !== after.pointsValueCents) {
     changes.push(
       `Valor pontos: ${fmtMoneyBR(before.pointsValueCents || 0)} → ${fmtMoneyBR(
@@ -513,6 +520,7 @@ export default function VendasClient() {
   const [editFeeCardLabel, setEditFeeCardLabel] = useState("");
   const [editPoints, setEditPoints] = useState("");
   const [editMilheiro, setEditMilheiro] = useState("");
+  const [editEmbarqueFee, setEditEmbarqueFee] = useState("");
   const [editNote, setEditNote] = useState("");
 
   const [reassignCedentes, setReassignCedentes] = useState<CedenteMini[]>([]);
@@ -632,8 +640,10 @@ export default function VendasClient() {
 
     const points = intFromBR(editPoints);
     const milheiroCents = moneyToCentsBR(editMilheiro);
+    const embarqueFeeCents = moneyToCentsBR(editEmbarqueFee);
     if (points <= 0) return alert("Quantidade de pontos inválida.");
     if (milheiroCents <= 0) return alert("Valor do milheiro inválido.");
+    if (embarqueFeeCents < 0) return alert("Taxa de embarque inválida.");
 
     setSavingEdit(true);
     try {
@@ -643,6 +653,7 @@ export default function VendasClient() {
           feeCardLabel: editFeeCardLabel.trim() || null,
           points,
           milheiroCents,
+          embarqueFeeCents,
           note: editNote.trim() || null,
         }),
       });
@@ -901,6 +912,7 @@ export default function VendasClient() {
     setEditFeeCardLabel(details.feeCardLabel || "");
     setEditPoints(intInputBR(details.points));
     setEditMilheiro(moneyInputBR(details.milheiroCents));
+    setEditEmbarqueFee(moneyInputBR(feeCentsOfSale(details) || 0));
     setEditNote("");
     loadAudit(details.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1773,7 +1785,7 @@ export default function VendasClient() {
                       if (canEditDetails) setEditingSale((v) => !v);
                     }}
                     disabled={!canEditDetails}
-                    title="Ajustar cartão, pontos e milheiro (admin)"
+                    title="Ajustar cartão, taxa de embarque, pontos e milheiro (admin)"
                   >
                     {editingSale ? "Ocultar ajuste" : "Ajustar"}
                   </button>
@@ -1872,7 +1884,7 @@ export default function VendasClient() {
                     </p>
                   ) : null}
 
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
                     <label className="text-sm font-medium text-slate-700">
                       Cartão usado
                       <select
@@ -1911,6 +1923,20 @@ export default function VendasClient() {
                           {editFeeCardLabel || "—"}
                         </div>
                       )}
+                    </label>
+
+                    <label className="text-sm font-medium text-slate-700">
+                      Taxa de embarque
+                      <input
+                        value={editEmbarqueFee}
+                        onChange={(e) => setEditEmbarqueFee(e.target.value)}
+                        className="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-900"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                      />
+                      <div className="mt-1 text-sm font-normal text-slate-500">
+                        Use 0,00 se o cliente pagou no cartão dele.
+                      </div>
                     </label>
 
                     <label className="text-sm font-medium text-slate-700">
@@ -1954,6 +1980,7 @@ export default function VendasClient() {
                         setEditFeeCardLabel(details.feeCardLabel || "");
                         setEditPoints(intInputBR(details.points));
                         setEditMilheiro(moneyInputBR(details.milheiroCents));
+                        setEditEmbarqueFee(moneyInputBR(feeCentsOfSale(details) || 0));
                         setEditNote("");
                       }}
                       disabled={savingEdit}
