@@ -1324,6 +1324,53 @@ export function passengerParseNeedsAi(
   return false;
 }
 
+function passengerNameKey(p: {
+  firstName?: string | null;
+  lastName?: string | null;
+}) {
+  return `${p.firstName || ""} ${p.lastName || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Mesma pessoa duas vezes (mesmo CPF ou nome+nascimento) → um só. */
+export function collapseDuplicatePassengers(
+  passengers: ParsedPassenger[]
+): ParsedPassenger[] {
+  const unique: ParsedPassenger[] = [];
+  for (const p of passengers) {
+    const cpf = extractCpfDigits(p.cpf);
+    const name = passengerNameKey(p);
+    const same = unique.find((u) => {
+      const ucpf = extractCpfDigits(u.cpf);
+      if (cpf && ucpf && cpf === ucpf && !p.cpfGenerated && !u.cpfGenerated) {
+        return true;
+      }
+      return Boolean(
+        name &&
+          name === passengerNameKey(u) &&
+          p.birthDate &&
+          p.birthDate === u.birthDate
+      );
+    });
+    if (!same) {
+      unique.push({ ...p });
+      continue;
+    }
+    same.email = same.email || p.email;
+    same.phone = same.phone || p.phone;
+    if (same.cpfGenerated && p.cpf && !p.cpfGenerated) {
+      same.cpf = p.cpf;
+      same.cpfValid = p.cpfValid;
+      same.cpfGenerated = false;
+    }
+  }
+  return unique;
+}
+
 export function parsePassengerText(
   raw: string,
   titular?: TitularContact | null,
@@ -1370,7 +1417,7 @@ export function parsePassengerText(
     });
 
   return sortPassengersAdultChildInfant(
-    applySharedContacts(parsed, text, titular),
+    applySharedContacts(collapseDuplicatePassengers(parsed), text, titular),
     travelISO
   );
 }

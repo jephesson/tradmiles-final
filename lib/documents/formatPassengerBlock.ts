@@ -1,5 +1,8 @@
 import type { ExtractedPassenger } from "./types";
-import { sortPassengersAdultChildInfant } from "@/lib/latam/parsePassengerText";
+import {
+  extractCpfsFromSource,
+  sortPassengersAdultChildInfant,
+} from "@/lib/latam/parsePassengerText";
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -41,10 +44,43 @@ export function formatPassengersForSale(passengers: ExtractedPassenger[]): strin
     .join("\n\n");
 }
 
+function passengerBlockKey(block: string) {
+  const cpf = extractCpfsFromSource(block)[0];
+  if (cpf) return `cpf:${cpf}`;
+  const name = String(block || "")
+    .split(/\n/)[0]
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name ? `n:${name}` : "";
+}
+
+function splitPassengerBlocks(text: string) {
+  return String(text || "")
+    .split(/\n\s*\n+/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+}
+
 export function mergePassengerTexts(existing: string, extracted: string): string {
   const a = String(existing || "").trim();
   const b = String(extracted || "").trim();
   if (!a) return b;
   if (!b) return a;
-  return `${a}\n\n${b}`;
+  const blocks = [...splitPassengerBlocks(a), ...splitPassengerBlocks(b)];
+  const byKey = new Map<string, string>();
+  const order: string[] = [];
+  for (const block of blocks) {
+    const key = passengerBlockKey(block) || `raw:${block.slice(0, 80)}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, block);
+      order.push(key);
+      continue;
+    }
+    byKey.set(key, block.length >= prev.length ? block : prev);
+  }
+  return order.map((k) => byKey.get(k) || "").filter(Boolean).join("\n\n");
 }

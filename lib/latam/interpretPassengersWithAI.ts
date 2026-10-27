@@ -1,5 +1,6 @@
 import type { ParsedPassenger, TitularContact } from "@/lib/latam/parsePassengerText";
 import {
+  collapseDuplicatePassengers,
   extractCpfsFromSource,
   generateValidCpf,
   isValidCpf,
@@ -309,7 +310,10 @@ export async function parsePassengerTextWithFallback(
           parseCompletenessScore(regex, expected)
       ) {
         return {
-          passengers: sortPassengersAdultChildInfant(withContact, opts?.travelDate),
+          passengers: sortPassengersAdultChildInfant(
+            collapseDuplicatePassengers(withContact),
+            opts?.travelDate
+          ),
           source: "openai",
         };
       }
