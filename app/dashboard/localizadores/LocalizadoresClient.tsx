@@ -310,7 +310,13 @@ export default function LocalizadoresClient() {
     }
     if (
       !confirm(
-        `Cancelar ${r.locator || r.numero}?\nPontos voltam ao cedente. CPF permanece usado.`
+        [
+          `Cancelar ${r.locator || r.numero}?`,
+          "Pontos voltam ao cedente. CPF permanece usado.",
+          cancelChargeFine
+            ? `Multa: ${fmtMoneyBR(fineCents)}.`
+            : "Multa isenta.",
+        ].join("\n")
       )
     )
       return;
@@ -731,21 +737,52 @@ export default function LocalizadoresClient() {
                     Pontos voltam ao cedente. O CPF permanece usado. Bebê não entra na multa —{" "}
                     {fmtInt(pax)} passageiro{pax === 1 ? "" : "s"}.
                   </p>
-                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={cancelChargeFine}
-                      onChange={(e) => setCancelChargeFine(e.target.checked)}
-                      disabled={cancelSubmitting}
-                    />
-                    <span>
-                      <span className="font-semibold text-slate-900">Cobrar multa por CPF</span>
-                      <span className="mt-0.5 block text-xs text-slate-500">
-                        Fica no localizador no Painel de vendas, não em Dívidas a receber.
+                  <div className="mt-4 grid gap-2">
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
+                        cancelChargeFine
+                          ? "border-slate-900 bg-white ring-1 ring-slate-900/10"
+                          : "border-slate-200 bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="cancel-fine-loc"
+                        className="mt-1"
+                        checked={cancelChargeFine}
+                        onChange={() => setCancelChargeFine(true)}
+                        disabled={cancelSubmitting}
+                      />
+                      <span>
+                        <span className="font-semibold text-slate-900">Cobrar multa por passageiro</span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          Fica no localizador no Painel de vendas.
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
+                        !cancelChargeFine
+                          ? "border-emerald-600 bg-emerald-50/70 ring-1 ring-emerald-600/15"
+                          : "border-slate-200 bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="cancel-fine-loc"
+                        className="mt-1"
+                        checked={!cancelChargeFine}
+                        onChange={() => setCancelChargeFine(false)}
+                        disabled={cancelSubmitting}
+                      />
+                      <span>
+                        <span className="font-semibold text-slate-900">Isentar multa</span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          Sem cobrança de CPF. Se a venda estiver paga, reembolso integral.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
                   {cancelChargeFine ? (
                     <label className="mt-3 block text-sm font-medium text-slate-700">
                       Multa por passageiro
@@ -760,7 +797,12 @@ export default function LocalizadoresClient() {
                         {wasPaid ? ` · reembolso ${fmtMoneyBR(refund)}` : ""}
                       </span>
                     </label>
-                  ) : null}
+                  ) : (
+                    <p className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                      Multa isenta
+                      {wasPaid ? ` · reembolso integral ${fmtMoneyBR(refund)}` : "."}
+                    </p>
+                  )}
                   <div className="mt-5 flex justify-end gap-2">
                     <button
                       type="button"

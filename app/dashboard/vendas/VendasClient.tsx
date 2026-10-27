@@ -1211,8 +1211,9 @@ export default function VendasClient() {
       } else {
         lines.push("• Fica no Painel de vendas como cancelado + pendente de multa.");
       }
-    } else if (wasPaid) {
-      lines.push(`• Reembolso integral: ${fmtMoneyBR(r.totalCents)}.`);
+    } else {
+      lines.push("• Multa isenta.");
+      if (wasPaid) lines.push(`• Reembolso integral: ${fmtMoneyBR(r.totalCents)}.`);
     }
 
     if (!confirm(lines.join("\n"))) return;
@@ -2514,23 +2515,52 @@ export default function VendasClient() {
                       {pax === 1 ? "passageiro" : "passageiros"} da venda.
                     </p>
 
-                    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={cancelChargeFine}
-                        onChange={(e) => setCancelChargeFine(e.target.checked)}
-                        disabled={cancelSubmitting}
-                      />
-                      <span>
-                        <span className="font-semibold text-slate-900">
-                          Gerar cobrança do CPF por passageiro
+                    <div className="grid gap-2">
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
+                          cancelChargeFine
+                            ? "border-slate-900 bg-white ring-1 ring-slate-900/10"
+                            : "border-slate-200 bg-slate-50/80"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="cancel-fine-vendas"
+                          className="mt-1"
+                          checked={cancelChargeFine}
+                          onChange={() => setCancelChargeFine(true)}
+                          disabled={cancelSubmitting}
+                        />
+                        <span>
+                          <span className="font-semibold text-slate-900">Cobrar multa por passageiro</span>
+                          <span className="mt-0.5 block text-xs text-slate-500">
+                            Fica no localizador, no Painel de vendas. Não entra no lucro.
+                          </span>
                         </span>
-                        <span className="mt-0.5 block text-xs text-slate-500">
-                          Fica no localizador, no Painel de vendas. Não entra no lucro nem em Dívidas a receber.
+                      </label>
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
+                          !cancelChargeFine
+                            ? "border-emerald-600 bg-emerald-50/70 ring-1 ring-emerald-600/15"
+                            : "border-slate-200 bg-slate-50/80"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="cancel-fine-vendas"
+                          className="mt-1"
+                          checked={!cancelChargeFine}
+                          onChange={() => setCancelChargeFine(false)}
+                          disabled={cancelSubmitting}
+                        />
+                        <span>
+                          <span className="font-semibold text-slate-900">Isentar multa</span>
+                          <span className="mt-0.5 block text-xs text-slate-500">
+                            Sem cobrança de CPF. Se a venda estiver paga, reembolso integral.
+                          </span>
                         </span>
-                      </span>
-                    </label>
+                      </label>
+                    </div>
 
                     {cancelChargeFine ? (
                       <div className="rounded-xl border border-slate-200 bg-white p-3">
