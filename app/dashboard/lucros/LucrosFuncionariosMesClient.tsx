@@ -278,6 +278,10 @@ function LucroHistoryChart({
   const selectedTotal = selected
     ? selected.points.reduce((sum, p) => sum + p.netNoFeeCents, 0)
     : 0;
+  const selectedAvg =
+    selected && selected.points.length
+      ? Math.round(selectedTotal / selected.points.length)
+      : 0;
   const lastIdx = selected ? selected.points.length - 1 : -1;
   const lastPoint = lastIdx >= 0 ? selected!.points[lastIdx] : null;
   const prevPoint = lastIdx > 0 ? selected!.points[lastIdx - 1] : null;
@@ -359,6 +363,31 @@ function LucroHistoryChart({
               strokeDasharray="4 4"
             />
           )}
+
+          {selected && selectedAvg ? (
+            <>
+              <line
+                x1={leftPad}
+                x2={leftPad + plotW}
+                y1={scaleY(selectedAvg)}
+                y2={scaleY(selectedAvg)}
+                stroke={selectedColor || "#64748b"}
+                strokeWidth="1.5"
+                strokeDasharray="5 4"
+                opacity="0.7"
+              />
+              <text
+                x={leftPad + plotW - 2}
+                y={scaleY(selectedAvg) - 6}
+                textAnchor="end"
+                fontSize="10"
+                fontWeight="600"
+                fill={selectedColor || "#64748b"}
+              >
+                média {fmtMoneyCompactBR(selectedAvg)}
+              </text>
+            </>
+          ) : null}
 
           {tickValues.map((tick, idx) => (
             <text key={`label-y-${idx}`} x={8} y={scaleY(tick) + 4} fontSize="11" fill="#64748b">
@@ -540,6 +569,17 @@ function LucroHistoryChart({
               </div>
               <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Média mensal
+                </div>
+                <div className="text-sm font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(selectedAvg)}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {selected.points.length} {selected.points.length === 1 ? "mês" : "meses"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   {monthLabelBR(lastPoint.month)} vs anterior
                 </div>
                 <div
@@ -592,6 +632,16 @@ function LucroHistoryChart({
                       ? "início"
                       : `${up ? "↑" : down ? "↓" : "→"} ${fmtPct(d.pct)}`}
                   </div>
+                  {selectedAvg ? (
+                    <div
+                      className={cn(
+                        "text-[10px]",
+                        point.netNoFeeCents >= selectedAvg ? "text-emerald-700" : "text-rose-600"
+                      )}
+                    >
+                      {point.netNoFeeCents >= selectedAvg ? "acima da média" : "abaixo da média"}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
