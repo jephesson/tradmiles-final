@@ -104,6 +104,101 @@ function isAutoCommissionPayment(p: Payment) {
   return (p.note || "").includes("Desconto automático");
 }
 
+function isoDateOnly(v: string | null | undefined) {
+  const s = String(v || "");
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return "";
+}
+
+function daysBetweenISO(from: string, to: string) {
+  const a = new Date(`${from}T12:00:00.000Z`).getTime();
+  const b = new Date(`${to}T12:00:00.000Z`).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86_400_000));
+}
+
+function addDaysISO(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function debtStartISO(row: Pick<Row, "startsOn" | "createdAt" | "payments" | "dayCharges">) {
+  const fromStart = isoDateOnly(row.startsOn);
+  if (fromStart) return fromStart;
+  const chargeDates = (row.dayCharges || []).map((c) => isoDateOnly(c.date)).filter(Boolean);
+  const payDates = (row.payments || []).map((p) => isoDateOnly(p.receivedAt)).filter(Boolean);
+  const created = isoDateOnly(row.createdAt);
+  const all = [...chargeDates, ...payDates, created].filter(Boolean).sort();
+  return all[0] || todayISO();
+}
+
+function fmtEta(daysLeft: number, etaISO: string) {
+  if (daysLeft <= 1) return `encerra amanhã · ${fmtDateBR(etaISO)}`;
+  if (daysLeft < 60) return `encerra em ${daysLeft} dias · ${fmtDateBR(etaISO)}`;
+  const months = Math.max(1, Math.round(daysLeft / 30));
+  return `encerra em ~${months} ${months === 1 ? "mês" : "meses"} · ${fmtDateBR(etaISO)}`;
+}
+
+function payoffForecast(row: Pick<Row, "totalCents" | "receivedCents" | "status" | "startsOn" | "createdAt" | "payments" | "dayCharges">) {
+  const total = Math.max(0, row.totalCents || 0);
+  const received = Math.max(0, Math.min(total, row.receivedCents || 0));
+  const pct = total > 0 ? Math.min(100, Math.round((received / total) * 1000) / 10) : 0;
+  const saldo = Math.max(0, total - received);
+  if (row.status === "CANCELED") {
+    return { pct, dailyCents: 0, daysLeft: null as number | null, etaISO: null as string | null, label: "Cancelada" };
+  }
+  if (row.status === "PAID" || saldo <= 0) {
+    return { pct: 100, dailyCents: 0, daysLeft: 0, etaISO: null, label: "Quitado" };
+  }
+  const today = todayISO();
+  const elapsed = Math.max(1, daysBetweenISO(debtStartISO(row), today) || 1);
+  const dailyCents = received / elapsed;
+  if (received <= 0 || dailyCents < 1) {
+    return { pct, dailyCents: 0, daysLeft: null, etaISO: null, label: "Sem ritmo ainda" };
+  }
+  const daysLeft = Math.max(1, Math.ceil(saldo / dailyCents));
+  const etaISO = addDaysISO(today, daysLeft);
+  return {
+    pct,
+    dailyCents: Math.round(dailyCents),
+    daysLeft,
+    etaISO,
+    label: `${fmtEta(daysLeft, etaISO)} · ${fmtMoneyBR(Math.round(dailyCents))}/dia`,
+  };
+}
+
+function QuitadoBar({
+  pct,
+  label,
+  compact = false,
+}: {
+  pct: number;
+  label: string;
+  compact?: boolean;
+}) {
+  const done = pct >= 100;
+  return (
+    <div className={compact ? "min-w-[150px] max-w-[220px]" : "w-full"}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold tabular-nums text-slate-800">
+          {pct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+        </span>
+        {done ? (
+          <span className="text-[10px] font-semibold text-emerald-700">Quitado</span>
+        ) : null}
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={cn("h-full rounded-full transition-all", done ? "bg-emerald-500" : "bg-sky-500")}
+          style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[10px] leading-snug text-slate-500">{label}</div>
+    </div>
+  );
+}
+
 function Pill({ children, kind }: { children: ReactNode; kind: "open" | "partial" | "paid" | "canceled" }) {
   const cls =
     kind === "paid"
@@ -163,7 +258,26 @@ export default function DividasAReceberClient() {
       (a, r) => a + Math.max(0, (r.totalCents || 0) - (r.receivedCents || 0)),
       0
     );
-    return { totalCents, receivedCents, balanceCents };
+    const active = rows.filter((r) => r.status !== "CANCELED");
+    const activeTotal = active.reduce((a, r) => a + (r.totalCents || 0), 0);
+    const activeReceived = active.reduce((a, r) => a + (r.receivedCents || 0), 0);
+    const pct = activeTotal > 0 ? Math.min(100, Math.round((activeReceived / activeTotal) * 1000) / 10) : 0;
+    let dailyCents = 0;
+    let openSaldo = 0;
+    for (const r of active) {
+      if (r.status === "PAID") continue;
+      const f = payoffForecast(r);
+      openSaldo += Math.max(0, (r.totalCents || 0) - (r.receivedCents || 0));
+      dailyCents += f.dailyCents;
+    }
+    let forecastLabel = "Sem ritmo ainda";
+    if (openSaldo <= 0 && active.length) forecastLabel = "Tudo quitado";
+    else if (dailyCents >= 1) {
+      const daysLeft = Math.max(1, Math.ceil(openSaldo / dailyCents));
+      const etaISO = addDaysISO(todayISO(), daysLeft);
+      forecastLabel = `${fmtEta(daysLeft, etaISO)} · ${fmtMoneyBR(dailyCents)}/dia`;
+    }
+    return { totalCents, receivedCents, balanceCents, pct, forecastLabel };
   }, [rows]);
 
   async function load() {
@@ -360,6 +474,10 @@ export default function DividasAReceberClient() {
   }
 
   const detailRow = useMemo(() => rows.find((row) => row.id === detailsId) || null, [rows, detailsId]);
+  const detailForecast = useMemo(
+    () => (detailRow ? payoffForecast(detailRow) : null),
+    [detailRow]
+  );
 
   return (
     <div className="space-y-5">
@@ -416,7 +534,7 @@ export default function DividasAReceberClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50/60 to-white p-4 shadow-sm">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total a receber</div>
           <div className="mt-1 text-xl font-bold tabular-nums">{fmtMoneyBR(totals.totalCents)}</div>
@@ -428,6 +546,12 @@ export default function DividasAReceberClient() {
         <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-white p-4 shadow-sm">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Saldo em aberto</div>
           <div className="mt-1 text-xl font-bold tabular-nums text-amber-950">{fmtMoneyBR(totals.balanceCents)}</div>
+        </div>
+        <div className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50/70 to-white p-4 shadow-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">Quitado / previsão</div>
+          <div className="mt-2">
+            <QuitadoBar pct={totals.pct} label={totals.forecastLabel} />
+          </div>
         </div>
       </div>
 
@@ -474,7 +598,7 @@ export default function DividasAReceberClient() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/95 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="p-3">Status</th>
@@ -486,13 +610,14 @@ export default function DividasAReceberClient() {
                 <th className="p-3">Total</th>
                 <th className="p-3">Recebido</th>
                 <th className="p-3">Saldo</th>
+                <th className="p-3">Quitado</th>
                 <th className="p-3">Ações</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-12 text-center text-slate-500" colSpan={isEmployee ? (isAdmin ? 9 : 8) : 8}>
+                  <td className="px-4 py-12 text-center text-slate-500" colSpan={isEmployee ? (isAdmin ? 10 : 9) : 9}>
                     <Wallet className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     Nenhum registro.
                   </td>
@@ -500,6 +625,7 @@ export default function DividasAReceberClient() {
               ) : (
                 rows.map((r) => {
                   const saldo = Math.max(0, (r.totalCents || 0) - (r.receivedCents || 0));
+                  const forecast = payoffForecast(r);
                   const kind =
                     r.status === "PAID"
                       ? "paid"
@@ -562,6 +688,9 @@ export default function DividasAReceberClient() {
                       <td className="p-3 tabular-nums">{fmtMoneyBR(r.totalCents)}</td>
                       <td className="p-3 tabular-nums">{fmtMoneyBR(r.receivedCents)}</td>
                       <td className="p-3 font-semibold tabular-nums">{fmtMoneyBR(saldo)}</td>
+                      <td className="p-3">
+                        <QuitadoBar compact pct={forecast.pct} label={forecast.label} />
+                      </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -848,6 +977,11 @@ export default function DividasAReceberClient() {
                 <div>
                   Saldo: {fmtMoneyBR(Math.max(0, detailRow.totalCents - detailRow.receivedCents))}
                 </div>
+                {detailForecast ? (
+                  <div className="mt-3">
+                    <QuitadoBar pct={detailForecast.pct} label={detailForecast.label} />
+                  </div>
+                ) : null}
                 {isEmployee ? (
                   <>
                     <div className="mt-2">
