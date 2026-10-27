@@ -7,6 +7,7 @@ import {
   Eye,
   Info,
   RefreshCw,
+  TrendingDown,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -196,6 +197,27 @@ function KPI({
   );
 }
 
+function monthDelta(curr: number, prev: number | undefined) {
+  if (prev == null) {
+    return { deltaCents: null as number | null, pct: null as number | null, isNew: true };
+  }
+  const deltaCents = curr - prev;
+  if (prev === 0) {
+    return { deltaCents, pct: curr === 0 ? 0 : null, isNew: curr !== 0 };
+  }
+  return { deltaCents, pct: (deltaCents / Math.abs(prev)) * 100, isNew: false };
+}
+
+function fmtPct(pct: number | null) {
+  if (pct == null) return "novo";
+  const abs = Math.abs(pct).toLocaleString("pt-BR", {
+    maximumFractionDigits: Math.abs(pct) >= 10 ? 0 : 1,
+  });
+  if (pct > 0) return `+${abs}%`;
+  if (pct < 0) return `−${abs}%`;
+  return "0%";
+}
+
 function LucroHistoryChart({
   months,
   series,
@@ -203,6 +225,14 @@ function LucroHistoryChart({
   months: string[];
   series: HistorySeries[];
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hover, setHover] = useState<{
+    userId: string;
+    monthIdx: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
   if (!months.length || !series.length) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-6 py-14 text-center shadow-sm shadow-slate-200/40">
@@ -220,11 +250,11 @@ function LucroHistoryChart({
   }
 
   const width = 980;
-  const height = 280;
-  const leftPad = 52;
-  const rightPad = 18;
-  const topPad = 20;
-  const bottomPad = 36;
+  const height = 300;
+  const leftPad = 64;
+  const rightPad = 108;
+  const topPad = 28;
+  const bottomPad = 38;
   const plotW = width - leftPad - rightPad;
   const plotH = height - topPad - bottomPad;
 
@@ -240,6 +270,23 @@ function LucroHistoryChart({
   const tickValues = Array.from({ length: 4 }, (_, idx) => maxY - ((maxY - minY) * idx) / 3);
   const xLabelStep = months.length > 18 ? 3 : months.length > 12 ? 2 : 1;
   const zeroY = scaleY(0);
+  const selected = series.find((row) => row.user.id === selectedId) || null;
+  const selectedColor = selected
+    ? CHART_COLORS[series.findIndex((row) => row.user.id === selected.user.id) % CHART_COLORS.length]
+    : null;
+
+  const selectedTotal = selected
+    ? selected.points.reduce((sum, p) => sum + p.netNoFeeCents, 0)
+    : 0;
+  const lastIdx = selected ? selected.points.length - 1 : -1;
+  const lastPoint = lastIdx >= 0 ? selected!.points[lastIdx] : null;
+  const prevPoint = lastIdx > 0 ? selected!.points[lastIdx - 1] : null;
+  const lastDelta = lastPoint ? monthDelta(lastPoint.netNoFeeCents, prevPoint?.netNoFeeCents) : null;
+
+  function toggleUser(id: string) {
+    setSelectedId((cur) => (cur === id ? null : id));
+    setHover(null);
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
@@ -250,28 +297,45 @@ function LucroHistoryChart({
               Histórico mensal por funcionário
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
-              Líquido sem taxa de embarque — mesma base da tabela abaixo
+              Clique na linha ou no nome para ver o avanço mês a mês. Líquido sem taxa de embarque.
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {series.map((row, idx) => (
-              <span
-                key={row.user.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/90 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700"
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
-                />
-                {firstName(row.user.name, row.user.login)}
-              </span>
-            ))}
+            {series.map((row, idx) => {
+              const active = selectedId === row.user.id;
+              const faded = selectedId && !active;
+              return (
+                <button
+                  key={row.user.id}
+                  type="button"
+                  onClick={() => toggleUser(row.user.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200/90 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white",
+                    faded && "opacity-45"
+                  )}
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
+                  />
+                  {firstName(row.user.name, row.user.login)}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      <div className="bg-gradient-to-b from-slate-50/50 to-white px-2 pb-4 pt-2">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Gráfico de histórico mensal">
+      <div className="relative bg-gradient-to-b from-slate-50/50 to-white px-2 pb-3 pt-2">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="w-full"
+          role="img"
+          aria-label="Gráfico de histórico mensal"
+        >
           {tickValues.map((tick, idx) => (
             <line
               key={`grid-${idx}`}
@@ -297,7 +361,7 @@ function LucroHistoryChart({
           )}
 
           {tickValues.map((tick, idx) => (
-            <text key={`label-y-${idx}`} x={6} y={scaleY(tick) + 4} fontSize="10" fill="#64748b">
+            <text key={`label-y-${idx}`} x={8} y={scaleY(tick) + 4} fontSize="11" fill="#64748b">
               {fmtMoneyCompactBR(Math.round(tick))}
             </text>
           ))}
@@ -307,23 +371,81 @@ function LucroHistoryChart({
             const points = row.points
               .map((point, pointIdx) => `${leftPad + pointIdx * dx},${scaleY(point.netNoFeeCents)}`)
               .join(" ");
+            const focused = !selectedId || selectedId === row.user.id;
+            const last = row.points[row.points.length - 1];
+            const lastX = leftPad + Math.max(0, row.points.length - 1) * dx;
+            const lastY = last ? scaleY(last.netNoFeeCents) : 0;
 
             return (
-              <g key={row.user.id}>
-                <polyline fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
-                {row.points.map((point, pointIdx) => (
-                  <circle
-                    key={`${row.user.id}-${point.month}`}
-                    cx={leftPad + pointIdx * dx}
-                    cy={scaleY(point.netNoFeeCents)}
-                    r="3.5"
-                    fill="white"
-                    stroke={color}
-                    strokeWidth="2"
+              <g
+                key={row.user.id}
+                opacity={focused ? 1 : 0.18}
+                className="cursor-pointer"
+                onClick={() => toggleUser(row.user.id)}
+              >
+                <polyline
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={focused && selectedId ? 3.5 : 2.75}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={points}
+                />
+                <polyline
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="18"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={points}
+                />
+                {row.points.map((point, pointIdx) => {
+                  const cx = leftPad + pointIdx * dx;
+                  const cy = scaleY(point.netNoFeeCents);
+                  const showLabel = Boolean(selectedId === row.user.id);
+                  return (
+                    <g
+                      key={`${row.user.id}-${point.month}`}
+                      onMouseEnter={() =>
+                        setHover({ userId: row.user.id, monthIdx: pointIdx, x: cx, y: cy })
+                      }
+                      onMouseLeave={() => setHover(null)}
+                    >
+                      <circle cx={cx} cy={cy} r="10" fill="transparent" />
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={showLabel ? 5 : 4}
+                        fill="white"
+                        stroke={color}
+                        strokeWidth="2.25"
+                      />
+                      {showLabel ? (
+                        <text
+                          x={cx}
+                          y={cy - 10}
+                          textAnchor="middle"
+                          fontSize="10"
+                          fontWeight="700"
+                          fill="#0f172a"
+                        >
+                          {fmtMoneyCompactBR(point.netNoFeeCents)}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+                {last && focused ? (
+                  <text
+                    x={lastX + 10}
+                    y={lastY + 4}
+                    fontSize="11"
+                    fontWeight="700"
+                    fill={color}
                   >
-                    <title>{`${firstName(row.user.name, row.user.login)} • ${monthLabelBR(point.month)} • ${fmtMoneyBR(point.netNoFeeCents)}`}</title>
-                  </circle>
-                ))}
+                    {firstName(row.user.name, row.user.login)}
+                  </text>
+                ) : null}
               </g>
             );
           })}
@@ -334,9 +456,9 @@ function LucroHistoryChart({
               <text
                 key={`label-x-${month}`}
                 x={leftPad + idx * dx}
-                y={topPad + plotH + 20}
+                y={topPad + plotH + 22}
                 textAnchor={idx === months.length - 1 ? "end" : idx === 0 ? "start" : "middle"}
-                fontSize="10"
+                fontSize="11"
                 fill="#64748b"
               >
                 {monthLabelBR(month)}
@@ -344,7 +466,138 @@ function LucroHistoryChart({
             );
           })}
         </svg>
+
+        {hover ? (() => {
+          const row = series.find((s) => s.user.id === hover.userId);
+          const point = row?.points[hover.monthIdx];
+          const prev = hover.monthIdx > 0 ? row?.points[hover.monthIdx - 1] : undefined;
+          if (!row || !point) return null;
+          const d = monthDelta(point.netNoFeeCents, prev?.netNoFeeCents);
+          const leftPct = (hover.x / width) * 100;
+          const topPct = (hover.y / height) * 100;
+          return (
+            <div
+              className="pointer-events-none absolute z-10 min-w-[160px] rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-lg shadow-slate-900/10"
+              style={{
+                left: `${Math.min(78, Math.max(8, leftPct))}%`,
+                top: `${Math.max(4, topPct - 8)}%`,
+                transform: "translate(-50%, -100%)",
+              }}
+            >
+              <div className="text-[11px] font-semibold text-slate-900">
+                {firstName(row.user.name, row.user.login)} · {monthLabelBR(point.month)}
+              </div>
+              <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">
+                {fmtMoneyBR(point.netNoFeeCents)}
+              </div>
+              {d.deltaCents == null ? (
+                <div className="text-[11px] text-slate-500">Primeiro mês da série</div>
+              ) : (
+                <div
+                  className={cn(
+                    "mt-0.5 text-[11px] font-semibold",
+                    d.deltaCents > 0
+                      ? "text-emerald-700"
+                      : d.deltaCents < 0
+                        ? "text-rose-700"
+                        : "text-slate-500"
+                  )}
+                >
+                  {d.deltaCents > 0 ? "↑" : d.deltaCents < 0 ? "↓" : "→"}{" "}
+                  {fmtMoneyBR(d.deltaCents)} · {fmtPct(d.pct)}
+                </div>
+              )}
+            </div>
+          );
+        })() : null}
       </div>
+
+      {selected && lastPoint && lastDelta ? (
+        <div className="border-t border-slate-100 bg-slate-50/70 px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: selectedColor || "#0ea5e9" }}
+                />
+                <div className="text-sm font-semibold text-slate-900">
+                  Avanço · {firstName(selected.user.name, selected.user.login)}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Clique de novo na linha para ver todos. Valores = líquido sem taxa.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Total no período
+                </div>
+                <div className="text-sm font-bold tabular-nums text-slate-900">
+                  {fmtMoneyBR(selectedTotal)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  {monthLabelBR(lastPoint.month)} vs anterior
+                </div>
+                <div
+                  className={cn(
+                    "flex items-center gap-1 text-sm font-bold tabular-nums",
+                    lastDelta.deltaCents != null && lastDelta.deltaCents > 0
+                      ? "text-emerald-700"
+                      : lastDelta.deltaCents != null && lastDelta.deltaCents < 0
+                        ? "text-rose-700"
+                        : "text-slate-800"
+                  )}
+                >
+                  {lastDelta.deltaCents != null && lastDelta.deltaCents > 0 ? (
+                    <TrendingUp className="h-3.5 w-3.5" aria-hidden />
+                  ) : lastDelta.deltaCents != null && lastDelta.deltaCents < 0 ? (
+                    <TrendingDown className="h-3.5 w-3.5" aria-hidden />
+                  ) : null}
+                  {lastDelta.deltaCents == null
+                    ? "—"
+                    : `${fmtMoneyBR(lastDelta.deltaCents)} · ${fmtPct(lastDelta.pct)}`}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10">
+            {selected.points.map((point, idx) => {
+              const prev = idx > 0 ? selected.points[idx - 1] : undefined;
+              const d = monthDelta(point.netNoFeeCents, prev?.netNoFeeCents);
+              const up = (d.deltaCents || 0) > 0;
+              const down = (d.deltaCents || 0) < 0;
+              return (
+                <div
+                  key={point.month}
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-2"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {monthLabelBR(point.month)}
+                  </div>
+                  <div className="mt-0.5 text-[13px] font-bold tabular-nums leading-tight text-slate-900">
+                    {fmtMoneyBR(point.netNoFeeCents)}
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-0.5 text-[10px] font-semibold",
+                      up ? "text-emerald-700" : down ? "text-rose-700" : "text-slate-400"
+                    )}
+                  >
+                    {d.deltaCents == null
+                      ? "início"
+                      : `${up ? "↑" : down ? "↓" : "→"} ${fmtPct(d.pct)}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
