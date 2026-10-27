@@ -287,6 +287,7 @@ export default function AgendaPage() {
   }, [holidays]);
 
   async function toggleHoliday(iso: string, validated: boolean) {
+    if (isWeekendISO(iso)) return;
     try {
       const res = await fetch("/api/agenda/holidays", {
         method: "POST",
@@ -660,7 +661,7 @@ export default function AgendaPage() {
       {view === "MES" && (
         <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm shadow-slate-200/30 sm:p-5">
           <p className="mb-3 hidden text-xs text-slate-500 lg:block">
-            Fim de semana em lilás. Feriado nacional oficial em azul — o admin valida o dia para liberar C1 +50%.
+            Fim de semana em lilás (C1 +50% automático). Feriado em azul: só valida em dia útil — sábado/domingo já entra no fim de semana, sem dobrar.
           </p>
 
           <div className="grid grid-cols-7 gap-1 pb-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">
@@ -873,9 +874,17 @@ export default function AgendaPage() {
                           title={holiday.name}
                         >
                           {holiday.name}
-                          {holiday.validated ? " · C1 +50%" : ""}
+                          {weekend
+                            ? " · C1 no fim de semana"
+                            : holiday.validated
+                              ? " · C1 +50%"
+                              : ""}
                         </div>
-                        {canValidateHolidays ? (
+                        {weekend ? (
+                          <div className="text-[10px] font-medium text-sky-800/80">
+                            Não valida — já vale o sábado/domingo
+                          </div>
+                        ) : canValidateHolidays ? (
                           <button
                             type="button"
                             className="w-full rounded border border-sky-400/80 bg-white px-1 py-0.5 text-[10px] font-semibold text-sky-900 hover:bg-sky-50"
@@ -952,12 +961,19 @@ export default function AgendaPage() {
               {view === "DIA" && holidayByISO.get(selectedISO) ? (
                 <div className="mt-1 text-xs font-semibold text-sky-800">
                   Feriado: {holidayByISO.get(selectedISO)!.name}
-                  {holidayByISO.get(selectedISO)!.validated ? " · C1 +50% validado" : " · aguardando validação"}
+                  {isWeekendISO(selectedISO)
+                    ? " · C1 já no sábado/domingo (não valida)"
+                    : holidayByISO.get(selectedISO)!.validated
+                      ? " · C1 +50% validado"
+                      : " · aguardando validação"}
                 </div>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              {view === "DIA" && canValidateHolidays && holidayByISO.get(selectedISO) ? (
+              {view === "DIA" &&
+              canValidateHolidays &&
+              holidayByISO.get(selectedISO) &&
+              !isWeekendISO(selectedISO) ? (
                 <button
                   type="button"
                   className="inline-flex items-center justify-center rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"

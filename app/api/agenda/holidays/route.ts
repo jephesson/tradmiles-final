@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { isAdminRole } from "@/lib/payouts/resolveViewAs";
 import { officialHolidayName, officialHolidaysInRange } from "@/lib/agenda/holidays";
+import { isWeekendISO } from "@/lib/agenda/shifts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,11 @@ export async function POST(req: NextRequest) {
     const dateISO = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : brToISO(raw);
     const name = officialHolidayName(dateISO);
     if (!name) return bad("Só feriado nacional oficial pode ser validado.");
+    if (isWeekendISO(dateISO)) {
+      return bad(
+        "Feriado no sábado ou domingo já usa o C1 de fim de semana. Não precisa validar."
+      );
+    }
 
     const validated = body.validated !== false;
 
