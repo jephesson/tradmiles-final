@@ -295,11 +295,17 @@ export async function parsePassengerTextWithFallback(
       const withContact = fillCpfFromRegex(
         ai.filter((p) => p.firstName && p.birthDate),
         regex
-      ).map((p) => ({
-        ...p,
-        email: p.email || titular?.email || null,
-        phone: p.phone || titular?.phone || null,
-      }));
+      ).map((p) => {
+        const key = `${p.firstName}|${p.lastName}`.toLowerCase();
+        const same = regex.find(
+          (r) => `${r.firstName}|${r.lastName}`.toLowerCase() === key
+        );
+        return {
+          ...p,
+          email: p.email || same?.email || titular?.email || null,
+          phone: p.phone || same?.phone || titular?.phone || null,
+        };
+      });
       if (
         withContact.length &&
         parseCompletenessScore(withContact, expected) >=

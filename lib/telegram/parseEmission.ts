@@ -7,6 +7,8 @@ export type TelegramParsedPax = {
   birthDate: string | null;
   birthDateBR: string | null;
   cpf: string | null;
+  email: string | null;
+  phone: string | null;
   paxType: TelegramPaxType;
 };
 
@@ -142,12 +144,86 @@ export function parseFlightDate(raw: string | null | undefined): string | null {
   return brToIso(s);
 }
 
+const CITY_TO_IATA: Record<string, string> = {
+  salvador: "SSA",
+  curitiba: "CWB",
+  recife: "REC",
+  fortaleza: "FOR",
+  brasilia: "BSB",
+  brasília: "BSB",
+  manaus: "MAO",
+  belem: "BEL",
+  belém: "BEL",
+  natal: "NAT",
+  maceio: "MCZ",
+  maceió: "MCZ",
+  guarulhos: "GRU",
+  congonhas: "CGH",
+  galeao: "GIG",
+  "galeão": "GIG",
+  "rio de janeiro": "GIG",
+  "sao paulo": "GRU",
+  "são paulo": "GRU",
+  "belo horizonte": "CNF",
+  confins: "CNF",
+  "porto alegre": "POA",
+  florianopolis: "FLN",
+  florianópolis: "FLN",
+  vitoria: "VIX",
+  vitória: "VIX",
+  cuiaba: "CGB",
+  cuiabá: "CGB",
+  goiania: "GYN",
+  goiânia: "GYN",
+  campinas: "VCP",
+  viracopos: "VCP",
+  niteroi: "SDU",
+  "foz do iguacu": "IGU",
+  "foz do iguaçu": "IGU",
+  joinville: "JOI",
+  navegantes: "NVT",
+  londrina: "LDB",
+  maringa: "MGF",
+  maringá: "MGF",
+};
+
+const IATA_SKIP = new Set([
+  "CIA",
+  "VOO",
+  "LAT",
+  "TAM",
+  "GLO",
+  "AZU",
+  "ADT",
+  "CHD",
+  "INF",
+  "PDF",
+  "BRL",
+  "THE",
+  "AND",
+]);
+
 function toIata(raw: string) {
-  const s = String(raw || "")
-    .replace(/[^a-zA-Z]/g, "")
-    .toUpperCase()
-    .slice(0, 3);
-  return /^[A-Z]{3}$/.test(s) ? s : "";
+  const t = String(raw || "").trim();
+  if (!t || /^null$/i.test(t)) return "";
+  const compact = t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (CITY_TO_IATA[compact]) return CITY_TO_IATA[compact]!;
+  for (const [k, v] of Object.entries(CITY_TO_IATA)) {
+    if (compact.includes(k)) return v;
+  }
+  const codes = t.toUpperCase().match(/\b[A-Z]{3}\b/g) || [];
+  for (const c of codes) {
+    if (!IATA_SKIP.has(c)) return c;
+  }
+  const letters = t.replace(/[^a-zA-Z]/g, "").toUpperCase();
+  if (/^[A-Z]{3}$/.test(letters) && !IATA_SKIP.has(letters)) return letters;
+  return "";
 }
 
 /** LATAM: bebê < 2 anos na data do voo; criança 2–11; adulto 12+. */
@@ -177,6 +253,8 @@ function formatPaxBlock(p: TelegramParsedPax) {
     p.fullName,
     p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
     p.cpf ? `CPF ${p.cpf}` : "",
+    p.email || "",
+    p.phone || "",
     `Tipo ${typeLabel(p.paxType)}`,
   ]
     .filter(Boolean)
@@ -241,8 +319,12 @@ function regexFlight(text: string) {
 
 function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight | null) {
   const passengers: TelegramParsedPax[] = [];
-  let origin = toIata(String(data.origin || "")) || seed?.origin || "";
-  let destination = toIata(String(data.destination || "")) || seed?.destination || "";
+  let origin =
+    toIata(String(data.origin || data.origem || data.from || "")) || seed?.origin || "";
+  let destination =
+    toIata(String(data.destination || data.destino || data.to || "")) ||
+    seed?.destination ||
+    "";
   let outbound = parseFlightDate(String(data.outbound || "")) || seed?.outbound || "";
   let inbound = parseFlightDate(String(data.inbound || data.returnDate || "")) || seed?.inbound || "";
   if (outbound && !plausibleFlightDate(outbound)) outbound = seed?.outbound || outbound;
@@ -263,11 +345,15 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
         ? rawType
         : classifyPaxType(birthDate, outbound);
     const cpf = onlyDigits(String(item?.cpf || ""));
+    const emailRaw = String(item?.email || "").trim().toLowerCase();
+    const phoneDig = onlyDigits(String(item?.phone || item?.telefone || ""));
     passengers.push({
       fullName,
       birthDate,
       birthDateBR: isoToBr(birthDate),
       cpf: cpf.length === 11 ? cpf : null,
+      email: emailRaw.includes("@") ? emailRaw : null,
+      phone: phoneDig.length >= 10 ? phoneDig.replace(/^55/, "") : null,
       paxType,
     });
   }
@@ -428,23 +514,29 @@ export async function parseTelegramEmissionFromImages(
   const content: unknown[] = [
     {
       type: "text",
-      text: `Leia estas imagens do Telegram/WhatsApp: print da busca LATAM (trecho, datas, milhas, 1 ou mais passageiros) e/ou ficha de passageiro (NOME / CPF / NASCIMENTO).
+      text: `Leia estas imagens do Telegram/WhatsApp.
+
+Há dois tipos comuns:
+1) CARD DE BUSCA LATAM PASS (amarelo/branco): origem e destino, datas tipo "seg., 26 out", milhas (ex. 42.818), Light/Plus, duração. NÃO é ficha de passageiro.
+2) FICHA DE PASSAGEIRO: nome, CPF, nascimento, às vezes e-mail e telefone.
+
 JSON:
 {
-  "origin": "IATA",
-  "destination": "IATA",
+  "origin": "IATA 3 letras",
+  "destination": "IATA 3 letras",
   "outbound": "YYYY-MM-DD",
   "inbound": "YYYY-MM-DD ou null",
   "trip": "IDA ou IDA_VOLTA",
   "adt": 1,
   "chd": 0,
   "inf": 0,
-  "passengers": [{ "fullName": "", "birthDate": "", "cpf": null, "paxType": "ADT" }]
+  "passengers": [{ "fullName": "", "birthDate": "", "cpf": null, "email": null, "phone": null, "paxType": "ADT" }]
 }
 Hoje (Recife): ${recifeTodayIso()}.
-IATA do aeroporto do print (SSA, VCP, GRU, XAP), não SAO genérico.
-Datas do VOO no cabeçalho (ex.: "seg., 28 dez" e "ter., 12 jan") em YYYY-MM-DD. Se não tiver ano, escolha o próximo dia válido a partir de hoje.
-Nunca use data de nascimento. Se o print for ida e volta, preencha outbound E inbound e trip=IDA_VOLTA.`,
+No card de voo: leia o IATA visível (SSA, CWB, GRU, CGH…). Se só aparecer cidade (Salvador, Curitiba), converta para IATA (SSA, CWB). Nunca use as 3 primeiras letras da cidade (SAL, CUR).
+Datas do VOO: "seg., 26 out" / "ter., 27 out" → YYYY-MM-DD do próximo dia válido a partir de hoje. NÃO use data de nascimento.
+Se houver ida e volta no mesmo print, preencha outbound E inbound e trip=IDA_VOLTA.
+Passageiros: só se houver ficha/nome+CPF. Do card de voo NÃO invente passageiro. E-mail e telefone se aparecerem.`,
     },
     ...images.map((img) => ({
       type: "image_url",
@@ -468,17 +560,24 @@ Nunca use data de nascimento. Se o print for ida e volta, preencha outbound E in
         {
           role: "system",
           content:
-            "Você lê print de oferta LATAM e ficha de passageiro no Telegram. Responda só JSON. Não invente.",
+            "Você lê print da busca LATAM Pass e ficha de passageiro no Telegram. Sempre extraia o trecho (IATA + datas) se o card de voo estiver na imagem. Responda só JSON. Não invente passageiro.",
         },
         { role: "user", content: content as never },
       ],
     }),
   });
   const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    console.error("telegram vision voo:", json?.error || res.status);
+    return null;
+  }
+  const raw = String(json?.choices?.[0]?.message?.content || "").trim();
   try {
-    const data = JSON.parse(String(json?.choices?.[0]?.message?.content || "{}"));
+    const cleaned = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "");
+    const data = JSON.parse(cleaned);
     return fromModelData(data, null);
-  } catch {
+  } catch (e) {
+    console.error("telegram vision JSON:", e, raw.slice(0, 400));
     return null;
   }
 }

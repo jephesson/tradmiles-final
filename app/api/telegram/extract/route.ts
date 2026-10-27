@@ -85,15 +85,22 @@ export async function POST(req: Request) {
       .join("\n\n");
 
     const chatText = result.texts.join("\n\n").trim();
-    const [parsedChat, vision, fromVision] = await Promise.all([
+    const [parsedChat, fromVision] = await Promise.all([
       chatText
         ? parsePassengerTextWithFallback(chatText, null, { expectedCount, emissionHint })
         : Promise.resolve({ passengers: [] }),
-      result.images.length
-        ? extractPassengersFromImages(result.images, emissionHint)
-        : Promise.resolve({ passengers: [] }),
       result.images.length ? parseTelegramEmissionFromImages(result.images) : Promise.resolve(null),
     ]);
+
+    let visionPassengers: Awaited<ReturnType<typeof extractPassengersFromImages>>["passengers"] = [];
+    if (result.images.length && !fromVision?.passengers.length && !parsedChat.passengers.length) {
+      try {
+        const vision = await extractPassengersFromImages(result.images, emissionHint);
+        visionPassengers = vision.passengers;
+      } catch (e) {
+        console.error("telegram vision docs:", e);
+      }
+    }
 
     let fromChat = "";
     if (parsedChat.passengers.length) {
@@ -103,6 +110,8 @@ export async function POST(req: Request) {
             [p.firstName, p.lastName].filter(Boolean).join(" "),
             p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
             p.cpf ? `CPF ${p.cpf}` : "",
+            p.email || "",
+            p.phone || "",
           ].filter(Boolean);
           return lines.join("\n");
         })
@@ -111,13 +120,13 @@ export async function POST(req: Request) {
       fromChat = chatText;
     }
 
-    const fromImages = formatPassengersForSale(vision.passengers);
+    const fromImages = formatPassengersForSale(visionPassengers);
 
     const extracted = mergePassengerTexts(fromChat, fromImages);
     const combined = [chatText, fromImages].filter(Boolean).join("\n\n");
     const fromText = await parseTelegramEmission(combined, emission);
     const flight = mergeParsedFlights(fromVision, fromText);
-    const passengerText = (flight?.passengerText || extracted).trim();
+    const passengerText = mergePassengerTexts(extracted, flight?.passengerText || "").trim();
     const merged = mergePassengerTexts(existingText, passengerText);
     if (!merged.trim() && !flight?.origin && !flight?.destination) {
       return NextResponse.json(
