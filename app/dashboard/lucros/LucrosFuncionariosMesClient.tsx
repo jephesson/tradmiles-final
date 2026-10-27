@@ -244,8 +244,8 @@ function LucroHistoryChart({
 }: {
   months: string[];
   series: HistorySeries[];
-  onPdfMonth?: () => void;
-  onPdfAll?: () => void;
+  onPdfMonth?: (userId: string | null) => void;
+  onPdfAll?: (userId: string | null) => void;
   pdfBusy?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -337,23 +337,31 @@ function LucroHistoryChart({
             {onPdfMonth ? (
               <button
                 type="button"
-                onClick={onPdfMonth}
+                onClick={() => onPdfMonth(selectedId)}
                 disabled={Boolean(pdfBusy)}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 <FileDown className="h-3.5 w-3.5" />
-                {pdfBusy === "month" ? "PDF…" : "PDF deste mês"}
+                {pdfBusy === "month"
+                  ? "PDF…"
+                  : selected
+                    ? `PDF ${firstName(selected.user.name, selected.user.login)} · mês`
+                    : "PDF deste mês"}
               </button>
             ) : null}
             {onPdfAll ? (
               <button
                 type="button"
-                onClick={onPdfAll}
+                onClick={() => onPdfAll(selectedId)}
                 disabled={Boolean(pdfBusy)}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 <FileDown className="h-3.5 w-3.5" />
-                {pdfBusy === "all" ? "PDF…" : "PDF todos os meses"}
+                {pdfBusy === "all"
+                  ? "PDF…"
+                  : selected
+                    ? `PDF ${firstName(selected.user.name, selected.user.login)} · todos`
+                    : "PDF todos os meses"}
               </button>
             ) : null}
             {series.map((row, idx) => {
@@ -769,11 +777,12 @@ export default function LucrosFuncionariosMesClient() {
     }
   }
 
-  async function downloadHourlyPdf(kind: "month" | "all") {
+  async function downloadHourlyPdf(kind: "month" | "all", userId?: string | null) {
     setPdfBusy(kind);
     try {
       const qs = new URLSearchParams();
       if (asUserId) qs.set("asUserId", asUserId);
+      if (userId) qs.set("userId", userId);
       if (kind === "all") qs.set("all", "1");
       else qs.set("month", month);
       const res = await fetch(`/api/payouts/funcionarios/hourly-pdf?${qs.toString()}`, {
@@ -788,8 +797,20 @@ export default function LucrosFuncionariosMesClient() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download =
-        kind === "all" ? "desempenho-hora-todos-meses.pdf" : `desempenho-hora-${month}.pdf`;
+      const who = userId
+        ? firstName(
+            history?.series.find((s) => s.user.id === userId)?.user.name || "",
+            history?.series.find((s) => s.user.id === userId)?.user.login || "funcionario"
+          )
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/\p{M}/gu, "")
+        : "";
+      a.download = who
+        ? `desempenho-${who}-${kind === "all" ? "todos-meses" : month}.pdf`
+        : kind === "all"
+          ? "desempenho-hora-todos-meses.pdf"
+          : `desempenho-hora-${month}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -986,8 +1007,8 @@ export default function LucrosFuncionariosMesClient() {
         <LucroHistoryChart
           months={history?.months || []}
           series={history?.series || []}
-          onPdfMonth={() => void downloadHourlyPdf("month")}
-          onPdfAll={() => void downloadHourlyPdf("all")}
+          onPdfMonth={(userId) => void downloadHourlyPdf("month", userId)}
+          onPdfAll={(userId) => void downloadHourlyPdf("all", userId)}
           pdfBusy={pdfBusy}
         />
       )}
