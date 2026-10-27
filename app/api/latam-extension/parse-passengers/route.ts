@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-server";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
+import { formatParsedPassengerText } from "@/lib/latam/parsePassengerText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     passengers: out.passengers,
+    passengerText: formatParsedPassengerText(out.passengers),
     source: out.source,
   });
 }

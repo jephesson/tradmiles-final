@@ -23,7 +23,9 @@ import {
   parsePassengerText,
   passengerParseNeedsAi,
   latamPaxKindFromBirth,
+  collapseDuplicatePassengers,
 } from "@/lib/latam/parsePassengerText";
+import { dedupePassengerText } from "@/lib/documents/formatPassengerBlock";
 import { OTP_LOOKBACK_MS } from "@/lib/gmail/otp";
 import { buildSmilesSearchUrl } from "@/lib/cotacao-passagens";
 import { OtpCountdown } from "@/components/cedentes/OtpCountdown";
@@ -448,7 +450,11 @@ export default function BiometriaWizardModal({
     [useLatamExtension, latamPassengerText, latamTitularContact, searchOutbound]
   );
 
-  const latamParsedPassengers = latamAiPassengers ?? latamRegexPassengers;
+  const latamParsedPassengers = useMemo(
+    () =>
+      collapseDuplicatePassengers(latamAiPassengers ?? latamRegexPassengers),
+    [latamAiPassengers, latamRegexPassengers]
+  );
   const latamMissingBirth = latamParsedPassengers.filter((p) => !p.birthDate);
 
   // Regex primeiro; se ficar incompleto, tenta OpenAI (não quebra se falhar).
@@ -489,7 +495,7 @@ export default function BiometriaWizardModal({
         const json = await res.json().catch(() => null);
         if (cancelled) return;
         if (res.ok && json?.ok && Array.isArray(json.passengers)) {
-          setLatamAiPassengers(json.passengers);
+          setLatamAiPassengers(collapseDuplicatePassengers(json.passengers));
           setLatamParseSource(json.source === "openai" ? "openai" : "regex");
         } else {
           setLatamAiPassengers(null);
@@ -922,7 +928,7 @@ export default function BiometriaWizardModal({
         throw new Error(json?.error || "Falha ao ler documentos.");
       }
       const merged = String(json.mergedText || json.passengerText || "");
-      setLatamPassengerText(merged);
+      setLatamPassengerText(dedupePassengerText(merged));
       setDocExtractWarnings(
         Array.isArray(json.warnings) ? json.warnings.map(String) : []
       );
@@ -2504,7 +2510,7 @@ export default function BiometriaWizardModal({
               }
             }
             if (payload.passengerText.trim()) {
-              setLatamPassengerText(payload.passengerText);
+              setLatamPassengerText(dedupePassengerText(payload.passengerText));
               setUseLatamExtension(true);
               pendingTelegramPrep.current = true;
             }

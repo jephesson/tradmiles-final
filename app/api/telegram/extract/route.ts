@@ -12,8 +12,10 @@ import { extractPassengersFromImages } from "@/lib/documents/extractWithVision";
 import {
   formatPassengersForSale,
   mergePassengerTexts,
+  dedupePassengerText,
 } from "@/lib/documents/formatPassengerBlock";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
+import { formatParsedPassengerText } from "@/lib/latam/parsePassengerText";
 import {
   mergeParsedFlights,
   parseTelegramEmission,
@@ -102,32 +104,26 @@ export async function POST(req: Request) {
       }
     }
 
-    let fromChat = "";
-    if (parsedChat.passengers.length) {
-      fromChat = parsedChat.passengers
-        .map((p) => {
-          const lines = [
-            [p.firstName, p.lastName].filter(Boolean).join(" "),
-            p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
-            p.cpf ? `CPF ${p.cpf}` : "",
-            p.email || "",
-            p.phone || "",
-          ].filter(Boolean);
-          return lines.join("\n");
-        })
-        .join("\n\n");
-    } else if (chatText) {
-      fromChat = chatText;
-    }
-
+    const fromChat = parsedChat.passengers.length
+      ? formatParsedPassengerText(parsedChat.passengers)
+      : "";
     const fromImages = formatPassengersForSale(visionPassengers);
 
-    const extracted = mergePassengerTexts(fromChat, fromImages);
     const combined = [chatText, fromImages].filter(Boolean).join("\n\n");
     const fromText = await parseTelegramEmission(combined, emission);
     const flight = mergeParsedFlights(fromVision, fromText);
-    const passengerText = mergePassengerTexts(extracted, flight?.passengerText || "").trim();
-    const merged = mergePassengerTexts(existingText, passengerText);
+
+    // Uma lista só. O parser de voo lê o mesmo chat e devolveria as mesmas pessoas.
+    const passengerText = dedupePassengerText(
+      fromChat ||
+        fromImages ||
+        flight?.passengerText ||
+        chatText ||
+        ""
+    ).trim();
+    const merged = existingText.trim()
+      ? mergePassengerTexts(existingText, passengerText)
+      : passengerText;
     if (!merged.trim() && !flight?.origin && !flight?.destination) {
       return NextResponse.json(
         { ok: false, error: "Não achei voo nem passageiro desta emissão nas mensagens marcadas." },

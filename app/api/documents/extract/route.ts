@@ -4,6 +4,7 @@ import { extractPassengersFromImages } from "@/lib/documents/extractWithVision";
 import {
   formatPassengersForSale,
   mergePassengerTexts,
+  dedupePassengerText,
 } from "@/lib/documents/formatPassengerBlock";
 
 export const runtime = "nodejs";
@@ -58,7 +59,9 @@ export async function POST(req: Request) {
     const result = await extractPassengersFromImages(images);
     const passengerText = formatPassengersForSale(result.passengers);
     const existing = String(form.get("existingText") || "");
-    const mergedText = mergePassengerTexts(existing, passengerText);
+    const mergedText = dedupePassengerText(
+      mergePassengerTexts(existing, passengerText)
+    );
 
     return NextResponse.json({
       ok: true,

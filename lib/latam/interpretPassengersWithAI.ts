@@ -36,7 +36,8 @@ Regras:
 - WhatsApp sem rótulo também: nome completo numa linha, CPF (11 dígitos) na seguinte, data (DD/MM/YYYY) na outra; e-mail e telefone podem vir em mensagens seguintes. Extraia mesmo assim.
 - Ignore horários de bolha (14:51), print de busca de voo (milhas, horários, aeroportos) e o papo. Não invente passageiro a partir disso.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax — mas se houver um passageiro, associe o e-mail/telefone a ele.
-- Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.`;
+- Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.
+- NUNCA copie a mesma pessoa duas vezes. Quantidade esperada é só uma dica — se o texto tiver 1 pessoa, retorne 1.`;
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -165,7 +166,7 @@ export async function interpretPassengersWithAI(
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
   const hint = [
     expected > 0
-      ? `Esperado cerca de ${expected} passageiro(s) (incluindo bebê se houver).`
+      ? `Pode haver cerca de ${expected} passageiro(s). Não duplique ninguém para chegar nesse número; só extraia quem aparece no texto.`
       : "Extraia os passageiros visíveis desta emissão.",
     opts?.emissionHint || "",
   ]
@@ -220,12 +221,17 @@ function parseCompletenessScore(
   passengers: ParsedPassenger[],
   expected: number
 ): number {
-  const withDob = passengers.filter((p) => p.birthDate && p.firstName).length;
-  const missingDob = passengers.filter((p) => p.firstName && !p.birthDate).length;
-  const realCpf = passengers.filter((p) => p.cpf && !p.cpfGenerated).length;
-  const genCpf = passengers.filter((p) => p.cpfGenerated).length;
+  const unique = collapseDuplicatePassengers(passengers);
+  const withDob = unique.filter((p) => p.birthDate && p.firstName).length;
+  const missingDob = unique.filter((p) => p.firstName && !p.birthDate).length;
+  const realCpf = unique.filter((p) => p.cpf && !p.cpfGenerated).length;
+  const genCpf = unique.filter((p) => p.cpfGenerated).length;
   let score = withDob * 10 - missingDob * 8 + realCpf * 8 - genCpf * 4;
-  if (expected > 0) score -= Math.abs(withDob - expected) * 6;
+  const clones = Math.max(0, passengers.length - unique.length);
+  score -= clones * 20;
+  if (expected > 0 && unique.length > expected) {
+    score -= (unique.length - expected) * 6;
+  }
   return score;
 }
 
@@ -277,9 +283,7 @@ export async function parsePassengerTextWithFallback(
   const regex = parsePassengerText(raw, titular, opts?.travelDate);
   const expected = Math.max(0, Math.trunc(Number(opts?.expectedCount) || 0));
 
-  const needsAi =
-    Boolean(opts?.emissionHint) ||
-    passengerParseNeedsAi(regex, expected, raw);
+  const needsAi = passengerParseNeedsAi(regex, expected, raw);
   if (!raw.trim() || !needsAi) {
     return { passengers: regex, source: "regex" };
   }
@@ -290,20 +294,22 @@ export async function parsePassengerTextWithFallback(
       emissionHint: opts?.emissionHint,
     });
     if (ai?.length) {
-      const withContact = fillCpfFromRegex(
-        ai.filter((p) => p.firstName && p.birthDate),
-        regex
-      ).map((p) => {
-        const key = `${p.firstName}|${p.lastName}`.toLowerCase();
-        const same = regex.find(
-          (r) => `${r.firstName}|${r.lastName}`.toLowerCase() === key
-        );
-        return {
-          ...p,
-          email: p.email || same?.email || titular?.email || null,
-          phone: p.phone || same?.phone || titular?.phone || null,
-        };
-      });
+      const withContact = collapseDuplicatePassengers(
+        fillCpfFromRegex(
+          ai.filter((p) => p.firstName && p.birthDate),
+          regex
+        ).map((p) => {
+          const key = `${p.firstName}|${p.lastName}`.toLowerCase();
+          const same = regex.find(
+            (r) => `${r.firstName}|${r.lastName}`.toLowerCase() === key
+          );
+          return {
+            ...p,
+            email: p.email || same?.email || titular?.email || null,
+            phone: p.phone || same?.phone || titular?.phone || null,
+          };
+        })
+      );
       if (
         withContact.length &&
         parseCompletenessScore(withContact, expected) >=

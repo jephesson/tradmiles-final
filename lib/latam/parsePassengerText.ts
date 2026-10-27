@@ -1050,10 +1050,13 @@ function lineLooksLikeName(trimmed: string): boolean {
   if (/^\s*(comprar\s+voos|mais\s+econ[oô]mico)\b/i.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|passaporte|passport|rne|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|passaporte|passport|rne|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero|tipo)\b/i.test(
       trimmed
     )
   ) {
+    return false;
+  }
+  if (/^\s*(adulto|crian[cç]a|beb[eê])\s*$/i.test(trimmed)) {
     return false;
   }
   // Só sexo sem rótulo
@@ -1306,21 +1309,37 @@ function isGhostPassenger(p: ParsedPassenger) {
   return false;
 }
 
-/** Resultado incompleto: falta nascimento, nome lixo, ou quantidade diferente do PAX. */
+/** Resultado incompleto: falta nascimento, nome lixo, ou o texto parece ter mais gente. */
 export function passengerParseNeedsAi(
   passengers: ParsedPassenger[],
   expectedCount = 0,
   rawText = ""
 ): boolean {
   const expected = Math.max(0, Math.trunc(Number(expectedCount) || 0));
-  const real = passengers.filter((p) => !isGhostPassenger(p));
+  const real = collapseDuplicatePassengers(
+    passengers.filter((p) => !isGhostPassenger(p))
+  );
   if (passengers.some(isGhostPassenger)) return true;
   if (real.some((p) => !p.birthDate || !p.firstName)) return true;
   const raw = String(rawText || "").trim();
   if (!real.length && (expected > 0 || raw.length > 12)) {
     return true;
   }
-  if (expected > 0 && real.length !== expected) return true;
+  // Cota do voo (2 ADT etc.) NÃO é motivo para inventar/clonar quem não está no texto.
+  if (expected > 0 && real.length < expected) {
+    const dates = [
+      ...new Set(
+        (raw.match(
+          /\b\d{1,2}\s*[\/\-.]\s*\d{1,2}\s*[\/\-.]\s*\d{2,4}\b/g
+        ) || []).map((d) => d.replace(/\s+/g, ""))
+      ),
+    ];
+    const extraDates = dates.length > real.length;
+    const extraCpfs =
+      new Set(extractCpfsFromSource(raw).filter((c) => isValidCpf(c))).size >
+      real.length;
+    if (extraDates || extraCpfs) return true;
+  }
   return false;
 }
 
@@ -1336,32 +1355,51 @@ function passengerNameKey(p: {
     .trim();
 }
 
-/** Mesma pessoa duas vezes (mesmo CPF ou nome+nascimento) → um só. */
+function nameTokens(name: string) {
+  return name.split(" ").filter((t) => t.length > 1);
+}
+
+function namesAreSamePerson(a: string, b: string) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ta = nameTokens(a);
+  const tb = nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const [sm, lg] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (sm.length < 2) return false;
+  return sm.every((t) => lg.includes(t));
+}
+
+function passengersAreSamePerson(a: ParsedPassenger, b: ParsedPassenger) {
+  const ca = extractCpfDigits(a.cpf);
+  const cb = extractCpfDigits(b.cpf);
+  const sameCpf = Boolean(ca && cb && ca === cb);
+  if (sameCpf && !a.cpfGenerated && !b.cpfGenerated) return true;
+  const na = passengerNameKey(a);
+  const nb = passengerNameKey(b);
+  if (!namesAreSamePerson(na, nb)) return false;
+  if (a.birthDate && b.birthDate && a.birthDate !== b.birthDate) return false;
+  return true;
+}
+
+/** Mesma pessoa duas vezes (mesmo CPF ou nome) → um só. */
 export function collapseDuplicatePassengers(
   passengers: ParsedPassenger[]
 ): ParsedPassenger[] {
   const unique: ParsedPassenger[] = [];
   for (const p of passengers) {
-    const cpf = extractCpfDigits(p.cpf);
-    const name = passengerNameKey(p);
-    const same = unique.find((u) => {
-      const ucpf = extractCpfDigits(u.cpf);
-      if (cpf && ucpf && cpf === ucpf && !p.cpfGenerated && !u.cpfGenerated) {
-        return true;
-      }
-      return Boolean(
-        name &&
-          name === passengerNameKey(u) &&
-          p.birthDate &&
-          p.birthDate === u.birthDate
-      );
-    });
+    const same = unique.find((u) => passengersAreSamePerson(u, p));
     if (!same) {
       unique.push({ ...p });
       continue;
     }
     same.email = same.email || p.email;
     same.phone = same.phone || p.phone;
+    if ((!same.birthDate && p.birthDate) || (p.birthDate && !same.birthDate)) {
+      same.birthDate = same.birthDate || p.birthDate;
+      same.birthDateBR = same.birthDateBR || p.birthDateBR;
+      same.birthDateLatam = same.birthDateLatam || p.birthDateLatam;
+    }
     if (same.cpfGenerated && p.cpf && !p.cpfGenerated) {
       same.cpf = p.cpf;
       same.cpfValid = p.cpfValid;
@@ -1369,6 +1407,31 @@ export function collapseDuplicatePassengers(
     }
   }
   return unique;
+}
+
+export function formatParsedPassengerText(
+  passengers: ParsedPassenger[]
+): string {
+  return passengers
+    .map((p) => {
+      const first = String(p.firstName || "").trim();
+      const last = String(p.lastName || "").trim();
+      const name =
+        !last || last.toLowerCase() === first.toLowerCase()
+          ? first
+          : `${first} ${last}`.trim();
+      return [
+        name,
+        p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
+        p.cpf ? `CPF ${p.cpf}` : "",
+        p.email || "",
+        p.phone || "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function parsePassengerText(

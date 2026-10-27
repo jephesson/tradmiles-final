@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import {
   type ParsedPassenger,
   type TitularContact,
+  collapseDuplicatePassengers,
   sortPassengersAdultChildInfant,
 } from "@/lib/latam/parsePassengerText";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
@@ -246,7 +247,9 @@ export async function PUT(req: Request) {
     passengers = (await getFillSession(session.userId))?.passengers || [];
   }
   passengers = sortPassengersAdultChildInfant(
-    passengers.filter((p) => Boolean(p?.birthDate && p?.firstName)),
+    collapseDuplicatePassengers(
+      passengers.filter((p) => Boolean(p?.birthDate && p?.firstName))
+    ),
     travelDate
   );
   // Garante fallback do titular em quem ainda estiver sem contato
