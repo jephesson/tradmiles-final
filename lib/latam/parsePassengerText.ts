@@ -1379,7 +1379,7 @@ export function parsePassengerText(
   const text = preprocessPassengerText(raw);
   if (!text) return [];
 
-  const parsed = splitIntoBlocks(text)
+  const parsed: ParsedPassenger[] = splitIntoBlocks(text)
     .map(parseBlock)
     .filter((p): p is ParsedPassenger =>
       Boolean(p && (p.firstName || extractCpfDigits(p.cpf)))
@@ -1396,28 +1396,29 @@ export function parsePassengerText(
       if (p.firstName) return true;
       if (p.cpf && p.cpfValid) return true;
       return false;
-    })
-    .map((p) => {
-      const meta = withCpfMeta(p);
-      if (meta.cpf) return meta;
-      const fromText =
-        extractCpfsFromSource(p.raw).find((c) => c) ||
-        extractCpfsFromSource(text).find((c) =>
-          !parsed.some((o) => o !== p && o.cpf === c)
-        );
-      if (fromText) {
-        return withCpfMeta({ ...meta, cpf: fromText });
-      }
-      // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
-      const generated = generateValidCpf();
-      return {
-        ...withCpfMeta({ ...meta, cpf: generated }),
-        cpfGenerated: true,
-      };
     });
 
+  const withCpfs: ParsedPassenger[] = parsed.map((p) => {
+    const meta = withCpfMeta(p);
+    if (meta.cpf) return meta;
+    const fromText =
+      extractCpfsFromSource(p.raw).find((c) => c) ||
+      extractCpfsFromSource(text).find(
+        (c) => !parsed.some((o) => o !== p && o.cpf === c)
+      );
+    if (fromText) {
+      return withCpfMeta({ ...meta, cpf: fromText });
+    }
+    // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
+    const generated = generateValidCpf();
+    return {
+      ...withCpfMeta({ ...meta, cpf: generated }),
+      cpfGenerated: true,
+    };
+  });
+
   return sortPassengersAdultChildInfant(
-    applySharedContacts(collapseDuplicatePassengers(parsed), text, titular),
+    applySharedContacts(collapseDuplicatePassengers(withCpfs), text, titular),
     travelISO
   );
 }
