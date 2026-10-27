@@ -8,6 +8,11 @@ import {
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { day1BonusByUser } from "@/lib/card-cashback";
+import {
+  agendaMinutesByUserMonth,
+  centsPerHour,
+  hoursFromMinutes,
+} from "@/lib/payouts/agendaHours";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -241,6 +246,10 @@ export async function GET(req: Request) {
     }
 
     const visibleUsers = scopeUserId ? users.filter((u) => u.id === scopeUserId) : users;
+    const minutesMap = await agendaMinutesByUserMonth(team, {
+      startISO: startDate,
+      endISOExclusive: endDate,
+    });
 
     const rows = visibleUsers.map((u) => {
       const a =
@@ -284,6 +293,12 @@ export async function GET(req: Request) {
 
         netNoFeeCents: Math.max(0, a.payoutNetNoFee + a.balcaoCommission - a.discount),
         netWithFeeCents: a.netWithFee,
+        agendaMinutes: minutesMap.get(`${u.id}|${month}`) || 0,
+        agendaHours: hoursFromMinutes(minutesMap.get(`${u.id}|${month}`) || 0),
+        centsPerHour: centsPerHour(
+          Math.max(0, a.payoutNetNoFee + a.balcaoCommission - a.discount),
+          minutesMap.get(`${u.id}|${month}`) || 0
+        ),
       };
     });
 

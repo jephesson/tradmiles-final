@@ -5,6 +5,7 @@ import {
   BarChart3,
   ChevronLeft,
   Eye,
+  FileDown,
   Info,
   RefreshCw,
   TrendingDown,
@@ -34,6 +35,9 @@ type SummaryRow = {
 
   netNoFeeCents: number;
   netWithFeeCents: number;
+  agendaMinutes?: number;
+  agendaHours?: number;
+  centsPerHour?: number | null;
 };
 
 type SummaryResp = {
@@ -66,6 +70,9 @@ type SummaryResp = {
 type HistoryPoint = {
   month: string;
   netNoFeeCents: number;
+  minutes?: number;
+  hours?: number;
+  centsPerHour?: number | null;
 };
 
 type HistorySeries = {
@@ -92,6 +99,16 @@ function fmtMoneyBR(cents: number) {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function fmtHours(hours: number | undefined) {
+  const n = Number(hours || 0);
+  return `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
+}
+
+function fmtPerHour(cents: number | null | undefined) {
+  if (cents == null) return "—";
+  return `${fmtMoneyBR(cents)}/h`;
 }
 
 function fmtMoneyCompactBR(cents: number) {
@@ -221,9 +238,15 @@ function fmtPct(pct: number | null) {
 function LucroHistoryChart({
   months,
   series,
+  onPdfMonth,
+  onPdfAll,
+  pdfBusy,
 }: {
   months: string[];
   series: HistorySeries[];
+  onPdfMonth?: () => void;
+  onPdfAll?: () => void;
+  pdfBusy?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hover, setHover] = useState<{
@@ -282,6 +305,12 @@ function LucroHistoryChart({
     selected && selected.points.length
       ? Math.round(selectedTotal / selected.points.length)
       : 0;
+  const selectedHourPoints = selected?.points.filter((p) => (p.minutes || 0) > 0) || [];
+  const selectedAvgHour = selectedHourPoints.length
+    ? Math.round(
+        selectedHourPoints.reduce((s, p) => s + (p.centsPerHour || 0), 0) / selectedHourPoints.length
+      )
+    : null;
   const lastIdx = selected ? selected.points.length - 1 : -1;
   const lastPoint = lastIdx >= 0 ? selected!.points[lastIdx] : null;
   const prevPoint = lastIdx > 0 ? selected!.points[lastIdx - 1] : null;
@@ -301,10 +330,32 @@ function LucroHistoryChart({
               Histórico mensal por funcionário
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
-              Clique na linha ou no nome para ver o avanço mês a mês. Líquido sem taxa de embarque.
+              Clique na linha ou no nome para ver o avanço mês a mês. R$/hora usa as horas lançadas na agenda.
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onPdfMonth ? (
+              <button
+                type="button"
+                onClick={onPdfMonth}
+                disabled={Boolean(pdfBusy)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                {pdfBusy === "month" ? "PDF…" : "PDF deste mês"}
+              </button>
+            ) : null}
+            {onPdfAll ? (
+              <button
+                type="button"
+                onClick={onPdfAll}
+                disabled={Boolean(pdfBusy)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                {pdfBusy === "all" ? "PDF…" : "PDF todos os meses"}
+              </button>
+            ) : null}
             {series.map((row, idx) => {
               const active = selectedId === row.user.id;
               const faded = selectedId && !active;
@@ -580,6 +631,15 @@ function LucroHistoryChart({
               </div>
               <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Média R$/hora
+                </div>
+                <div className="text-sm font-bold tabular-nums text-slate-900">
+                  {fmtPerHour(selectedAvgHour)}
+                </div>
+                <div className="text-[10px] text-slate-500">horas da agenda</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   {monthLabelBR(lastPoint.month)} vs anterior
                 </div>
                 <div
@@ -621,6 +681,9 @@ function LucroHistoryChart({
                   </div>
                   <div className="mt-0.5 text-[13px] font-bold tabular-nums leading-tight text-slate-900">
                     {fmtMoneyBR(point.netNoFeeCents)}
+                  </div>
+                  <div className="text-[10px] tabular-nums text-slate-600">
+                    {fmtHours(point.hours)} · {fmtPerHour(point.centsPerHour)}
                   </div>
                   <div
                     className={cn(
@@ -683,6 +746,7 @@ export default function LucrosFuncionariosMesClient() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyErr, setHistoryErr] = useState("");
   const [history, setHistory] = useState<HistoryResp | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [asUserId, setAsUserId] = useState("");
   const [teamUsers, setTeamUsers] = useState<SummaryResp["teamUsers"]>([]);
@@ -702,6 +766,38 @@ export default function LucrosFuncionariosMesClient() {
       setErr(e instanceof Error && e.message ? e.message : "Erro ao carregar.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function downloadHourlyPdf(kind: "month" | "all") {
+    setPdfBusy(kind);
+    try {
+      const qs = new URLSearchParams();
+      if (asUserId) qs.set("asUserId", asUserId);
+      if (kind === "all") qs.set("all", "1");
+      else qs.set("month", month);
+      const res = await fetch(`/api/payouts/funcionarios/hourly-pdf?${qs.toString()}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error || `Erro (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        kind === "all" ? "desempenho-hora-todos-meses.pdf" : `desempenho-hora-${month}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
+    } finally {
+      setPdfBusy(null);
     }
   }
 
@@ -728,6 +824,13 @@ export default function LucrosFuncionariosMesClient() {
 
   const rows = useMemo(() => {
     return (data?.rows || []).slice().sort((a, b) => b.netNoFeeCents - a.netNoFeeCents);
+  }, [data]);
+
+  const hourlyRank = useMemo(() => {
+    return (data?.rows || [])
+      .filter((r) => r.centsPerHour != null)
+      .slice()
+      .sort((a, b) => (b.centsPerHour || 0) - (a.centsPerHour || 0));
   }, [data]);
 
   const projectionMeta = useMemo(() => {
@@ -880,15 +983,38 @@ export default function LucrosFuncionariosMesClient() {
           Carregando histórico…
         </div>
       ) : (
-        <LucroHistoryChart months={history?.months || []} series={history?.series || []} />
+        <LucroHistoryChart
+          months={history?.months || []}
+          series={history?.series || []}
+          onPdfMonth={() => void downloadHourlyPdf("month")}
+          onPdfAll={() => void downloadHourlyPdf("all")}
+          pdfBusy={pdfBusy}
+        />
       )}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <div className="text-sm font-semibold tracking-tight text-slate-900">Detalhamento por funcionário</div>
           <div className="mt-0.5 text-xs text-slate-500">
-            {rows.length} funcionário{rows.length === 1 ? "" : "s"} · ordenado por líquido sem taxa
+            {rows.length} funcionário{rows.length === 1 ? "" : "s"} · líquido sem taxa · R$/hora com horas da agenda
           </div>
+          {hourlyRank.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {hourlyRank.map((r) => (
+                <span
+                  key={r.user.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                >
+                  <span className="font-semibold text-slate-900">
+                    {firstName(r.user.name, r.user.login)}
+                  </span>
+                  <span className="tabular-nums text-emerald-800">{fmtPerHour(r.centsPerHour)}</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">Sem horas na agenda neste mês — o R$/hora aparece quando houver turno lançado.</p>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -904,6 +1030,8 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-4 py-3">Taxa embarque</th>
                 <th className="px-4 py-3">Balcão (60%)</th>
                 <th className={`px-4 py-3 ${lucroCellCls}`}>Líquido (sem taxa)</th>
+                <th className="px-4 py-3 text-right">Horas agenda</th>
+                <th className="px-4 py-3 text-right">R$/hora</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -929,13 +1057,19 @@ export default function LucrosFuncionariosMesClient() {
                     <td className={cn("px-4 py-3 font-bold tabular-nums", lucroCellCls)}>
                       {fmtMoneyBR(r.netNoFeeCents)}
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+                      {fmtHours(r.agendaHours)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                      {fmtPerHour(r.centsPerHour)}
+                    </td>
                   </tr>
                 );
               })}
 
               {!rows.length ? (
                 <tr>
-                  <td className="px-4 py-0" colSpan={10}>
+                  <td className="px-4 py-0" colSpan={12}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
