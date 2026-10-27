@@ -77,6 +77,16 @@ export async function GET(req: Request) {
       pontosCiaTotal: true,
       metaMilheiroCents: true,
       totalCents: true,
+      finalSalesCents: true,
+      finalSalesPointsValueCents: true,
+      finalSalesTaxesCents: true,
+      finalProfitBrutoCents: true,
+      finalBonusCents: true,
+      finalProfitCents: true,
+      finalSoldPoints: true,
+      finalPax: true,
+      finalAvgMilheiroCents: true,
+      finalRemainingPoints: true,
       finalizedAt: true,
       finalizedBy: { select: { id: true, name: true, login: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
@@ -191,6 +201,7 @@ export async function GET(req: Request) {
       safeInt(p.pontosCiaTotal, 0) > 0
         ? Math.max(safeInt(p.pontosCiaTotal, 0) - metrics.soldPoints, 0)
         : null;
+    const useSnapshot = p.finalSoldPoints != null || p.finalProfitCents != null;
 
     const listSales = purchaseSales.map((s) => ({
       id: s.id,
@@ -215,19 +226,31 @@ export async function GET(req: Request) {
       lastSaleAt: lastSaleAt ? lastSaleAt.toISOString() : null,
       sales: listSales,
 
-      finalSalesCents: metrics.salesTotalCents,
-      finalSalesPointsValueCents: metrics.salesPointsValueCents,
-      finalSalesTaxesCents: salesTaxesCents,
+      finalSalesCents: useSnapshot ? safeInt(p.finalSalesCents, metrics.salesTotalCents) : metrics.salesTotalCents,
+      finalSalesPointsValueCents: useSnapshot
+        ? safeInt(p.finalSalesPointsValueCents, metrics.salesPointsValueCents)
+        : metrics.salesPointsValueCents,
+      finalSalesTaxesCents: useSnapshot
+        ? safeInt(p.finalSalesTaxesCents, salesTaxesCents)
+        : salesTaxesCents,
 
-      finalProfitBrutoCents: metrics.profitBrutoCents,
-      finalBonusCents: metrics.bonusCents,
+      finalProfitBrutoCents: useSnapshot
+        ? safeInt(p.finalProfitBrutoCents, metrics.profitBrutoCents)
+        : metrics.profitBrutoCents,
+      finalBonusCents: useSnapshot ? safeInt(p.finalBonusCents, metrics.bonusCents) : metrics.bonusCents,
       finalAffiliateCommissionCents: metrics.affiliateCommissionCents,
-      finalProfitCents: metrics.profitLiquidoCents,
+      finalProfitCents: useSnapshot
+        ? safeInt(p.finalProfitCents, metrics.profitLiquidoCents)
+        : metrics.profitLiquidoCents,
 
-      finalSoldPoints: metrics.soldPoints,
-      finalPax: metrics.pax,
-      finalAvgMilheiroCents: metrics.avgMilheiroCents || null,
-      finalRemainingPoints: remaining,
+      finalSoldPoints: useSnapshot ? safeInt(p.finalSoldPoints, metrics.soldPoints) : metrics.soldPoints,
+      finalPax: useSnapshot ? safeInt(p.finalPax, metrics.pax) : metrics.pax,
+      finalAvgMilheiroCents: useSnapshot
+        ? p.finalAvgMilheiroCents
+        : metrics.avgMilheiroCents || null,
+      finalRemainingPoints: useSnapshot
+        ? p.finalRemainingPoints ?? remaining
+        : remaining,
     };
   });
 

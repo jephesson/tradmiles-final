@@ -9,6 +9,7 @@ import {
 import { triggerEmployeePayoutAutoComputeDates } from "@/lib/payouts/autoCompute";
 import {
   createPurchaseFromReturnedSale,
+  finalizeSourcePurchaseAsOfPaidDay,
   paidCommissionDatesForSale,
   uniqueRecifeDates,
 } from "@/lib/purchases/returnAfterPaidCommission";
@@ -107,6 +108,30 @@ export async function POST(req: Request) {
 
     if (chargeFine && fineCents <= 0) {
       return badRequest("Informe o valor da multa por passageiro.");
+    }
+
+    const commissionDates = uniqueRecifeDates([
+      venda.createdAt,
+      venda.date,
+      venda.purchase?.finalizedAt,
+    ]);
+    const paidDates = await paidCommissionDatesForSale({
+      team: session.team,
+      sellerId: venda.sellerId,
+      dates: commissionDates,
+    });
+    const commissionAlreadyPaid = paidDates.length > 0;
+    const asOfIso = [...paidDates].sort().pop() || uniqueRecifeDates([venda.date])[0];
+
+    if (commissionAlreadyPaid && venda.purchaseId) {
+      await finalizeSourcePurchaseAsOfPaidDay({
+        team: session.team,
+        actorId: session.id,
+        actorLogin: session.login,
+        purchaseId: venda.purchaseId,
+        asOfIso,
+        includeCanceledSaleId: venda.id,
+      });
     }
 
     // 1) estornar pontos (sempre)
@@ -259,18 +284,6 @@ export async function POST(req: Request) {
           : "Cancelamento sem multa CPF.",
       },
     });
-
-    const commissionDates = uniqueRecifeDates([
-      venda.createdAt,
-      venda.date,
-      venda.purchase?.finalizedAt,
-    ]);
-    const paidDates = await paidCommissionDatesForSale({
-      team: session.team,
-      sellerId: venda.sellerId,
-      dates: commissionDates,
-    });
-    const commissionAlreadyPaid = paidDates.length > 0;
 
     let returnPurchase: { id: string; numero: string; remainingCostCents: number; points: number } | null =
       null;

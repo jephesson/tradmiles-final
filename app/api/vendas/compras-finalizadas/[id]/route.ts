@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
 import { aggregatePurchaseFinalizeMetrics, buildPurchaseSaleReports, purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
-import { buildFinalRateioBreakdown } from "@/lib/payouts/purchaseRateio";
+import { buildFinalRateioBreakdown, parseFinalRateioBreakdown } from "@/lib/payouts/purchaseRateio";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { readSessionCookie } from "@/lib/session";
 
@@ -55,6 +55,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       totalCents: true,
       observacao: true,
 
+      finalSalesCents: true,
+      finalSalesPointsValueCents: true,
+      finalSalesTaxesCents: true,
+      finalProfitBrutoCents: true,
+      finalBonusCents: true,
+      finalProfitCents: true,
+      finalSoldPoints: true,
+      finalPax: true,
+      finalAvgMilheiroCents: true,
+      finalRemainingPoints: true,
+      finalRateioBreakdown: true,
+
       finalizedAt: true,
       finalizedBy: { select: { id: true, name: true, login: true } },
 
@@ -79,10 +91,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const finalizedAt = p.finalizedAt ?? new Date();
   const numerosAll = purchaseNumeroVariants(String(p.numero || ""));
+  const useSnapshot = p.finalSoldPoints != null || p.finalProfitCents != null;
 
   const sales = await prisma.sale.findMany({
     where: {
-      paymentStatus: { not: "CANCELED" },
+      ...(useSnapshot ? {} : { paymentStatus: { not: "CANCELED" } }),
       OR: [{ purchaseId: p.id }, ...(numerosAll.length ? [{ purchaseId: { in: numerosAll } }] : [])],
     },
     select: {
@@ -156,11 +169,34 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     holidayISOs
   );
 
-  const salesTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);
-  const remainingPoints =
+  const liveTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);
+  const liveRemaining =
     safeInt(p.pontosCiaTotal, 0) > 0
       ? Math.max(safeInt(p.pontosCiaTotal, 0) - metrics.soldPoints, 0)
       : null;
+  const salesTaxesCents = useSnapshot ? safeInt(p.finalSalesTaxesCents, liveTaxesCents) : liveTaxesCents;
+  const remainingPoints = useSnapshot ? p.finalRemainingPoints ?? liveRemaining : liveRemaining;
+  const storedMetrics = useSnapshot
+    ? {
+        soldPoints: safeInt(p.finalSoldPoints, metrics.soldPoints),
+        pax: safeInt(p.finalPax, metrics.pax),
+        salesTotalCents: safeInt(p.finalSalesCents, metrics.salesTotalCents),
+        salesPointsValueCents: safeInt(p.finalSalesPointsValueCents, metrics.salesPointsValueCents),
+        profitBrutoCents: safeInt(p.finalProfitBrutoCents, metrics.profitBrutoCents),
+        bonusCents: safeInt(p.finalBonusCents, metrics.bonusCents),
+        profitLiquidoCents: safeInt(p.finalProfitCents, metrics.profitLiquidoCents),
+        avgMilheiroCents: p.finalAvgMilheiroCents ?? metrics.avgMilheiroCents ?? null,
+      }
+    : {
+        soldPoints: metrics.soldPoints,
+        pax: metrics.pax,
+        salesTotalCents: metrics.salesTotalCents,
+        salesPointsValueCents: metrics.salesPointsValueCents,
+        profitBrutoCents: metrics.profitBrutoCents,
+        bonusCents: metrics.bonusCents,
+        profitLiquidoCents: metrics.profitLiquidoCents,
+        avgMilheiroCents: metrics.avgMilheiroCents || null,
+      };
 
   const ownerId = p.cedente.ownerId;
 
@@ -188,12 +224,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     },
   });
 
-  const rateioBreakdown = await buildFinalRateioBreakdown(prisma, {
-    team: session.team,
-    ownerId,
-    profitLiquidoCents: metrics.profitLiquidoCents,
-    refDate: finalizedAt,
-  });
+  const storedBreakdown = parseFinalRateioBreakdown(p.finalRateioBreakdown);
+  const rateioBreakdown =
+    storedBreakdown ||
+    (await buildFinalRateioBreakdown(prisma, {
+      team: session.team,
+      ownerId,
+      profitLiquidoCents: storedMetrics.profitLiquidoCents,
+      refDate: finalizedAt,
+    }));
 
   const payeeById = new Map(
     (plan?.items?.length
@@ -236,17 +275,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     sales,
     saleReports,
     metrics: {
-      soldPoints: metrics.soldPoints,
-      pax: metrics.pax,
-      salesTotalCents: metrics.salesTotalCents,
-      salesPointsValueCents: metrics.salesPointsValueCents,
+      soldPoints: storedMetrics.soldPoints,
+      pax: storedMetrics.pax,
+      salesTotalCents: storedMetrics.salesTotalCents,
+      salesPointsValueCents: storedMetrics.salesPointsValueCents,
       salesTaxesCents,
       purchaseTotalCents,
-      profitBrutoCents: metrics.profitBrutoCents,
-      bonusCents: metrics.bonusCents,
+      profitBrutoCents: storedMetrics.profitBrutoCents,
+      bonusCents: storedMetrics.bonusCents,
       affiliateCommissionCents: metrics.affiliateCommissionCents,
-      profitLiquidoCents: metrics.profitLiquidoCents,
-      avgMilheiroCents: metrics.avgMilheiroCents || null,
+      profitLiquidoCents: storedMetrics.profitLiquidoCents,
+      avgMilheiroCents: storedMetrics.avgMilheiroCents,
       remainingPoints,
     },
     plan: {

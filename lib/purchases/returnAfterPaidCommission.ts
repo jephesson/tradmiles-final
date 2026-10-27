@@ -1,9 +1,17 @@
 import type { LoyaltyProgram } from "@prisma/client";
+import { Prisma as PrismaRuntime } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { nextNumeroCompra } from "@/lib/compraNumero";
 import { recomputeCompra } from "@/lib/compras";
 import { recifeDateISOFrom, todayISORecife } from "@/lib/payouts/autoCompute";
 import { costFromPointsAndMilheiro } from "@/lib/purchases/activePurchaseContext";
+import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
+import { purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
+import {
+  buildPurchaseFinalizeSnapshot,
+  toPrismaRateioBreakdown,
+  usesRateioSnapshot,
+} from "@/lib/payouts/purchaseRateio";
 
 function safeInt(v: unknown, fb = 0) {
   const n = Number(v);
@@ -42,6 +50,145 @@ export async function paidCommissionDatesForSale(args: {
   });
 
   return Array.from(new Set(rows.map((r) => r.date)));
+}
+
+/** Fim do dia em Recife (UTC−3, sem DST). */
+export function endOfRecifeDay(iso: string) {
+  const day = String(iso || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return new Date();
+  return new Date(`${day}T23:59:59.999-03:00`);
+}
+
+export async function finalizeSourcePurchaseAsOfPaidDay(args: {
+  team: string;
+  actorId: string;
+  actorLogin: string;
+  purchaseId: string | null;
+  asOfIso: string;
+  includeCanceledSaleId?: string | null;
+}) {
+  const purchaseId = String(args.purchaseId || "").trim();
+  if (!purchaseId) return null;
+
+  const source = await prisma.purchase.findFirst({
+    where: {
+      id: purchaseId,
+      cedente: { owner: { team: args.team } },
+    },
+    select: {
+      id: true,
+      numero: true,
+      totalCents: true,
+      metaMilheiroCents: true,
+      pontosCiaTotal: true,
+      observacao: true,
+      finalProfitCents: true,
+      cedente: { select: { ownerId: true } },
+    },
+  });
+  if (!source) return null;
+
+  const alreadySnapshotted = source.finalProfitCents != null;
+  if (alreadySnapshotted) return { id: source.id, numero: source.numero, skipped: true as const };
+
+  const ownerId = String(source.cedente?.ownerId || "").trim();
+  if (!ownerId) return null;
+
+  const numerosAll = purchaseNumeroVariants(String(source.numero || ""));
+  const includeCanceledId = String(args.includeCanceledSaleId || "").trim();
+  const sales = await prisma.sale.findMany({
+    where: {
+      OR: [
+        { purchaseId: source.id },
+        { purchaseId: { in: numerosAll.length ? numerosAll : ["__none__"] } },
+      ],
+      AND: [
+        includeCanceledId
+          ? { OR: [{ paymentStatus: { not: "CANCELED" } }, { id: includeCanceledId }] }
+          : { paymentStatus: { not: "CANCELED" } },
+      ],
+    },
+    select: {
+      points: true,
+      passengers: true,
+      totalCents: true,
+      pointsValueCents: true,
+      embarqueFeeCents: true,
+      milheiroCents: true,
+      metaMilheiroCents: true,
+      date: true,
+      affiliateCommission: { select: { amountCents: true } },
+    },
+  });
+
+  const settings = await prisma.settings.upsert({
+    where: { key: "default" },
+    create: { key: "default" },
+    update: {},
+    select: { employeeBonusAboveMetaBps: true },
+  });
+  const bonusAboveMetaBps = resolveEmployeeBonusAboveMetaBps(settings);
+  const finalizedAt = endOfRecifeDay(args.asOfIso);
+  const snapshot = await buildPurchaseFinalizeSnapshot(prisma, {
+    team: args.team,
+    ownerId,
+    sales: sales.map((s) => ({
+      points: s.points,
+      passengers: s.passengers,
+      totalCents: s.totalCents,
+      pointsValueCents: s.pointsValueCents,
+      embarqueFeeCents: s.embarqueFeeCents,
+      milheiroCents: s.milheiroCents,
+      metaMilheiroCents: s.metaMilheiroCents,
+      date: s.date,
+      affiliateCommissionCents: s.affiliateCommission?.amountCents || 0,
+    })),
+    purchaseTotalCents: source.totalCents || 0,
+    purchaseMetaMilheiroCents: source.metaMilheiroCents || 0,
+    bonusAboveMetaBps,
+    refDate: finalizedAt,
+  });
+
+  const remainingPoints =
+    safeInt(source.pontosCiaTotal, 0) > 0
+      ? Math.max(safeInt(source.pontosCiaTotal, 0) - snapshot.finalSoldPoints, 0)
+      : null;
+  const salesTaxesCents = Math.max(
+    snapshot.finalSalesCents - snapshot.finalSalesPointsValueCents,
+    0
+  );
+  const stamp = `Finalizada em ${args.asOfIso} (lucro do dia da comissão paga) por ${args.actorLogin}.`;
+  const observacao = (source.observacao ? `${String(source.observacao).trim()}\n` : "") + stamp;
+
+  await prisma.purchase.update({
+    where: { id: source.id },
+    data: {
+      finalizedAt,
+      finalizedById: args.actorId,
+      observacao,
+      finalSalesCents: snapshot.finalSalesCents,
+      finalSalesPointsValueCents: snapshot.finalSalesPointsValueCents,
+      finalSalesTaxesCents: salesTaxesCents,
+      finalProfitBrutoCents: snapshot.finalProfitBrutoCents,
+      finalBonusCents: snapshot.finalBonusCents,
+      finalProfitCents: snapshot.finalProfitCents,
+      finalSoldPoints: snapshot.finalSoldPoints,
+      finalPax: snapshot.finalPax,
+      finalAvgMilheiroCents: snapshot.finalAvgMilheiroCents,
+      finalRemainingPoints: remainingPoints,
+      finalRateioBreakdown: usesRateioSnapshot(finalizedAt)
+        ? toPrismaRateioBreakdown(snapshot.finalRateioBreakdown)
+        : PrismaRuntime.JsonNull,
+    },
+  });
+
+  return {
+    id: source.id,
+    numero: source.numero,
+    skipped: false as const,
+    finalizedAt,
+    finalProfitCents: snapshot.finalProfitCents,
+  };
 }
 
 export async function createPurchaseFromReturnedSale(args: {
@@ -140,19 +287,6 @@ export async function createPurchaseFromReturnedSale(args: {
   });
 
   await recomputeCompra(created.id);
-
-  if (source && !source.finalizedAt) {
-    const stamp = `ARQUIVADA (sem impacto) em ${new Date().toISOString()} por ${args.actorLogin} — devolução ${args.sale.numero} gerou ${created.numero}`;
-    const obs = (source.observacao ? `${String(source.observacao).trim()}\n` : "") + stamp;
-    await prisma.purchase.update({
-      where: { id: source.id },
-      data: {
-        finalizedAt: new Date(),
-        finalizedById: args.actorId,
-        observacao: obs,
-      },
-    });
-  }
 
   return { id: created.id, numero: created.numero, remainingCostCents, points };
 }
