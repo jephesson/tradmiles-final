@@ -313,6 +313,7 @@ export default function LocalizadoresClient() {
         [
           `Cancelar ${r.locator || r.numero}?`,
           "Pontos voltam ao cedente. CPF permanece usado.",
+          "Se a comissão já foi paga, ela permanece e os pontos voltam numa compra nova.",
           cancelChargeFine
             ? `Multa: ${fmtMoneyBR(fineCents)}.`
             : "Multa isenta.",
@@ -349,6 +350,14 @@ export default function LocalizadoresClient() {
         )
       );
       setCancelTarget(null);
+      if (json?.commissionAlreadyPaid || json?.returnPurchase?.numero) {
+        const bits = ["Cancelada."];
+        if (json.commissionAlreadyPaid) bits.push("Comissão já paga do funcionário foi mantida.");
+        if (json.returnPurchase?.numero) {
+          bits.push(`Compra nova ${json.returnPurchase.numero} com os pontos devolvidos.`);
+        }
+        alert(bits.join("\n"));
+      }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Falha ao cancelar.");
     } finally {

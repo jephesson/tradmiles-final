@@ -7,6 +7,11 @@ import {
   computeCancelFineTotalCents,
 } from "@/lib/vendas/cancelFine";
 import { triggerEmployeePayoutAutoComputeDates } from "@/lib/payouts/autoCompute";
+import {
+  createPurchaseFromReturnedSale,
+  paidCommissionDatesForSale,
+  uniqueRecifeDates,
+} from "@/lib/purchases/returnAfterPaidCommission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -255,11 +260,49 @@ export async function POST(req: Request) {
       },
     });
 
-    const payoutAutoCompute = await triggerEmployeePayoutAutoComputeDates(req, {
+    const commissionDates = uniqueRecifeDates([
+      venda.createdAt,
+      venda.date,
+      venda.purchase?.finalizedAt,
+    ]);
+    const paidDates = await paidCommissionDatesForSale({
       team: session.team,
-      dates: [venda.createdAt, venda.date, venda.purchase?.finalizedAt],
-      fallbackBasis: "SALE_DATE",
+      sellerId: venda.sellerId,
+      dates: commissionDates,
     });
+    const commissionAlreadyPaid = paidDates.length > 0;
+
+    let returnPurchase: { id: string; numero: string; remainingCostCents: number; points: number } | null =
+      null;
+    if (commissionAlreadyPaid) {
+      returnPurchase = await createPurchaseFromReturnedSale({
+        team: session.team,
+        actorId: session.id,
+        actorLogin: session.login,
+        sale: {
+          id: venda.id,
+          numero: venda.numero,
+          locator: venda.locator,
+          points: venda.points,
+          program: venda.program,
+          milheiroCents: venda.milheiroCents,
+          cedenteId: venda.cedenteId,
+          purchaseId: venda.purchaseId,
+        },
+      });
+    }
+
+    const datesToRecompute = commissionAlreadyPaid
+      ? commissionDates.filter((d) => !paidDates.includes(d))
+      : commissionDates;
+
+    const payoutAutoCompute = datesToRecompute.length
+      ? await triggerEmployeePayoutAutoComputeDates(req, {
+          team: session.team,
+          dates: datesToRecompute,
+          fallbackBasis: "SALE_DATE",
+        })
+      : [];
 
     return ok({
       ok: true,
@@ -268,6 +311,8 @@ export async function POST(req: Request) {
       cancelFineDividaId,
       cancelRefundDebtId,
       wasPaid,
+      commissionAlreadyPaid,
+      returnPurchase,
       payoutAutoCompute,
     });
   } catch (e: any) {

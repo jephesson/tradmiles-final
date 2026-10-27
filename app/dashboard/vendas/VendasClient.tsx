@@ -1201,6 +1201,7 @@ export default function VendasClient() {
       "",
       "• Pontos voltam ao cedente.",
       "• CPF permanece usado (não regenera).",
+      "• Se a comissão do funcionário já foi paga, ela permanece e os pontos voltam numa compra nova.",
     ];
     if (cancelChargeFine) {
       lines.push(
@@ -1225,6 +1226,8 @@ export default function VendasClient() {
         ok: true;
         fineCents?: number;
         refundCents?: number;
+        commissionAlreadyPaid?: boolean;
+        returnPurchase?: { numero?: string; points?: number } | null;
       }>("/api/vendas/cancelar", {
         method: "POST",
         body: JSON.stringify({
@@ -1265,15 +1268,23 @@ export default function VendasClient() {
 
       const fine = Math.max(0, out.fineCents || 0);
       const refund = Math.max(0, out.refundCents || 0);
+      const parts = ["Cancelada."];
       if (fine > 0 && wasPaid) {
-        alert(
-          `Cancelada.\nMulta CPF: ${fmtMoneyBR(fine)}\nReembolso a pagar: ${fmtMoneyBR(refund)}`
-        );
+        parts.push(`Multa CPF: ${fmtMoneyBR(fine)}`, `Reembolso a pagar: ${fmtMoneyBR(refund)}`);
       } else if (fine > 0) {
-        alert(`Cancelada.\nMulta CPF pendente: ${fmtMoneyBR(fine)}`);
+        parts.push(`Multa CPF pendente: ${fmtMoneyBR(fine)}`);
       } else if (wasPaid && refund > 0) {
-        alert(`Cancelada.\nReembolso a pagar: ${fmtMoneyBR(refund)}`);
+        parts.push(`Reembolso a pagar: ${fmtMoneyBR(refund)}`);
       }
+      if (out.commissionAlreadyPaid) {
+        parts.push("Comissão já paga do funcionário foi mantida.");
+      }
+      if (out.returnPurchase?.numero) {
+        parts.push(
+          `Compra nova ${out.returnPurchase.numero} com os pontos devolvidos.`
+        );
+      }
+      if (parts.length > 1) alert(parts.join("\n"));
     } catch (error: unknown) {
       alert(errorMessage(error, "Falha ao cancelar venda."));
     } finally {
