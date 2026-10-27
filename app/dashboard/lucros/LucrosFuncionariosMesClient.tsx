@@ -330,7 +330,7 @@ function LucroHistoryChart({
               Histórico mensal por funcionário
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
-              Clique na linha ou no nome para ver o avanço mês a mês. R$/hora usa as horas lançadas na agenda.
+              Clique no nome ou na linha para analisar uma pessoa. Use Todos para voltar à equipe.
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -364,6 +364,21 @@ function LucroHistoryChart({
                     : "PDF todos os meses"}
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedId(null);
+                setHover(null);
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                !selectedId
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200/90 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+              )}
+            >
+              Todos
+            </button>
             {series.map((row, idx) => {
               const active = selectedId === row.user.id;
               const faded = selectedId && !active;
@@ -397,6 +412,10 @@ function LucroHistoryChart({
           viewBox={`0 0 ${width} ${height}`}
           className="w-full"
           role="img"
+          onClick={() => {
+            setSelectedId(null);
+            setHover(null);
+          }}
           aria-label="Gráfico de histórico mensal"
         >
           {tickValues.map((tick, idx) => (
@@ -469,7 +488,10 @@ function LucroHistoryChart({
                 key={row.user.id}
                 opacity={focused ? 1 : 0.18}
                 className="cursor-pointer"
-                onClick={() => toggleUser(row.user.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleUser(row.user.id);
+                }}
               >
                 <polyline
                   fill="none"
@@ -612,9 +634,19 @@ function LucroHistoryChart({
                 <div className="text-sm font-semibold text-slate-900">
                   Avanço · {firstName(selected.user.name, selected.user.login)}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(null);
+                    setHover(null);
+                  }}
+                  className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Ver todos
+                </button>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Clique de novo na linha para ver todos. Valores = líquido sem taxa.
+                Valores = líquido sem taxa. R$/hora usa as horas lançadas na agenda.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
