@@ -182,6 +182,34 @@ export function normalizeCpfInput(raw: unknown): string | null {
   return null;
 }
 
+function looksLikeBrMobile(d: string) {
+  return /^[1-9]\d9\d{8}$/.test(d);
+}
+
+/** CPFs no texto: rótulo CPF primeiro, depois 11 dígitos que não sejam celular. */
+export function extractCpfsFromSource(text: string): string[] {
+  const s = String(text || "");
+  const out: string[] = [];
+  const push = (raw: string, force = false) => {
+    const cpf = normalizeCpfInput(raw);
+    if (!cpf || out.includes(cpf)) return;
+    if (!force && looksLikeBrMobile(cpf) && !isValidCpf(cpf)) return;
+    out.push(cpf);
+  };
+  for (const m of s.matchAll(
+    /\bcpf\b[^0-9]{0,16}(\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}|\d{11})/gi
+  )) {
+    push(m[1], true);
+  }
+  for (const m of s.matchAll(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g)) {
+    push(onlyDigits(m[0]));
+  }
+  for (const m of s.matchAll(/\b\d{11}\b/g)) {
+    push(m[0]);
+  }
+  return out;
+}
+
 /** Mantém 11 dígitos mesmo com checksum inválido (para avisar, não apagar). */
 function extractCpfDigits(s: string | null | undefined): string | null {
   return normalizeCpfInput(s);
@@ -1324,15 +1352,21 @@ export function parsePassengerText(
     })
     .map((p) => {
       const meta = withCpfMeta(p);
-      // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
-      if (!meta.cpf) {
-        const generated = generateValidCpf();
-        return {
-          ...withCpfMeta({ ...meta, cpf: generated }),
-          cpfGenerated: true,
-        };
+      if (meta.cpf) return meta;
+      const fromText =
+        extractCpfsFromSource(p.raw).find((c) => c) ||
+        extractCpfsFromSource(text).find((c) =>
+          !parsed.some((o) => o !== p && o.cpf === c)
+        );
+      if (fromText) {
+        return withCpfMeta({ ...meta, cpf: fromText });
       }
-      return meta;
+      // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
+      const generated = generateValidCpf();
+      return {
+        ...withCpfMeta({ ...meta, cpf: generated }),
+        cpfGenerated: true,
+      };
     });
 
   return sortPassengersAdultChildInfant(

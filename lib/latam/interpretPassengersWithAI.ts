@@ -1,5 +1,6 @@
 import type { ParsedPassenger, TitularContact } from "@/lib/latam/parsePassengerText";
 import {
+  extractCpfsFromSource,
   generateValidCpf,
   isValidCpf,
   normalizeCpfInput,
@@ -88,21 +89,14 @@ function splitFullName(full: string): { firstName: string; lastName: string } {
 }
 
 function recoverCpfFromText(text: string, used: Set<string>): string | null {
-  const formatted = [
-    ...String(text || "").matchAll(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g),
-  ].map((m) => onlyDigits(m[0]));
-  const raw11 = [...String(text || "").matchAll(/\b\d{11}\b/g)].map((m) => m[0]);
-  const raw10 = [...String(text || "").matchAll(/\b\d{10}\b/g)].map((m) =>
-    m[0].padStart(11, "0")
-  );
-  for (const d of [...formatted, ...raw11, ...raw10]) {
-    const cpf = normalizeCpfInput(d);
-    if (!cpf || used.has(cpf)) continue;
-    // Celular BR (DDD + 9) não é CPF
-    if (/^[1-9]\d9\d{8}$/.test(cpf)) continue;
-    return cpf;
+  for (const cpf of extractCpfsFromSource(text)) {
+    if (!used.has(cpf)) return cpf;
   }
   return null;
+}
+
+function cpfInText(cpf: string, text: string) {
+  return extractCpfsFromSource(text).includes(cpf);
 }
 
 function mapAiPassenger(
@@ -116,9 +110,12 @@ function mapAiPassenger(
   if (!fullName) return null;
   const { firstName, lastName } = splitFullName(fullName);
   const birthDate = parseAiBirthDate(raw?.birthDate);
+  const fromText = recoverCpfFromText(block, usedCpfs);
   let cpf = normalizeCpfInput(raw?.cpf) || "";
   if (cpf && usedCpfs.has(cpf)) cpf = "";
-  if (!cpf) cpf = recoverCpfFromText(block, usedCpfs) || "";
+  if (cpf && !cpfInText(cpf, block) && fromText) cpf = fromText;
+  if (cpf && !cpfInText(cpf, block)) cpf = "";
+  if (!cpf) cpf = fromText || "";
   const genderRaw = String(raw?.gender || "").toUpperCase();
   const gender = genderRaw === "M" || genderRaw === "F" ? genderRaw : null;
   const email = raw?.email ? String(raw.email).trim().toLowerCase() : null;
@@ -248,19 +245,19 @@ function fillCpfFromRegex(
   if (!withCpf.length) return ai;
   const missing = ai.filter((p) => !p.cpf || p.cpfGenerated);
   return ai.map((p) => {
-    if (p.cpf && !p.cpfGenerated) return p;
     const key = nameKey(p);
     const byName = withCpf.find((r) => nameKey(r) === key);
-    const match =
-      byName ||
-      (withCpf.length === 1 && missing.length === 1 ? withCpf[0] : null);
-    if (!match?.cpf) return p;
-    return {
-      ...p,
-      cpf: match.cpf,
-      cpfValid: match.cpfValid,
-      cpfGenerated: false,
-    };
+    const match = byName || (withCpf.length === 1 ? withCpf[0] : null);
+    if (match?.cpf) {
+      return {
+        ...p,
+        cpf: match.cpf,
+        cpfValid: match.cpfValid,
+        cpfGenerated: false,
+      };
+    }
+    if (p.cpf && !p.cpfGenerated) return p;
+    return p;
   });
 }
 
