@@ -373,7 +373,7 @@ export default function LocalizadoresClient() {
               Passagens
             </div>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Gerenciamento de localizadores
+              Localizadores
             </h1>
             <p className="mt-1 max-w-xl text-sm text-slate-600">
               Busque pelo localizador, nome do cliente ou CPF e veja a passagem completa — com
