@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LoyaltyProgram } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import { getSessionServer as getSession } from "@/lib/auth-server";
+import { latamClubAtivoByCedenteIds } from "@/lib/clubes/latamClubAtivo";
 import { loadEmissionsPanel } from "@/lib/emissions/panelData";
 
 export const runtime = "nodejs";
@@ -49,6 +51,33 @@ export async function POST(req: NextRequest) {
       months: monthsReq,
       cedenteIds,
     });
+
+    if (program === LoyaltyProgram.LATAM) {
+      const ids = data.rows.map((r) => r.cedenteId);
+      const [clubAtivo, openFila] = await Promise.all([
+        latamClubAtivoByCedenteIds(session.team, ids),
+        ids.length
+          ? prisma.filaAssinatura.findMany({
+              where: {
+                team: session.team,
+                cedenteId: { in: ids },
+                concludedAt: null,
+              },
+              select: { cedenteId: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const inFila = new Set(openFila.map((r) => r.cedenteId));
+      return NextResponse.json({
+        ok: true,
+        ...data,
+        rows: data.rows.map((r) => ({
+          ...r,
+          latamClubAtivoAgora: clubAtivo.has(r.cedenteId),
+          inFilaAssinatura: inFila.has(r.cedenteId),
+        })),
+      });
+    }
 
     return NextResponse.json({ ok: true, ...data });
   } catch (err: unknown) {

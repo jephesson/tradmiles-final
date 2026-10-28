@@ -2,7 +2,7 @@
 
   import { useEffect, useMemo, useState } from "react";
   import { useRouter, useSearchParams } from "next/navigation";
-  import { Copy, FileDown, KeyRound, Loader2, MessageCircle, X } from "lucide-react";
+  import { Copy, FileDown, KeyRound, ListPlus, Loader2, MessageCircle, Star, X } from "lucide-react";
   import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
   import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
@@ -31,6 +31,8 @@
       manual: number; // vem da API, mas não exibimos
       renewEndOfMonth: number; // vem da API, mas não exibimos (só no card total)
       perMonth: Record<string, number>;
+      latamClubAtivoAgora?: boolean;
+      inFilaAssinatura?: boolean;
     }>;
     totals: { total: number; manual: number; renewEndOfMonth: number };
   };
@@ -102,6 +104,7 @@
     const [credentialsError, setCredentialsError] = useState("");
     const [copiedField, setCopiedField] = useState("");
     const [pdfBusy, setPdfBusy] = useState(false);
+    const [filaBusy, setFilaBusy] = useState(false);
 
     function closeCredentials() {
       setCredentials(null);
@@ -264,6 +267,72 @@
       }
     }
 
+    const LATAM_FILA_PAX_LIMIT = 20;
+
+    function isElegivelFila(r: {
+      total: number;
+      renewEndOfMonth: number;
+      perMonth: Record<string, number>;
+      latamClubAtivoAgora?: boolean;
+      inFilaAssinatura?: boolean;
+    }) {
+      if (!panel) return false;
+      if (r.latamClubAtivoAgora) return false;
+      if (r.inFilaAssinatura) return false;
+      const issuedThisMonth = Number(r.perMonth?.[panel.currentMonthKey] || 0);
+      if (issuedThisMonth > 0) return false;
+      const aposRenovacao = Math.max(
+        0,
+        Number(r.total || 0) - Number(r.renewEndOfMonth || 0)
+      );
+      return aposRenovacao < LATAM_FILA_PAX_LIMIT;
+    }
+
+    async function enqueueEligibleFila() {
+      if (program !== "latam") return;
+      const n = eligibleFilaCount;
+      if (n <= 0) {
+        alert(
+          "Ninguém elegível: precisa estar sem estrela (sem clube), sem emissão neste mês e com menos de 20 pax após a renovação do mês-12."
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Colocar ${n} cedente${n === 1 ? "" : "s"} elegível${n === 1 ? "" : "is"} na fila de assinatura?`
+        )
+      ) {
+        return;
+      }
+      setFilaBusy(true);
+      try {
+        const res = await fetch("/api/fila-assinatura/auto-latam", {
+          method: "POST",
+          credentials: "include",
+        });
+        const json = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+          added?: number;
+          skipped?: number;
+        } | null;
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Falha ao colocar na fila.");
+        }
+        await loadPanel();
+        const added = Number(json.added || 0);
+        alert(
+          added > 0
+            ? `${added} cedente${added === 1 ? "" : "s"} colocado${added === 1 ? "" : "s"} na fila de assinatura.`
+            : "Ninguém novo para colocar na fila."
+        );
+      } catch (e: unknown) {
+        alert(e instanceof Error ? e.message : "Falha ao colocar na fila.");
+      } finally {
+        setFilaBusy(false);
+      }
+    }
+
     async function downloadRenewPdf() {
       if (program !== "latam") {
         alert("A renovação de pax no mês vale para LATAM.");
@@ -386,6 +455,11 @@
       );
     }, [panel]);
 
+    const eligibleFilaCount = useMemo(() => {
+      if (program !== "latam" || !panel) return 0;
+      return panel.rows.filter((r) => isElegivelFila(r)).length;
+    }, [program, panel]);
+
     return (
       <div className="space-y-6">
         {/* Header */}
@@ -403,20 +477,38 @@
 
             <div className="flex items-center gap-2">
               {program === "latam" ? (
-                <button
-                  type="button"
-                  onClick={() => void downloadRenewPdf()}
-                  disabled={pdfBusy || panelLoading || !panel}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
-                  title="PDF das contas que renovam pax neste mês e o total que fica disponível"
-                >
-                  {pdfBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <FileDown className="h-4 w-4" />
-                  )}
-                  {pdfBusy ? "Gerando…" : "PDF renovação"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void enqueueEligibleFila()}
+                    disabled={filaBusy || panelLoading || !panel || eligibleFilaCount <= 0}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                    title="Sem clube, sem emissão no mês e menos de 20 pax após a renovação do mês-12"
+                  >
+                    {filaBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ListPlus className="h-4 w-4" />
+                    )}
+                    {filaBusy
+                      ? "Colocando…"
+                      : `Fila de assinatura${eligibleFilaCount > 0 ? ` (${eligibleFilaCount})` : ""}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void downloadRenewPdf()}
+                    disabled={pdfBusy || panelLoading || !panel}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+                    title="PDF das contas que renovam pax neste mês e o total que fica disponível"
+                  >
+                    {pdfBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileDown className="h-4 w-4" />
+                    )}
+                    {pdfBusy ? "Gerando…" : "PDF renovação"}
+                  </button>
+                </>
               ) : null}
               <button
                 onClick={loadPanel}
@@ -565,6 +657,7 @@
                     );
                     const waE164 = normalizeBRPhoneToE164(r.telefone);
                     const waHref = waE164 ? buildWhatsAppLink(waE164) : null;
+                    const elegivelFila = program === "latam" && isElegivelFila(r);
 
                     return (
                       <tr key={r.cedenteId} className="text-sm">
@@ -577,6 +670,29 @@
                                   <div className="min-w-0 truncate font-medium">
                                     {r.nomeCompleto}
                                   </div>
+                                  {r.latamClubAtivoAgora ? (
+                                    <span
+                                      title="Clube LATAM ativo ou pausado"
+                                      className="inline-flex shrink-0 text-amber-500"
+                                    >
+                                      <Star size={15} className="fill-current" />
+                                    </span>
+                                  ) : null}
+                                  {elegivelFila ? (
+                                    <span
+                                      title="Elegível para a fila de assinatura"
+                                      className="inline-flex shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200"
+                                    >
+                                      fila
+                                    </span>
+                                  ) : r.inFilaAssinatura ? (
+                                    <span
+                                      title="Já está na fila de assinatura"
+                                      className="inline-flex shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-zinc-200"
+                                    >
+                                      na fila
+                                    </span>
+                                  ) : null}
                                   <button
                                     type="button"
                                     onClick={() =>
