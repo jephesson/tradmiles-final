@@ -173,15 +173,16 @@ async function fetchCompletoPage(args: {
   dataInicio: string;
   dataFim: string;
   pagina: number;
+  tipoOperacao?: "C" | "D";
 }) {
   const cfg = interConfig();
   const qs = new URLSearchParams({
     dataInicio: args.dataInicio,
     dataFim: args.dataFim,
-    tipoOperacao: "C",
     pagina: String(args.pagina),
     tamanhoPagina: "100",
   });
+  if (args.tipoOperacao) qs.set("tipoOperacao", args.tipoOperacao);
   const res = await interHttp({
     method: "GET",
     url: `${cfg.bankingBase}/extrato/completo?${qs.toString()}`,
@@ -215,7 +216,7 @@ export async function fetchInterIncomingPix(args: { days: number }): Promise<Int
   }
 
   let transacoes: Record<string, unknown>[] = [];
-  const completo = await fetchCompletoPage({ dataInicio, dataFim, pagina: 0 });
+  const completo = await fetchCompletoPage({ dataInicio, dataFim, pagina: 0, tipoOperacao: "C" });
   if (completo.status && completo.status < 400) {
     const data = (completo.json || {}) as {
       transacoes?: unknown;
@@ -225,7 +226,7 @@ export async function fetchInterIncomingPix(args: { days: number }): Promise<Int
     transacoes = Array.isArray(data.transacoes) ? (data.transacoes as Record<string, unknown>[]) : [];
     const totalPaginas = Math.min(Number(data.totalPaginas) || 1, 8);
     for (let pagina = 1; pagina < totalPaginas; pagina += 1) {
-      const page = await fetchCompletoPage({ dataInicio, dataFim, pagina });
+      const page = await fetchCompletoPage({ dataInicio, dataFim, pagina, tipoOperacao: "C" });
       if (!page.status || page.status >= 400) break;
       const body = (page.json || {}) as { transacoes?: unknown };
       if (Array.isArray(body.transacoes)) {
@@ -253,4 +254,107 @@ export async function fetchInterIncomingPix(args: { days: number }): Promise<Int
 export function findInterIncomingPix(rows: InterIncomingPix[], id: string) {
   const needle = String(id || "").trim();
   return rows.find((row) => row.id === needle) || null;
+}
+
+export type InterStatementRow = {
+  id: string;
+  occurredAt: string;
+  amountCents: number;
+  direction: "C" | "D";
+  type: string;
+  title: string;
+  description: string;
+  counterpartName: string | null;
+};
+
+type StatementCache = { key: string; at: number; rows: InterStatementRow[] };
+let statementCache: StatementCache | null = null;
+
+async function fetchRawTransacoes(args: {
+  dataInicio: string;
+  dataFim: string;
+  tipoOperacao?: "C" | "D";
+}) {
+  let transacoes: Record<string, unknown>[] = [];
+  const completo = await fetchCompletoPage({
+    dataInicio: args.dataInicio,
+    dataFim: args.dataFim,
+    pagina: 0,
+    tipoOperacao: args.tipoOperacao,
+  });
+  if (completo.status && completo.status < 400) {
+    const data = (completo.json || {}) as {
+      transacoes?: unknown;
+      totalPaginas?: number;
+    };
+    transacoes = Array.isArray(data.transacoes) ? (data.transacoes as Record<string, unknown>[]) : [];
+    const totalPaginas = Math.min(Number(data.totalPaginas) || 1, 8);
+    for (let pagina = 1; pagina < totalPaginas; pagina += 1) {
+      const page = await fetchCompletoPage({
+        dataInicio: args.dataInicio,
+        dataFim: args.dataFim,
+        pagina,
+        tipoOperacao: args.tipoOperacao,
+      });
+      if (!page.status || page.status >= 400) break;
+      const body = (page.json || {}) as { transacoes?: unknown };
+      if (Array.isArray(body.transacoes)) {
+        transacoes.push(...(body.transacoes as Record<string, unknown>[]));
+      }
+    }
+    return transacoes;
+  }
+
+  const simple = await fetchSimple({ dataInicio: args.dataInicio, dataFim: args.dataFim });
+  if (!simple.status || simple.status >= 400) {
+    throw new Error(formatInterError(simple.status, simple.json, simple.text));
+  }
+  const data = (simple.json || {}) as { transacoes?: unknown };
+  return Array.isArray(data.transacoes) ? (data.transacoes as Record<string, unknown>[]) : [];
+}
+
+function mapStatementRow(tx: Record<string, unknown>, idx: number): InterStatementRow | null {
+  const tipoOp = str(tx.tipoOperacao || tx.operacao).toUpperCase();
+  const direction: "C" | "D" = tipoOp === "D" ? "D" : "C";
+  const amountCents = numReaisToCents(tx.valor);
+  if (amountCents <= 0) return null;
+  const type = str(tx.tipoTransacao || tx.tipo).toUpperCase() || "OUTROS";
+  const title = str(tx.titulo) || (direction === "C" ? "Entrada" : "Saída");
+  const description = str(tx.descricao) || title;
+  return {
+    id: txId(tx, idx),
+    occurredAt: txOccurredAt(tx),
+    amountCents,
+    direction,
+    type,
+    title,
+    description,
+    counterpartName: pickPayerName(tx) || null,
+  };
+}
+
+export async function fetchInterStatement(args: { days: number }): Promise<{
+  dataInicio: string;
+  dataFim: string;
+  rows: InterStatementRow[];
+}> {
+  if (!interConfigured()) {
+    return { dataInicio: recifeISODate(), dataFim: recifeISODate(), rows: [] };
+  }
+  const days = Math.min(Math.max(Math.trunc(args.days || 7), 1), 30);
+  const dataFim = recifeISODate();
+  const dataInicio = recifeDatePlusDays(dataFim, -(days - 1));
+  const key = `stmt:${dataInicio}:${dataFim}`;
+  if (statementCache && statementCache.key === key && Date.now() - statementCache.at < 45_000) {
+    return { dataInicio, dataFim, rows: statementCache.rows };
+  }
+
+  const transacoes = await fetchRawTransacoes({ dataInicio, dataFim });
+  const rows = transacoes
+    .map((tx, idx) => mapStatementRow(tx, idx))
+    .filter((row): row is InterStatementRow => Boolean(row))
+    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+
+  statementCache = { key, at: Date.now(), rows };
+  return { dataInicio, dataFim, rows };
 }

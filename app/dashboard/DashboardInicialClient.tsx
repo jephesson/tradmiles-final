@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   CalendarDays,
+  ChevronRight,
   Circle,
   Landmark,
   PartyPopper,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import MobileHomeShortcuts from "@/components/MobileHomeShortcuts";
+import InterExtratoModal from "@/app/dashboard/InterExtratoModal";
 
 type AgendaRow = {
   id: string;
@@ -470,6 +472,7 @@ function BankBalanceCard() {
   const [blockedCents, setBlockedCents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [extratoOpen, setExtratoOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -515,24 +518,51 @@ function BankBalanceCard() {
 
   if (!visible) return null;
 
+  const canOpenExtrato = configured === true && !error;
+
   return (
-    <section className="rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+    <>
+    <section
+      className={cn(
+        "rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm",
+        canOpenExtrato && "cursor-pointer transition hover:border-sky-300 hover:shadow-md"
+      )}
+      role={canOpenExtrato ? "button" : undefined}
+      tabIndex={canOpenExtrato ? 0 : undefined}
+      onClick={() => {
+        if (canOpenExtrato) setExtratoOpen(true);
+      }}
+      onKeyDown={(e) => {
+        if (!canOpenExtrato) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setExtratoOpen(true);
+        }
+      }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <Landmark className="h-4 w-4 text-sky-700" aria-hidden />
           <h2 className="text-sm font-semibold text-slate-900">Saldo da conta</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            void load();
-          }}
-          className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-          title="Atualizar saldo"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden />
-        </button>
+        <div className="flex items-center gap-1">
+          {canOpenExtrato ? (
+            <span className="hidden text-[11px] font-semibold text-sky-700 sm:inline">Ver extrato</span>
+          ) : null}
+          {canOpenExtrato ? <ChevronRight className="h-4 w-4 text-sky-600" aria-hidden /> : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLoading(true);
+              void load();
+            }}
+            className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+            title="Atualizar saldo"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden />
+          </button>
+        </div>
       </div>
       <p className="mt-0.5 text-xs text-slate-500">Banco Inter · disponível para PIX</p>
       {loading && availableCents == null && !error && configured !== false ? (
@@ -551,11 +581,13 @@ function BankBalanceCard() {
               Bloqueado: {fmtMoney(blockedCents)}
             </p>
           ) : (
-            <p className="mt-2 text-xs text-slate-500">Atualiza ao abrir a página, ao voltar para a aba ou no ícone.</p>
+            <p className="mt-2 text-xs text-slate-500">Clique para abrir o extrato. Atualiza ao voltar para a aba ou no ícone.</p>
           )}
         </>
       )}
     </section>
+    <InterExtratoModal open={extratoOpen} onClose={() => setExtratoOpen(false)} />
+    </>
   );
 }
 
