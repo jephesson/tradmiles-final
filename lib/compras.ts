@@ -56,10 +56,23 @@ type ItemLike = {
   pointsDebitedFromOrigin?: number | null;
 };
 
+function isRemainingBalanceItem(it: ItemLike & { title?: string | null; details?: string | null }) {
+  if (/^Remanescente /i.test(String((it as { title?: string }).title || ""))) return true;
+  const details = String((it as { details?: string | null }).details || "");
+  if (!details) return false;
+  try {
+    const meta = JSON.parse(details) as { autoRemaining?: unknown };
+    return Boolean(meta?.autoRemaining);
+  } catch {
+    return false;
+  }
+}
+
 export function computeItemProgramDeltas(items: ItemLike[]): Record<LoyaltyProgram, number> {
   const out: Record<LoyaltyProgram, number> = { ...EMPTY_PROGRAM_DELTAS };
   for (const it of items || []) {
     if (String(it.status || "") === "CANCELED") continue;
+    if (isRemainingBalanceItem(it)) continue;
     const to = String(it.programTo || "").toUpperCase() as LoyaltyProgram;
     const from = String(it.programFrom || "").toUpperCase() as LoyaltyProgram;
     if (to && to in out) out[to] += asInt(it.pointsFinal, 0);

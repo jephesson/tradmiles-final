@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ok, badRequest, notFound, serverError } from "@/lib/api";
-import { recomputeCompra } from "@/lib/compras";
+import { computeItemProgramDeltas, recomputeCompra } from "@/lib/compras";
 import { getSessionServer } from "@/lib/auth-server";
 import { LoyaltyProgram } from "@prisma/client";
 
@@ -160,7 +160,7 @@ export async function POST(
     // 3) recarrega (garante valores atualizados)
     const compra = await prisma.purchase.findUnique({
       where: { id },
-      include: { cedente: true },
+      include: { cedente: true, items: true },
     });
     if (!compra) return notFound("Compra não encontrada (pós-recompute).");
     if (compra.status !== "OPEN") {
@@ -168,37 +168,41 @@ export async function POST(
     }
     if (!compra.cedente) return badRequest("Cedente não encontrado na compra.");
 
-    // 4) define saldos aplicados (preferência: body > saldoPrevisto* > saldo atual)
+    const deltas = computeItemProgramDeltas(compra.items || []);
+    function appliedBalance(requested: unknown, current: number, delta: number) {
+      const computed = clampPts(current + delta);
+      if (requested == null || requested === "") return computed;
+      const req = clampPts(requested);
+      if (delta > 0 && req < computed) return computed;
+      return req;
+    }
+
+    // 4) saldo = atual do cedente + itens desta compra (ignora "esperado" velho sem os pontos novos)
     const applied = {
-      latam: clampPts(
-        body?.saldosAplicados?.latam ??
-          compra.saldoPrevistoLatam ??
-          compra.cedente.pontosLatam ??
-          0
+      latam: appliedBalance(
+        body?.saldosAplicados?.latam ?? compra.saldoPrevistoLatam,
+        compra.cedente.pontosLatam ?? 0,
+        deltas.LATAM
       ),
-      smiles: clampPts(
-        body?.saldosAplicados?.smiles ??
-          compra.saldoPrevistoSmiles ??
-          compra.cedente.pontosSmiles ??
-          0
+      smiles: appliedBalance(
+        body?.saldosAplicados?.smiles ?? compra.saldoPrevistoSmiles,
+        compra.cedente.pontosSmiles ?? 0,
+        deltas.SMILES
       ),
-      livelo: clampPts(
-        body?.saldosAplicados?.livelo ??
-          compra.saldoPrevistoLivelo ??
-          compra.cedente.pontosLivelo ??
-          0
+      livelo: appliedBalance(
+        body?.saldosAplicados?.livelo ?? compra.saldoPrevistoLivelo,
+        compra.cedente.pontosLivelo ?? 0,
+        deltas.LIVELO
       ),
-      esfera: clampPts(
-        body?.saldosAplicados?.esfera ??
-          compra.saldoPrevistoEsfera ??
-          compra.cedente.pontosEsfera ??
-          0
+      esfera: appliedBalance(
+        body?.saldosAplicados?.esfera ?? compra.saldoPrevistoEsfera,
+        compra.cedente.pontosEsfera ?? 0,
+        deltas.ESFERA
       ),
-      iberia: clampPts(
-        body?.saldosAplicados?.iberia ??
-          compra.saldoPrevistoIberia ??
-          compra.cedente.pontosIberia ??
-          0
+      iberia: appliedBalance(
+        body?.saldosAplicados?.iberia ?? compra.saldoPrevistoIberia,
+        compra.cedente.pontosIberia ?? 0,
+        deltas.IBERIA
       ),
     };
 

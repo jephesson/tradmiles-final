@@ -1089,17 +1089,34 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     try {
       await saveDraft(draft, true);
 
+      const deltas = computeProgramDeltas(draft.items ?? []);
+      const latam = Math.max(
+        clampInt(draft.expectedLatamPoints),
+        clampInt(cedenteSel?.pontosLatam) + deltas.LATAM
+      );
+      const smiles = Math.max(
+        clampInt(draft.expectedSmilesPoints),
+        clampInt(cedenteSel?.pontosSmiles) + deltas.SMILES
+      );
+      const livelo = Math.max(
+        clampInt(draft.expectedLiveloPoints),
+        clampInt(cedenteSel?.pontosLivelo) + deltas.LIVELO
+      );
+      const esfera = Math.max(
+        clampInt(draft.expectedEsferaPoints),
+        clampInt(cedenteSel?.pontosEsfera) + deltas.ESFERA
+      );
+      const iberia = Math.max(
+        clampInt(draft.expectedIberiaPoints),
+        clampInt(cedenteSel?.pontosIberia) + deltas.IBERIA
+      );
+
       const out = await api<{ ok: true; compra: any }>(
         `/api/compras/${draft.id}/liberar`,
         {
           method: "POST",
           body: JSON.stringify({
-            saldosAplicados: {
-              latam: draft.expectedLatamPoints ?? undefined,
-              smiles: draft.expectedSmilesPoints ?? undefined,
-              livelo: draft.expectedLiveloPoints ?? undefined,
-              esfera: draft.expectedEsferaPoints ?? undefined,
-            },
+            saldosAplicados: { latam, smiles, livelo, esfera, iberia },
           }),
         }
       );
