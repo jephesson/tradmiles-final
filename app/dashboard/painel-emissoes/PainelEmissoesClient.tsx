@@ -105,6 +105,7 @@
     const [copiedField, setCopiedField] = useState("");
     const [pdfBusy, setPdfBusy] = useState(false);
     const [filaBusy, setFilaBusy] = useState(false);
+    const [filaRowBusyId, setFilaRowBusyId] = useState("");
 
     function closeCredentials() {
       setCredentials(null);
@@ -286,6 +287,46 @@
         Number(r.total || 0) - Number(r.renewEndOfMonth || 0)
       );
       return aposRenovacao < LATAM_FILA_PAX_LIMIT;
+    }
+
+    function markInFila(cedenteId: string) {
+      setPanel((curr) => {
+        if (!curr) return curr;
+        return {
+          ...curr,
+          rows: curr.rows.map((row) =>
+            row.cedenteId === cedenteId ? { ...row, inFilaAssinatura: true } : row
+          ),
+        };
+      });
+    }
+
+    async function enqueueOne(row: {
+      cedenteId: string;
+      nomeCompleto: string;
+    }) {
+      if (program !== "latam") return;
+      setFilaRowBusyId(row.cedenteId);
+      try {
+        const res = await fetch("/api/fila-assinatura", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cedenteId: row.cedenteId }),
+        });
+        const json = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          error?: string;
+        } | null;
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Falha ao colocar na fila.");
+        }
+        markInFila(row.cedenteId);
+      } catch (e: unknown) {
+        alert(e instanceof Error ? e.message : "Falha ao colocar na fila.");
+      } finally {
+        setFilaRowBusyId("");
+      }
     }
 
     async function enqueueEligibleFila() {
@@ -679,12 +720,25 @@
                                     </span>
                                   ) : null}
                                   {elegivelFila ? (
-                                    <span
-                                      title="Elegível para a fila de assinatura"
-                                      className="inline-flex shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200"
+                                    <button
+                                      type="button"
+                                      disabled={filaRowBusyId === r.cedenteId}
+                                      onClick={() =>
+                                        void enqueueOne({
+                                          cedenteId: r.cedenteId,
+                                          nomeCompleto: r.nomeCompleto,
+                                        })
+                                      }
+                                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-400 text-[12px] font-extrabold leading-none text-amber-950 shadow-sm hover:bg-amber-300 disabled:opacity-50"
+                                      title={`Colocar ${r.nomeCompleto} na fila de assinatura`}
+                                      aria-label={`Colocar ${r.nomeCompleto} na fila de assinatura`}
                                     >
-                                      fila
-                                    </span>
+                                      {filaRowBusyId === r.cedenteId ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        "F"
+                                      )}
+                                    </button>
                                   ) : r.inFilaAssinatura ? (
                                     <span
                                       title="Já está na fila de assinatura"
