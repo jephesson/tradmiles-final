@@ -33,7 +33,11 @@ export async function POST(req: Request) {
 
   try {
     const now = new Date();
-    const note = gmailMessageId ? `Pix confirmado via e-mail ${gmailMessageId}` : "Pix confirmado via alerta";
+    const note = gmailMessageId?.startsWith("inter:")
+      ? `Pix confirmado via extrato Inter ${gmailMessageId}`
+      : gmailMessageId
+        ? `Pix confirmado via e-mail ${gmailMessageId}`
+        : "Pix confirmado via alerta";
 
     const updated = await prisma.$transaction(
       async (tx) => {

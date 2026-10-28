@@ -137,38 +137,25 @@ export async function rememberPayerAlias(args: {
   }
 }
 
-export async function analyzePixEmailContent(args: {
+const emptyMatch: PixMatchResult = {
+  classification: "UNKNOWN",
+  classificationLabel: "Não foi possível ler o Pix",
+  suggestedSales: [],
+  matchKind: "none",
+  matchedTotalCents: 0,
+  amountDiffCents: 0,
+  employeeName: null,
+};
+
+export async function analyzeParsedPix(args: {
   team: string;
-  subject: string;
-  body: string;
+  parsed: ParsedPixEmail | null;
   useAi?: boolean;
 }): Promise<{ parsed: ParsedPixEmail | null; match: PixMatchResult }> {
-  const { team, subject, body, useAi = true } = args;
+  const { team, useAi = true } = args;
+  const parsed = args.parsed;
 
-  let parsed = parsePixEmailText(subject, body);
-  if (!parsed && useAi) {
-    parsed = await interpretPixEmailWithAI(subject, body);
-  }
-  if (parsed?.payerName && parsed.source === "regex" && useAi && /r\$/i.test(parsed.payerName)) {
-    const ai = await interpretPixEmailWithAI(subject, body);
-    if (ai?.payerName) parsed = { ...parsed, payerName: ai.payerName, source: "openai" };
-  }
-
-  const emptyMatch: PixMatchResult = {
-    classification: "UNKNOWN",
-    classificationLabel: "Não foi possível ler o Pix",
-    suggestedSales: [],
-    matchKind: "none",
-    matchedTotalCents: 0,
-    amountDiffCents: 0,
-    employeeName: null,
-  };
-
-  if (!parsed) {
-    return { parsed: null, match: emptyMatch };
-  }
-
-  if (parsed.direction === "OUT") {
+  if (!parsed || parsed.direction === "OUT") {
     return { parsed: null, match: emptyMatch };
   }
 
@@ -193,6 +180,26 @@ export async function analyzePixEmailContent(args: {
   }
 
   return { parsed, match };
+}
+
+export async function analyzePixEmailContent(args: {
+  team: string;
+  subject: string;
+  body: string;
+  useAi?: boolean;
+}): Promise<{ parsed: ParsedPixEmail | null; match: PixMatchResult }> {
+  const { team, subject, body, useAi = true } = args;
+
+  let parsed = parsePixEmailText(subject, body);
+  if (!parsed && useAi) {
+    parsed = await interpretPixEmailWithAI(subject, body);
+  }
+  if (parsed?.payerName && parsed.source === "regex" && useAi && /r\$/i.test(parsed.payerName)) {
+    const ai = await interpretPixEmailWithAI(subject, body);
+    if (ai?.payerName) parsed = { ...parsed, payerName: ai.payerName, source: "openai" };
+  }
+
+  return analyzeParsedPix({ team, parsed, useAi });
 }
 
 export function buildPixAlertRow(args: {
