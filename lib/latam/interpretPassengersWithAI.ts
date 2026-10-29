@@ -27,6 +27,7 @@ Responda SOMENTE JSON válido:
 }
 Regras:
 - fullName = nome completo como na passagem (sem rótulos tipo "Pax", "bebê", "do bebê").
+- NÃO coloque F, M, Fem, Masc, Feminino ou Masculino no nome. Isso é sexo: use o campo gender (M ou F). Ex.: "Yreza Cruz 02/03/2000 F 07372135583" → fullName "Yreza Cruz", gender "F".
 - birthDate é OBRIGATÓRIO quando aparecer no texto (DD/MM/YYYY ou YYYY-MM-DD).
 - Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
 - cpf é STRING com 11 dígitos, inclusive zeros à esquerda (ex.: "03323904206"). Nunca envie CPF como número JSON (o zero some). null só se realmente não houver.
@@ -84,7 +85,8 @@ function splitFullName(full: string): { firstName: string; lastName: string } {
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((t) => !/^(?:[fm]|fem|masc|feminino|masculino)\.?$/i.test(t));
   if (!parts.length) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
@@ -110,6 +112,10 @@ function mapAiPassenger(
     .replace(/^(?:pax\s+do\s+beb[eê]|pax|beb[eê]|do\s+beb[eê])\s*[:\-–.]?\s*/i, "")
     .trim();
   if (!fullName) return null;
+  const genderFromName = fullName
+    .split(/\s+/)
+    .map((t) => t.toUpperCase().replace(/[^A-Z]/g, ""))
+    .find((t) => t === "F" || t === "M" || t === "FEM" || t === "MASC" || t === "FEMININO" || t === "MASCULINO");
   const { firstName, lastName } = splitFullName(fullName);
   const birthDate = parseAiBirthDate(raw?.birthDate);
   const fromText = recoverCpfFromText(block, usedCpfs);
@@ -119,7 +125,14 @@ function mapAiPassenger(
   if (cpf && !cpfInText(cpf, block)) cpf = "";
   if (!cpf) cpf = fromText || "";
   const genderRaw = String(raw?.gender || "").toUpperCase();
-  const gender = genderRaw === "M" || genderRaw === "F" ? genderRaw : null;
+  const genderFromToken =
+    genderFromName === "F" || genderFromName === "FEM" || genderFromName === "FEMININO"
+      ? "F"
+      : genderFromName === "M" || genderFromName === "MASC" || genderFromName === "MASCULINO"
+        ? "M"
+        : null;
+  const gender =
+    genderRaw === "M" || genderRaw === "F" ? genderRaw : genderFromToken;
   const email = raw?.email ? String(raw.email).trim().toLowerCase() : null;
   const phoneDig = onlyDigits(String(raw?.phone || ""));
   const phone = phoneDig.length >= 10 ? phoneDig : null;

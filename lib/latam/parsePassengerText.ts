@@ -317,8 +317,40 @@ function sanitizeLatamName(s: string) {
     .trim();
 }
 
-function splitName(full: string) {
+/** F/M (ou Fem/Masc) solto no Zap — sexo, não parte do nome. */
+function parseGenderToken(raw: string): "M" | "F" | null {
+  const t = String(raw || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z]/g, "");
+  if (t === "f" || t === "fem" || t === "feminino") return "F";
+  if (t === "m" || t === "masc" || t === "masculino") return "M";
+  return null;
+}
+
+function stripGenderTokensFromName(full: string): {
+  name: string;
+  gender: "M" | "F" | null;
+} {
   const parts = sanitizeLatamName(full).split(/\s+/).filter(Boolean);
+  let gender: "M" | "F" | null = null;
+  const kept: string[] = [];
+  for (const part of parts) {
+    const g = parseGenderToken(part);
+    if (g && parts.length > 1) {
+      gender = gender || g;
+      continue;
+    }
+    kept.push(part);
+  }
+  return { name: kept.join(" "), gender };
+}
+
+function splitName(full: string) {
+  const parts = stripGenderTokensFromName(full)
+    .name.split(/\s+/)
+    .filter(Boolean);
   if (parts.length === 0) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: parts[0] };
   return {
@@ -464,7 +496,7 @@ function extractNameFromLine(line: string): string {
   s = s.replace(/\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b/g, " ");
   s = s.replace(/\b[A-Z]{1,3}\d{5,9}\b/gi, " ");
   s = s.replace(/\b\d{8,13}\b/g, " ");
-  return sanitizeLatamName(s);
+  return stripGenderTokensFromName(s).name;
 }
 
 /** Meses em PT (abreviado ou completo) → 01–12. */
@@ -777,10 +809,14 @@ function parseLabeledBlock(block: string): ParsedPassenger | null {
   if (labeledHits < 1) return null;
 
   if (firstName && !lastName) {
-    const parts = firstName.split(/\s+/).filter(Boolean);
+    const cleaned = stripGenderTokensFromName(firstName);
+    if (cleaned.gender && !gender) gender = cleaned.gender;
+    const parts = cleaned.name.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
       firstName = parts[0];
       lastName = parts.slice(1).join(" ");
+    } else {
+      firstName = parts[0] || firstName;
     }
   }
 
@@ -957,7 +993,18 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     return null;
   }
 
-  const { firstName, lastName } = splitName(fullName);
+  const stripped = stripGenderTokensFromName(fullName);
+  if (stripped.gender && !gender) gender = stripped.gender;
+  const { firstName, lastName } = splitName(stripped.name);
+  if (!gender) {
+    for (const line of lines) {
+      const fromLine = stripGenderTokensFromName(line).gender;
+      if (fromLine) {
+        gender = fromLine;
+        break;
+      }
+    }
+  }
 
   return withCpfMeta({
     firstName,
@@ -1293,7 +1340,7 @@ function isBogusPassengerName(name: string) {
     .trim();
   return (
     !n ||
-    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|passaporte|passport|rne|sexo|genero|feminino|masculino|fem|masc|do|bebe|bebê)$/.test(
+    /^(data|nascimento|nasc|dn|passageira|passageiro|pax|contato|nome|sobrenome|documento|doc|cpf|rg|passaporte|passport|rne|sexo|genero|feminino|masculino|fem|masc|do|bebe|bebê|[fm])$/.test(
       n
     ) ||
     /^passaporte\b/.test(n)
