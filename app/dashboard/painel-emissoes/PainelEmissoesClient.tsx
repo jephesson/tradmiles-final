@@ -2,7 +2,7 @@
 
   import { useEffect, useMemo, useState } from "react";
   import { useRouter, useSearchParams } from "next/navigation";
-  import { Copy, FileDown, KeyRound, ListPlus, Loader2, MessageCircle, Star, X } from "lucide-react";
+  import { Check, Copy, FileDown, KeyRound, ListPlus, Loader2, MessageCircle, Star, X } from "lucide-react";
   import { VerificationCodeFetch } from "@/components/cedentes/VerificationCodeFetch";
   import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
 
@@ -106,6 +106,7 @@
     const [pdfBusy, setPdfBusy] = useState(false);
     const [filaBusy, setFilaBusy] = useState(false);
     const [filaRowBusyId, setFilaRowBusyId] = useState("");
+    const [filaToast, setFilaToast] = useState("");
 
     function closeCredentials() {
       setCredentials(null);
@@ -289,6 +290,13 @@
       return aposRenovacao < LATAM_FILA_PAX_LIMIT;
     }
 
+    function showFilaToast(message: string) {
+      setFilaToast(message);
+      window.setTimeout(() => {
+        setFilaToast((curr) => (curr === message ? "" : curr));
+      }, 4200);
+    }
+
     function markInFila(cedenteId: string) {
       setPanel((curr) => {
         if (!curr) return curr;
@@ -322,6 +330,7 @@
           throw new Error(json?.error || "Falha ao colocar na fila.");
         }
         markInFila(row.cedenteId);
+        showFilaToast(`${row.nomeCompleto} enviado para a fila de assinatura.`);
       } catch (e: unknown) {
         alert(e instanceof Error ? e.message : "Falha ao colocar na fila.");
       } finally {
@@ -362,9 +371,9 @@
         }
         await loadPanel();
         const added = Number(json.added || 0);
-        alert(
+        showFilaToast(
           added > 0
-            ? `${added} cedente${added === 1 ? "" : "s"} colocado${added === 1 ? "" : "s"} na fila de assinatura.`
+            ? `${added} cedente${added === 1 ? "" : "s"} enviado${added === 1 ? "" : "s"} para a fila de assinatura.`
             : "Ninguém novo para colocar na fila."
         );
       } catch (e: unknown) {
@@ -699,11 +708,17 @@
                     const waE164 = normalizeBRPhoneToE164(r.telefone);
                     const waHref = waE164 ? buildWhatsAppLink(waE164) : null;
                     const elegivelFila = program === "latam" && isElegivelFila(r);
+                    const naFila = Boolean(r.inFilaAssinatura);
 
                     return (
                       <tr key={r.cedenteId} className="text-sm">
                         {/* Sticky: Nome + Total */}
-                        <td className="sticky left-0 z-10 border-b border-zinc-100 bg-white p-2">
+                        <td
+                          className={cn(
+                            "sticky left-0 z-10 border-b border-zinc-100 p-2",
+                            naFila ? "bg-emerald-50" : "bg-white"
+                          )}
+                        >
                           <div className="min-w-[360px]">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -739,12 +754,13 @@
                                         "F"
                                       )}
                                     </button>
-                                  ) : r.inFilaAssinatura ? (
+                                  ) : naFila ? (
                                     <span
                                       title="Já está na fila de assinatura"
-                                      className="inline-flex shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-zinc-200"
+                                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white shadow-sm"
                                     >
-                                      na fila
+                                      <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                      Na Fila
                                     </span>
                                   ) : null}
                                   <button
@@ -922,6 +938,35 @@
                   ) : null}
                 </div>
               )}
+            </div>
+          </div>
+        ) : null}
+
+        {filaToast ? (
+          <div
+            role="status"
+            className="fixed bottom-5 right-5 z-[60] w-[min(380px,calc(100vw-2rem))] rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-xl shadow-emerald-900/10"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+                <Check className="h-4 w-4" strokeWidth={2.5} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-emerald-950">
+                  Enviado para a fila
+                </div>
+                <div className="mt-0.5 text-sm leading-relaxed text-emerald-800">
+                  {filaToast}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilaToast("")}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-emerald-800 hover:bg-emerald-100"
+                aria-label="Fechar aviso"
+              >
+                <X size={14} />
+              </button>
             </div>
           </div>
         ) : null}
