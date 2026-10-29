@@ -713,12 +713,7 @@
                     return (
                       <tr key={r.cedenteId} className="text-sm">
                         {/* Sticky: Nome + Total */}
-                        <td
-                          className={cn(
-                            "sticky left-0 z-10 border-b border-zinc-100 p-2",
-                            naFila ? "bg-emerald-50" : "bg-white"
-                          )}
-                        >
+                        <td className="sticky left-0 z-10 border-b border-zinc-100 bg-white p-2">
                           <div className="min-w-[360px]">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
