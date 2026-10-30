@@ -1354,6 +1354,82 @@ export async function GET(req: NextRequest) {
     );
     byEmployee = Array.from(byEmp.values()).sort((a, b) => b.grossCents - a.grossCents);
 
+    const monthKeySet = new Set(monthKeys);
+    type EmpMonthMeta = { id: string; name: string; login: string; byMonth: Map<string, number> };
+    const empMonth = new Map<string, EmpMonthMeta>();
+
+    function bumpEmpMonth(
+      idRaw: string | null | undefined,
+      name: string,
+      login: string,
+      monthKey: string,
+      cents: number
+    ) {
+      const id = String(idRaw || "").trim();
+      if (!id || !monthKeySet.has(monthKey) || cents <= 0) return;
+      if (id !== "__UNASSIGNED__" && !isOperatingUser(id)) return;
+      let row = empMonth.get(id);
+      if (!row) {
+        row = { id, name, login, byMonth: new Map() };
+        empMonth.set(id, row);
+      }
+      row.byMonth.set(monthKey, (row.byMonth.get(monthKey) || 0) + cents);
+    }
+
+    for (const s of salesHist) {
+      const k = monthKeyUTC(new Date(s.date as any));
+      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const u = s.seller;
+      if (u?.id) {
+        bumpEmpMonth(u.id, u.name, u.login, k, gross);
+      } else if (s.sellerId) {
+        const base = teamUsersById.get(s.sellerId);
+        bumpEmpMonth(s.sellerId, base?.name || "Vendedor", base?.login || "—", k, gross);
+      } else {
+        bumpEmpMonth("__UNASSIGNED__", "Sem vendedor", "—", k, gross);
+      }
+    }
+
+    for (const op of balcaoOps) {
+      const k = monthKeyUTC(op.createdAt);
+      const volumeCents = balcaoVolumeSemTaxaCents(
+        Number(op.customerChargeCents || 0),
+        Number(op.boardingFeeCents || 0)
+      );
+      if (op.employee?.id) {
+        bumpEmpMonth(op.employee.id, op.employee.name, op.employee.login, k, volumeCents);
+      } else if (op.employeeId) {
+        const base = teamUsersById.get(op.employeeId);
+        bumpEmpMonth(
+          op.employeeId,
+          base?.name || "Vendedor",
+          base?.login || "—",
+          k,
+          volumeCents
+        );
+      } else {
+        bumpEmpMonth("__UNASSIGNED__", "Sem vendedor", "—", k, volumeCents);
+      }
+    }
+
+    const employeeSalesByMonth = {
+      months: monthKeys.map((k) => ({ key: k, label: monthLabelPT(k) })),
+      series: Array.from(empMonth.values())
+        .map((row) => {
+          const values = monthKeys.map((k) => row.byMonth.get(k) || 0);
+          const totalCents = values.reduce((acc, n) => acc + n, 0);
+          return {
+            id: row.id,
+            name: row.name,
+            login: row.login,
+            totalCents,
+            values,
+          };
+        })
+        .filter((row) => row.totalCents > 0)
+        .sort((a, b) => b.totalCents - a.totalCents),
+    };
+
     const balcaoByAirlineRows = Array.from(balcaoByAirline.entries())
       .map(([airline, agg]) => ({
         airline,
@@ -1908,6 +1984,7 @@ export async function GET(req: NextRequest) {
 
         byDow: byDowArr,
         byEmployee,
+        employeeSalesByMonth,
 
         months,
         milheiroMonthly,

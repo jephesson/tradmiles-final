@@ -1200,6 +1200,237 @@ function SimplePieChart({
   );
 }
 
+const EMP_LINE_COLORS = [
+  "#0ea5e9",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#f43f5e",
+  "#14b8a6",
+  "#6366f1",
+  "#84cc16",
+  "#ec4899",
+  "#64748b",
+  "#06b6d4",
+  "#d97706",
+];
+
+function EmployeeMonthlyLineChart({
+  months,
+  series,
+}: {
+  months: Array<{ key: string; label: string }>;
+  series: Array<{
+    id: string;
+    name: string;
+    login: string;
+    totalCents: number;
+    values: number[];
+  }>;
+}) {
+  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  const visible = series.filter((s) => !hidden[s.id]);
+  const w = 980;
+  const h = 260;
+  const leftPad = 18;
+  const rightPad = 74;
+  const topPad = 16;
+  const bottomPad = 36;
+  const plotW = w - leftPad - rightPad;
+  const plotH = h - topPad - bottomPad;
+  const baseY = topPad + plotH;
+  const n = Math.max(1, months.length);
+  const dx = n <= 1 ? 0 : plotW / (n - 1);
+
+  const ymax = Math.max(1, ...visible.flatMap((s) => s.values), 0);
+  const ymin = 0;
+  const scaleY = (v: number) => {
+    const t = (v - ymin) / (ymax - ymin || 1);
+    return topPad + plotH - t * plotH;
+  };
+
+  const yTicks = [ymax, ymax / 2, 0];
+  const hovered = hoveredIdx != null && hoveredIdx >= 0 && hoveredIdx < n ? hoveredIdx : null;
+  const hoverX = hovered != null ? leftPad + hovered * dx : leftPad;
+  const tipRows = hovered != null
+    ? visible
+        .map((s) => ({
+          ...s,
+          value: Number(s.values[hovered] || 0),
+        }))
+        .sort((a, b) => b.value - a.value)
+    : [];
+  const tipW = 260;
+  const tipH = Math.min(220, 28 + tipRows.length * 16);
+  const tipX = Math.max(leftPad, Math.min(hoverX + 12, leftPad + plotW - tipW));
+  const tipY = topPad + 6;
+
+  function toggle(id: string) {
+    setHidden((curr) => ({ ...curr, [id]: !curr[id] }));
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="text-sm font-semibold tracking-tight text-slate-900">
+        Vendas por funcionário · últimos {fmtInt(months.length || 12)} meses
+      </div>
+      <p className="mt-1 text-xs text-slate-500">
+        Valor vendido por mês (milhas + balcão, sem taxa). Clique no nome para ocultar a linha.
+      </p>
+
+      {!series.length || !months.length ? (
+        <div className="mt-3 text-sm text-neutral-500">Sem vendas de funcionário no período.</div>
+      ) : (
+        <>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {series.map((s, i) => {
+              const color = EMP_LINE_COLORS[i % EMP_LINE_COLORS.length];
+              const off = Boolean(hidden[s.id]);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggle(s.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                    off
+                      ? "border-slate-200 bg-slate-50 text-slate-400"
+                      : "border-slate-200 bg-white text-slate-800"
+                  )}
+                  title={`${s.name} · ${fmtMoneyBR(s.totalCents)} no período`}
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: off ? "#cbd5e1" : color }}
+                  />
+                  <span className="max-w-[160px] truncate">{s.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <svg
+            viewBox={`0 0 ${w} ${h}`}
+            className="mt-3 w-full"
+            onMouseLeave={() => setHoveredIdx(null)}
+          >
+            {yTicks.map((v, i) => (
+              <line
+                key={`g-${i}`}
+                x1={leftPad}
+                x2={leftPad + plotW}
+                y1={scaleY(v)}
+                y2={scaleY(v)}
+                stroke="#e5e7eb"
+                strokeWidth="1"
+              />
+            ))}
+            {yTicks.map((v, i) => (
+              <text
+                key={`yl-${i}`}
+                x={leftPad + plotW + 6}
+                y={scaleY(v) + 3}
+                fontSize="10"
+                fill="#64748b"
+              >
+                {fmtMoneyCompactBR(Math.round(v))}
+              </text>
+            ))}
+
+            {visible.map((s) => {
+              const color = EMP_LINE_COLORS[series.findIndex((x) => x.id === s.id) % EMP_LINE_COLORS.length];
+              const pts = s.values
+                .map((v, i) => `${leftPad + i * dx},${scaleY(Number(v || 0))}`)
+                .join(" ");
+              return (
+                <g key={s.id}>
+                  <polyline fill="none" stroke={color} strokeWidth="2.2" points={pts} />
+                  {s.values.map((v, i) => (
+                    <circle
+                      key={`${s.id}-${i}`}
+                      cx={leftPad + i * dx}
+                      cy={scaleY(Number(v || 0))}
+                      r="2.4"
+                      fill={color}
+                    />
+                  ))}
+                </g>
+              );
+            })}
+
+            {months.map((m, i) => (
+              <text
+                key={m.key}
+                x={leftPad + i * dx}
+                y={h - 10}
+                fontSize="10"
+                fill="#64748b"
+                textAnchor="middle"
+              >
+                {String(m.label || m.key).replace(" de ", "/")}
+              </text>
+            ))}
+
+            {months.map((m, i) => {
+              const hitW = n <= 1 ? plotW : Math.max(10, plotW / n);
+              return (
+                <rect
+                  key={`${m.key}-hit`}
+                  x={leftPad + i * dx - hitW / 2}
+                  y={topPad}
+                  width={hitW}
+                  height={plotH}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIdx(i)}
+                />
+              );
+            })}
+
+            {hovered != null ? (
+              <>
+                <line
+                  x1={hoverX}
+                  x2={hoverX}
+                  y1={topPad}
+                  y2={baseY}
+                  stroke="#cbd5e1"
+                  strokeDasharray="4 3"
+                  strokeWidth="1"
+                />
+                <rect
+                  x={tipX}
+                  y={tipY}
+                  width={tipW}
+                  height={tipH}
+                  rx="8"
+                  fill="white"
+                  stroke="#cbd5e1"
+                />
+                <text x={tipX + 10} y={tipY + 18} fontSize="11" fill="#0f172a">
+                  {months[hovered]?.label || months[hovered]?.key}
+                </text>
+                {tipRows.slice(0, 10).map((row, i) => (
+                  <text
+                    key={row.id}
+                    x={tipX + 10}
+                    y={tipY + 36 + i * 16}
+                    fontSize="10"
+                    fill="#334155"
+                  >
+                    {`${row.name}: ${fmtMoneyBR(row.value)}`}
+                  </text>
+                ))}
+              </>
+            ) : null}
+          </svg>
+        </>
+      )}
+    </div>
+  );
+}
+
 function movingAverage(values: number[], windowSize: number) {
   if (!windowSize || windowSize <= 1) return values.slice();
   return values.map((_, i) => {
@@ -3106,6 +3337,19 @@ export default function AnaliseDadosClient() {
                 byEmployeeMonth.reduce((acc, r) => acc + Number(r.grossCents || 0), 0)
               )}`
             : undefined
+        }
+      />
+
+      <EmployeeMonthlyLineChart
+        months={((data as any)?.employeeSalesByMonth?.months || []) as Array<{ key: string; label: string }>}
+        series={
+          ((data as any)?.employeeSalesByMonth?.series || []) as Array<{
+            id: string;
+            name: string;
+            login: string;
+            totalCents: number;
+            values: number[];
+          }>
         }
       />
 
