@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Plus, RefreshCw, Search, Trophy, Users, X } from "lucide-react";
+import { Banknote, Plus, RefreshCw, Search, Split, Trophy, Users, X } from "lucide-react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { cn } from "@/lib/cn";
 
@@ -43,6 +43,11 @@ type CommissionItem = {
 
   generatedBy?: { id: string; name: string; login: string } | null;
   paidBy?: { id: string; name: string; login: string } | null;
+  employeeShareCents?: number;
+  splitAt?: string | null;
+  employeeSharePaidAt?: string | null;
+  splitEmployee?: { id: string; name: string; login: string } | null;
+  splitBy?: { id: string; name: string; login: string } | null;
 };
 
 type TopRecebedor = {
@@ -161,7 +166,15 @@ export default function CedenteCommissionsClient() {
     destino: PixDestinoView;
     needsPix?: boolean;
     pixError?: string | null;
+    share?: "cedente" | "employee";
   } | null>(null);
+  const [splitRow, setSplitRow] = useState<CommissionItem | null>(null);
+  const [employees, setEmployees] = useState<
+    { id: string; name: string; login: string; isActive?: boolean }[]
+  >([]);
+  const [employeeQ, setEmployeeQ] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [employeeAmount, setEmployeeAmount] = useState("");
 
   async function load() {
     try {
@@ -206,7 +219,16 @@ export default function CedenteCommissionsClient() {
     return data.items.filter((it) => {
       const ced = it.cedente;
       const p = it.purchase;
-      const hay = [it.id, ced?.nomeCompleto, ced?.cpf, ced?.identificador, p?.numero, it.note]
+      const hay = [
+        it.id,
+        ced?.nomeCompleto,
+        ced?.cpf,
+        ced?.identificador,
+        p?.numero,
+        it.note,
+        it.splitEmployee?.name,
+        it.splitEmployee?.login,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -231,12 +253,24 @@ export default function CedenteCommissionsClient() {
     return Math.floor((data?.skip || 0) / tk) + 1;
   }, [data.skip, data.take, take]);
 
-  async function payCommission(id: string, via: "local" | "inter") {
+  function parseBRLToCents(raw: string) {
+    const s = String(raw || "")
+      .trim()
+      .replace(/\s/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".");
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.round(n * 100);
+  }
+
+  async function payCommission(id: string, via: "local" | "inter", share: "cedente" | "employee" = "cedente") {
     if (via === "inter") {
       try {
         setLoading(true);
         setErr("");
-        const res = await fetch(`/api/cedente-commissions/${id}/pix-destino`, { cache: "no-store" });
+        const qs = share === "employee" ? "?share=employee" : "";
+        const res = await fetch(`/api/cedente-commissions/${id}/pix-destino${qs}`, { cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.ok) {
           setErr(json?.error || "Não deu para conferir o PIX.");
@@ -248,6 +282,7 @@ export default function CedenteCommissionsClient() {
           destino: json.destino,
           needsPix: Boolean(json.needsPix),
           pixError: json.pixError || null,
+          share,
         });
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : "Falha ao conferir PIX.");
@@ -257,8 +292,14 @@ export default function CedenteCommissionsClient() {
       return;
     }
 
+    if (share === "employee") {
+      if (!window.confirm("Confirmar: marcar a parte do funcionário como paga (sem enviar PIX)?")) return;
+      await postPayEmployee(id, "local");
+      return;
+    }
+
     const note = window.prompt("Observação (opcional):", "") ?? "";
-    if (!window.confirm("Confirmar: marcar esta comissão como PAGA (sem enviar PIX)?")) return;
+    if (!window.confirm("Confirmar: marcar a parte do cedente como PAGA (sem enviar PIX)?")) return;
     await postPay(id, "local", note);
   }
 
@@ -323,6 +364,79 @@ export default function CedenteCommissionsClient() {
     }
   }
 
+  async function postPayEmployee(id: string, via: "local" | "inter") {
+    try {
+      setLoading(true);
+      setErr("");
+      const res = await fetch(`/api/cedente-commissions/${id}/pay-employee`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ via }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        setErr(json?.error || json?.message || "Falha ao pagar a parte do funcionário.");
+        return;
+      }
+      setPixModal(null);
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro ao pagar a parte do funcionário.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openSplit(row: CommissionItem) {
+    setSplitRow(row);
+    setEmployeeQ("");
+    setEmployeeId("");
+    setEmployeeAmount("");
+    setErr("");
+    try {
+      const res = await fetch("/api/funcionarios", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      setEmployees(
+        rows.filter((u: { isActive?: boolean; role?: string }) => u.isActive !== false)
+      );
+    } catch {
+      setErr("Não deu para carregar os funcionários.");
+    }
+  }
+
+  async function saveSplit() {
+    if (!splitRow || !employeeId) {
+      setErr("Escolha o funcionário.");
+      return;
+    }
+    const empCents = parseBRLToCents(employeeAmount);
+    if (empCents <= 0 || empCents >= splitRow.amountCents) {
+      setErr("A parte do funcionário tem que ser maior que zero e menor que o valor gerado.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setErr("");
+      const res = await fetch(`/api/cedente-commissions/${splitRow.id}/split`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeUserId: employeeId, employeeShareCents: empCents }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        setErr(json?.error || json?.message || "Falha ao dividir.");
+        return;
+      }
+      setSplitRow(null);
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Erro ao dividir.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function cancelCommission(id: string) {
     const note = window.prompt("Motivo/observação (opcional):", "") ?? "";
     if (!window.confirm("Confirmar: cancelar esta comissão?")) return;
@@ -351,6 +465,16 @@ export default function CedenteCommissionsClient() {
   function resetPaging() {
     setSkip(0);
   }
+
+  const employeeHits = useMemo(() => {
+    const s = employeeQ.trim().toLowerCase();
+    const rows = s
+      ? employees.filter((u) =>
+          [u.name, u.login].join(" ").toLowerCase().includes(s)
+        )
+      : employees;
+    return rows.slice(0, 12);
+  }, [employees, employeeQ]);
 
   const cedenteHits = useMemo(() => {
     const s = cedenteQ.trim().toLowerCase();
@@ -418,7 +542,7 @@ export default function CedenteCommissionsClient() {
               Comissões · Cedentes
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Marque como pago, envie PIX pelo Inter (abre o comprovante escrito no WhatsApp) ou lance um pagamento avulso.
+              Marque como pago, envie PIX pelo Inter, divida com funcionário (o valor gerado fica na lista) ou lance um pagamento avulso.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -660,6 +784,18 @@ export default function CedenteCommissionsClient() {
                   </td>
                   <td className="px-4 py-3.5 font-semibold tabular-nums text-slate-900">
                     {fmtMoneyBR(it.amountCents)}
+                    {it.employeeShareCents && it.employeeShareCents > 0 ? (
+                      <div className="mt-1 space-y-0.5 text-[11px] font-medium leading-snug">
+                        <div className="text-slate-600">
+                          Cedente {fmtMoneyBR(it.amountCents - it.employeeShareCents)}
+                        </div>
+                        <div className="text-violet-800">
+                          Func. {fmtMoneyBR(it.employeeShareCents)}
+                          {it.splitEmployee?.name ? ` · ${it.splitEmployee.name}` : ""}
+                          {it.employeeSharePaidAt ? " · pago" : " · pendente"}
+                        </div>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3.5 tabular-nums text-slate-600">
                     {fmtDateTimeBR(it.generatedAt)}
@@ -672,12 +808,24 @@ export default function CedenteCommissionsClient() {
                   </td>
                   <td className="px-4 py-3.5 text-right">
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {it.status === "PENDING" && !(it.employeeShareCents && it.employeeShareCents > 0) ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-40"
+                          onClick={() => void openSplit(it)}
+                          disabled={loading}
+                          title="Dividir o valor gerado entre cedente e funcionário"
+                        >
+                          <Split className="h-3.5 w-3.5" />
+                          Dividir
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
                         onClick={() => void payCommission(it.id, "local")}
                         disabled={loading || it.status !== "PENDING"}
-                        title="Marcar como pago sem enviar PIX"
+                        title="Marcar a parte do cedente como paga sem enviar PIX"
                       >
                         Marcar pago
                       </button>
@@ -692,10 +840,27 @@ export default function CedenteCommissionsClient() {
                           it.interPixPayments?.[0]?.status === "PROCESSING" ||
                           it.interPixPayments?.[0]?.status === "CREATED"
                         }
-                        title="Enviar PIX pelo Banco Inter e abrir comprovante no WhatsApp"
+                        title="Enviar PIX do cedente pelo Banco Inter"
                       >
                         Enviar PIX
                       </button>
+                      {it.employeeShareCents && it.employeeShareCents > 0 && !it.employeeSharePaidAt ? (
+                        <button
+                          type="button"
+                          className="h-8 rounded-xl bg-violet-600 px-3 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40"
+                          onClick={() => void payCommission(it.id, "inter", "employee")}
+                          disabled={
+                            loading ||
+                            it.status === "CANCELED" ||
+                            it.interPixPayments?.[0]?.status === "AWAITING_APPROVAL" ||
+                            it.interPixPayments?.[0]?.status === "PROCESSING" ||
+                            it.interPixPayments?.[0]?.status === "CREATED"
+                          }
+                          title="Enviar PIX da parte do funcionário"
+                        >
+                          PIX funcionário
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="h-8 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
@@ -822,15 +987,23 @@ export default function CedenteCommissionsClient() {
 
       {pixModal ? (
         <PixDestinoConfirmModal
-          title="Enviar PIX ao cedente"
+          title={
+            pixModal.share === "employee"
+              ? "Enviar PIX ao funcionário"
+              : "Enviar PIX ao cedente"
+          }
           amountCents={pixModal.amountCents}
           destino={pixModal.destino}
           busy={loading}
-          editable
+          editable={pixModal.share !== "employee"}
           needsPix={pixModal.needsPix}
           pixError={pixModal.pixError}
           onCancel={() => setPixModal(null)}
-          onConfirm={() => void postPay(pixModal.id, "inter")}
+          onConfirm={() =>
+            void (pixModal.share === "employee"
+              ? postPayEmployee(pixModal.id, "inter")
+              : postPay(pixModal.id, "inter"))
+          }
           onSavePix={async (pixTipo, pixKey) => {
             const res = await fetch(`/api/cedente-commissions/${pixModal.id}/pix`, {
               method: "POST",
@@ -854,6 +1027,99 @@ export default function CedenteCommissionsClient() {
             await load();
           }}
         />
+      ) : null}
+
+      {splitRow ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Dividir PIX</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Valor gerado {fmtMoneyBR(splitRow.amountCents)} ·{" "}
+                  {splitRow.cedente?.nomeCompleto || "cedente"}. A lista continua com o total e o rastro da divisão.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                onClick={() => setSplitRow(null)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Funcionário
+            </label>
+            <input
+              className={cn(INPUT, "mt-1")}
+              placeholder="Buscar nome ou login"
+              value={employeeQ}
+              onChange={(e) => setEmployeeQ(e.target.value)}
+            />
+            <div className="mt-2 max-h-44 overflow-y-auto rounded-xl border border-slate-200">
+              {employeeHits.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-slate-500">Nenhum funcionário.</div>
+              ) : (
+                employeeHits.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setEmployeeId(u.id);
+                      setEmployeeQ(`${u.name} · ${u.login}`);
+                    }}
+                    className={cn(
+                      "flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-slate-50",
+                      employeeId === u.id ? "bg-violet-50" : "bg-white"
+                    )}
+                  >
+                    <span className="font-semibold text-slate-900">{u.name}</span>
+                    <span className="text-xs text-slate-500">{u.login}</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <label className="mt-4 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Valor para o funcionário (R$)
+            </label>
+            <input
+              className={cn(INPUT, "mt-1")}
+              placeholder="40,00"
+              value={employeeAmount}
+              onChange={(e) => setEmployeeAmount(e.target.value)}
+              inputMode="decimal"
+            />
+            <div className="mt-2 text-sm text-slate-600">
+              Cedente fica com{" "}
+              <span className="font-semibold text-slate-900">
+                {fmtMoneyBR(
+                  Math.max(0, splitRow.amountCents - parseBRLToCents(employeeAmount))
+                )}
+              </span>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => setSplitRow(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="h-10 rounded-xl bg-amber-500 px-4 text-sm font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-50"
+                onClick={() => void saveSplit()}
+                disabled={loading || !employeeId || !employeeAmount.trim()}
+              >
+                Confirmar divisão
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {addOpen ? (

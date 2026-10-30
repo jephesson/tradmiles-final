@@ -58,6 +58,9 @@ export async function GET(req: Request) {
           purchase: { select: { id: true, numero: true, status: true, totalCents: true } },
           generatedBy: { select: { id: true, name: true, login: true } },
           paidBy: { select: { id: true, name: true, login: true } },
+          splitEmployee: { select: { id: true, name: true, login: true } },
+          splitBy: { select: { id: true, name: true, login: true } },
+          employeeSharePaidBy: { select: { id: true, name: true, login: true } },
           interPixPayments: {
             orderBy: { createdAt: "desc" },
             take: 1,

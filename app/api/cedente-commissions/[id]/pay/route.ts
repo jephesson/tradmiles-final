@@ -3,6 +3,7 @@ import { ok, badRequest, notFound } from "@/lib/api";
 import { getSessionServer } from "@/lib/auth-server";
 import { interConfigured } from "@/lib/inter/config";
 import { payCedenteCommissionViaInter } from "@/lib/inter/pay";
+import { cedenteShareCents } from "@/lib/cedenteCommissions/split";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -83,7 +84,7 @@ export async function POST(
       team,
       commissionId: current.id,
       cedenteId: current.cedenteId,
-      amountCents: current.amountCents,
+      amountCents: cedenteShareCents(current.amountCents, current.employeeShareCents),
       requestedById: userId,
     });
 

@@ -96,7 +96,12 @@ async function sendPix(opts: {
       ? {
           status: { in: ["CREATED", "AWAITING_APPROVAL", "PROCESSING"] },
           ...(opts.employeePayoutId ? { employeePayoutId: opts.employeePayoutId } : {}),
-          ...(opts.cedenteCommissionId ? { cedenteCommissionId: opts.cedenteCommissionId } : {}),
+          ...(opts.cedenteCommissionId
+            ? {
+                cedenteCommissionId: opts.cedenteCommissionId,
+                personDebtGroupKey: opts.personDebtGroupKey || null,
+              }
+            : {}),
         }
       : null;
 
@@ -262,6 +267,30 @@ export async function payCedenteCommissionViaInter(opts: {
     pixTipo: destino.pixTipo,
     pixKey: destino.pixKey,
     description: `Cedente ${destino.source}`.slice(0, 140),
+    requestedById: opts.requestedById,
+  });
+}
+
+export async function payCedenteCommissionEmployeeShareViaInter(opts: {
+  team: string;
+  commissionId: string;
+  employeeUserId: string;
+  amountCents: number;
+  requestedById: string;
+}): Promise<InterPayResult> {
+  if (!interConfigured()) {
+    return { via: "local", paid: true, awaitingApproval: false };
+  }
+  const pix = await resolveEmployeePix(opts.employeeUserId);
+  return sendPix({
+    team: opts.team,
+    kind: "CEDENTE_COMMISSION",
+    cedenteCommissionId: opts.commissionId,
+    personDebtGroupKey: `cedente-emp:${opts.commissionId}`,
+    amountCents: opts.amountCents,
+    pixTipo: pix.pixTipo,
+    pixKey: pix.pixKey,
+    description: `Split funcionario`.slice(0, 140),
     requestedById: opts.requestedById,
   });
 }

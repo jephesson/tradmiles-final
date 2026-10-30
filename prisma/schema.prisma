@@ -197,6 +197,9 @@ model User {
   // Comissões de cedente (geradas / pagas)
   cedenteCommissionsGenerated   CedenteCommission[]   @relation("CedenteCommissionGeneratedBy")
   cedenteCommissionsPaid        CedenteCommission[]   @relation("CedenteCommissionPaidBy")
+  cedenteCommissionsSplitTo     CedenteCommission[]   @relation("CedenteCommissionSplitEmployee")
+  cedenteCommissionsSplitBy     CedenteCommission[]   @relation("CedenteCommissionSplitBy")
+  cedenteCommissionsEmployeePaid CedenteCommission[]  @relation("CedenteCommissionEmployeeSharePaidBy")
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionGeneratedBy")
   affiliateCommissionsPaid      AffiliateCommission[] @relation("AffiliateCommissionPaidBy")
 
@@ -1422,6 +1425,17 @@ model CedenteCommission {
   paidById String?
   paidBy   User?     @relation("CedenteCommissionPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
 
+  /// Parte do valor gerado que vai para o funcionário (o resto fica com o cedente).
+  employeeShareCents Int @default(0)
+  splitEmployeeUserId String?
+  splitEmployee       User?     @relation("CedenteCommissionSplitEmployee", fields: [splitEmployeeUserId], references: [id], onDelete: SetNull)
+  splitAt             DateTime?
+  splitById           String?
+  splitBy             User?     @relation("CedenteCommissionSplitBy", fields: [splitById], references: [id], onDelete: SetNull)
+  employeeSharePaidAt   DateTime?
+  employeeSharePaidById String?
+  employeeSharePaidBy   User?     @relation("CedenteCommissionEmployeeSharePaidBy", fields: [employeeSharePaidById], references: [id], onDelete: SetNull)
+
   note String?
 
   referral CedenteReferral?
@@ -1432,6 +1446,7 @@ model CedenteCommission {
 
   @@index([cedenteId, status, generatedAt])
   @@index([paidAt])
+  @@index([splitEmployeeUserId])
   @@map("cedente_commissions")
 }
 
