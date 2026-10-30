@@ -1201,19 +1201,67 @@ function SimplePieChart({
 }
 
 const EMP_LINE_COLORS = [
-  "#0ea5e9",
-  "#10b981",
-  "#f59e0b",
-  "#8b5cf6",
-  "#f43f5e",
-  "#14b8a6",
-  "#6366f1",
-  "#84cc16",
-  "#ec4899",
-  "#64748b",
-  "#06b6d4",
+  "#0284c7",
+  "#059669",
   "#d97706",
+  "#7c3aed",
+  "#e11d48",
+  "#0d9488",
+  "#4f46e5",
+  "#65a30d",
+  "#db2777",
+  "#475569",
+  "#0891b2",
+  "#ea580c",
 ];
+
+const MONTH_SHORT = [
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
+];
+
+function shortMonthFromKey(key: string, fallback = "") {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(key || ""));
+  if (!m) return fallback || key;
+  const idx = Number(m[2]) - 1;
+  const label = MONTH_SHORT[idx] || m[2];
+  return `${label}/${m[1].slice(2)}`;
+}
+
+function firstName(name: string) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return "—";
+  if (parts.length === 1) return parts[0];
+  const skip = new Set(["da", "de", "do", "dos", "das"]);
+  const second = parts[1] && !skip.has(parts[1].toLowerCase()) ? parts[1] : parts[2];
+  return second ? `${parts[0]} ${second}` : parts[0];
+}
+
+function smoothPath(points: Array<{ x: number; y: number }>) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const mx = (a.x + b.x) / 2;
+    d += ` C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`;
+  }
+  return d;
+}
 
 function EmployeeMonthlyLineChart({
   months,
@@ -1228,204 +1276,294 @@ function EmployeeMonthlyLineChart({
     values: number[];
   }>;
 }) {
-  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const [hoverEmpId, setHoverEmpId] = useState<string | null>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  const visible = series.filter((s) => !hidden[s.id]);
-  const w = 980;
-  const h = 260;
-  const leftPad = 18;
-  const rightPad = 74;
-  const topPad = 16;
-  const bottomPad = 36;
+  const colored = series.map((s, i) => ({
+    ...s,
+    color: EMP_LINE_COLORS[i % EMP_LINE_COLORS.length],
+    short: firstName(s.name),
+  }));
+
+  const focusId = hoverEmpId || pinnedId;
+  const lastIdx = Math.max(0, months.length - 1);
+  const leader = colored[0] || null;
+  const leaderLast = leader ? Number(leader.values[lastIdx] || 0) : 0;
+
+  const w = 760;
+  const h = 320;
+  const leftPad = 58;
+  const rightPad = 16;
+  const topPad = 18;
+  const bottomPad = 32;
   const plotW = w - leftPad - rightPad;
   const plotH = h - topPad - bottomPad;
-  const baseY = topPad + plotH;
   const n = Math.max(1, months.length);
   const dx = n <= 1 ? 0 : plotW / (n - 1);
 
-  const ymax = Math.max(1, ...visible.flatMap((s) => s.values), 0);
-  const ymin = 0;
-  const scaleY = (v: number) => {
-    const t = (v - ymin) / (ymax - ymin || 1);
-    return topPad + plotH - t * plotH;
-  };
+  const ymaxRaw = Math.max(1, ...colored.flatMap((s) => s.values), 0);
+  const ymaxReais = ymaxRaw / 100;
+  const pow = Math.pow(10, Math.max(0, Math.floor(Math.log10(ymaxReais || 1))));
+  const nNice = ymaxReais / pow;
+  const nice = nNice <= 1 ? 1 : nNice <= 2 ? 2 : nNice <= 5 ? 5 : 10;
+  const ymax = Math.max(100, nice * pow * 100);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * ymax);
+  const scaleY = (v: number) => topPad + plotH - (v / (ymax || 1)) * plotH;
 
-  const yTicks = [ymax, ymax / 2, 0];
-  const hovered = hoveredIdx != null && hoveredIdx >= 0 && hoveredIdx < n ? hoveredIdx : null;
+  const hovered =
+    hoveredIdx != null && hoveredIdx >= 0 && hoveredIdx < n ? hoveredIdx : null;
   const hoverX = hovered != null ? leftPad + hovered * dx : leftPad;
-  const tipRows = hovered != null
-    ? visible
-        .map((s) => ({
-          ...s,
-          value: Number(s.values[hovered] || 0),
-        }))
-        .sort((a, b) => b.value - a.value)
-    : [];
-  const tipW = 260;
-  const tipH = Math.min(220, 28 + tipRows.length * 16);
-  const tipX = Math.max(leftPad, Math.min(hoverX + 12, leftPad + plotW - tipW));
-  const tipY = topPad + 6;
 
-  function toggle(id: string) {
-    setHidden((curr) => ({ ...curr, [id]: !curr[id] }));
+  const tipRows =
+    hovered != null
+      ? colored
+          .map((s) => ({
+            ...s,
+            value: Number(s.values[hovered] || 0),
+          }))
+          .sort((a, b) => b.value - a.value)
+      : [];
+
+  function togglePin(id: string) {
+    setPinnedId((curr) => (curr === id ? null : id));
   }
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
-      <div className="text-sm font-semibold tracking-tight text-slate-900">
-        Vendas por funcionário · últimos {fmtInt(months.length || 12)} meses
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold tracking-tight text-slate-900">
+            Quem vendeu o quê, mês a mês
+          </div>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Últimos {fmtInt(months.length || 12)} meses · milhas + balcão, sem taxa. Passe o mouse
+            no mês ou clique numa pessoa.
+          </p>
+        </div>
+        {leader ? (
+          <div className="rounded-xl bg-slate-50 px-3 py-1.5 text-right">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              Líder no período
+            </div>
+            <div className="text-sm font-semibold text-slate-900">{leader.short}</div>
+            <div className="text-[11px] tabular-nums text-slate-500">
+              {fmtMoneyBR(leader.totalCents)}
+              {leaderLast ? ` · último mês ${fmtMoneyBR(leaderLast)}` : ""}
+            </div>
+          </div>
+        ) : null}
       </div>
-      <p className="mt-1 text-xs text-slate-500">
-        Valor vendido por mês (milhas + balcão, sem taxa). Clique no nome para ocultar a linha.
-      </p>
 
       {!series.length || !months.length ? (
-        <div className="mt-3 text-sm text-neutral-500">Sem vendas de funcionário no período.</div>
+        <div className="mt-4 text-sm text-neutral-500">Sem vendas de funcionário no período.</div>
       ) : (
-        <>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {series.map((s, i) => {
-              const color = EMP_LINE_COLORS[i % EMP_LINE_COLORS.length];
-              const off = Boolean(hidden[s.id]);
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => toggle(s.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
-                    off
-                      ? "border-slate-200 bg-slate-50 text-slate-400"
-                      : "border-slate-200 bg-white text-slate-800"
-                  )}
-                  title={`${s.name} · ${fmtMoneyBR(s.totalCents)} no período`}
-                >
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: off ? "#cbd5e1" : color }}
+        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="relative min-w-0">
+            <svg
+              viewBox={`0 0 ${w} ${h}`}
+              className="w-full"
+              role="img"
+              aria-label="Vendas mensais por funcionário"
+              onMouseLeave={() => {
+                setHoveredIdx(null);
+                if (!pinnedId) setHoverEmpId(null);
+              }}
+            >
+              {yTicks.map((v) => (
+                <g key={`g-${v}`}>
+                  <line
+                    x1={leftPad}
+                    x2={leftPad + plotW}
+                    y1={scaleY(v)}
+                    y2={scaleY(v)}
+                    stroke={v === 0 ? "#cbd5e1" : "#f1f5f9"}
+                    strokeWidth="1"
                   />
-                  <span className="max-w-[160px] truncate">{s.name}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <svg
-            viewBox={`0 0 ${w} ${h}`}
-            className="mt-3 w-full"
-            onMouseLeave={() => setHoveredIdx(null)}
-          >
-            {yTicks.map((v, i) => (
-              <line
-                key={`g-${i}`}
-                x1={leftPad}
-                x2={leftPad + plotW}
-                y1={scaleY(v)}
-                y2={scaleY(v)}
-                stroke="#e5e7eb"
-                strokeWidth="1"
-              />
-            ))}
-            {yTicks.map((v, i) => (
-              <text
-                key={`yl-${i}`}
-                x={leftPad + plotW + 6}
-                y={scaleY(v) + 3}
-                fontSize="10"
-                fill="#64748b"
-              >
-                {fmtMoneyCompactBR(Math.round(v))}
-              </text>
-            ))}
-
-            {visible.map((s) => {
-              const color = EMP_LINE_COLORS[series.findIndex((x) => x.id === s.id) % EMP_LINE_COLORS.length];
-              const pts = s.values
-                .map((v, i) => `${leftPad + i * dx},${scaleY(Number(v || 0))}`)
-                .join(" ");
-              return (
-                <g key={s.id}>
-                  <polyline fill="none" stroke={color} strokeWidth="2.2" points={pts} />
-                  {s.values.map((v, i) => (
-                    <circle
-                      key={`${s.id}-${i}`}
-                      cx={leftPad + i * dx}
-                      cy={scaleY(Number(v || 0))}
-                      r="2.4"
-                      fill={color}
-                    />
-                  ))}
+                  <text
+                    x={leftPad - 8}
+                    y={scaleY(v) + 3}
+                    fontSize="10"
+                    fill="#94a3b8"
+                    textAnchor="end"
+                  >
+                    {fmtMoneyCompactBR(Math.round(v))}
+                  </text>
                 </g>
-              );
-            })}
+              ))}
 
-            {months.map((m, i) => (
-              <text
-                key={m.key}
-                x={leftPad + i * dx}
-                y={h - 10}
-                fontSize="10"
-                fill="#64748b"
-                textAnchor="middle"
-              >
-                {String(m.label || m.key).replace(" de ", "/")}
-              </text>
-            ))}
-
-            {months.map((m, i) => {
-              const hitW = n <= 1 ? plotW : Math.max(10, plotW / n);
-              return (
-                <rect
-                  key={`${m.key}-hit`}
-                  x={leftPad + i * dx - hitW / 2}
-                  y={topPad}
-                  width={hitW}
-                  height={plotH}
-                  fill="transparent"
-                  onMouseEnter={() => setHoveredIdx(i)}
-                />
-              );
-            })}
-
-            {hovered != null ? (
-              <>
+              {hovered != null ? (
                 <line
                   x1={hoverX}
                   x2={hoverX}
                   y1={topPad}
-                  y2={baseY}
-                  stroke="#cbd5e1"
-                  strokeDasharray="4 3"
-                  strokeWidth="1"
+                  y2={topPad + plotH}
+                  stroke="#94a3b8"
+                  strokeDasharray="3 4"
+                  strokeWidth="1.2"
                 />
-                <rect
-                  x={tipX}
-                  y={tipY}
-                  width={tipW}
-                  height={tipH}
-                  rx="8"
-                  fill="white"
-                  stroke="#cbd5e1"
-                />
-                <text x={tipX + 10} y={tipY + 18} fontSize="11" fill="#0f172a">
-                  {months[hovered]?.label || months[hovered]?.key}
-                </text>
-                {tipRows.slice(0, 10).map((row, i) => (
-                  <text
-                    key={row.id}
-                    x={tipX + 10}
-                    y={tipY + 36 + i * 16}
-                    fontSize="10"
-                    fill="#334155"
+              ) : null}
+
+              {colored.map((s) => {
+                const pts = s.values.map((v, i) => ({
+                  x: leftPad + i * dx,
+                  y: scaleY(Number(v || 0)),
+                }));
+                const dim = Boolean(focusId) && focusId !== s.id;
+                const active = !focusId || focusId === s.id;
+                const line = smoothPath(pts);
+                const area = `${line} L ${pts[pts.length - 1]?.x || leftPad} ${
+                  topPad + plotH
+                } L ${pts[0]?.x || leftPad} ${topPad + plotH} Z`;
+                return (
+                  <g
+                    key={s.id}
+                    opacity={dim ? 0.16 : 1}
+                    onMouseEnter={() => setHoverEmpId(s.id)}
                   >
-                    {`${row.name}: ${fmtMoneyBR(row.value)}`}
+                    {active && focusId === s.id ? (
+                      <path d={area} fill={s.color} opacity="0.08" />
+                    ) : null}
+                    <path
+                      d={line}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth={active && focusId ? 3.2 : 2.1}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {pts.map((p, i) => (
+                      <circle
+                        key={`${s.id}-${i}`}
+                        cx={p.x}
+                        cy={p.y}
+                        r={hovered === i && active ? 4.2 : active && focusId === s.id ? 3.2 : 0}
+                        fill="white"
+                        stroke={s.color}
+                        strokeWidth="2"
+                      />
+                    ))}
+                  </g>
+                );
+              })}
+
+              {months.map((m, i) => {
+                const isLast = i === lastIdx;
+                const isHover = hovered === i;
+                return (
+                  <text
+                    key={m.key}
+                    x={leftPad + i * dx}
+                    y={h - 10}
+                    fontSize="10"
+                    fill={isHover || isLast ? "#0f172a" : "#94a3b8"}
+                    fontWeight={isHover || isLast ? 600 : 400}
+                    textAnchor="middle"
+                  >
+                    {shortMonthFromKey(m.key, m.label)}
                   </text>
-                ))}
-              </>
+                );
+              })}
+
+              {months.map((m, i) => {
+                const hitW = n <= 1 ? plotW : Math.max(12, plotW / n);
+                return (
+                  <rect
+                    key={`${m.key}-hit`}
+                    x={leftPad + i * dx - hitW / 2}
+                    y={topPad}
+                    width={hitW}
+                    height={plotH}
+                    fill="transparent"
+                    onMouseEnter={() => setHoveredIdx(i)}
+                  />
+                );
+              })}
+            </svg>
+
+            {hovered != null ? (
+              <div
+                className="pointer-events-none absolute z-10 w-[240px] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg shadow-slate-900/10 backdrop-blur-sm"
+                style={{
+                  left: `${Math.min(68, Math.max(8, (hoverX / w) * 100 - 8))}%`,
+                  top: 12,
+                }}
+              >
+                <div className="text-[11px] font-semibold text-slate-900">
+                  {shortMonthFromKey(months[hovered]?.key || "", months[hovered]?.label || "")}
+                </div>
+                <div className="mt-2 space-y-1.5">
+                  {tipRows.slice(0, 6).map((row, i) => (
+                    <div key={row.id} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ background: row.color }}
+                      />
+                      <span className={cn("min-w-0 flex-1 truncate", i === 0 ? "font-semibold text-slate-900" : "text-slate-600")}>
+                        {i === 0 ? "1º " : ""}
+                        {row.short}
+                      </span>
+                      <span className="tabular-nums text-slate-900">{fmtMoneyBR(row.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : null}
-          </svg>
-        </>
+          </div>
+
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              <span>Funcionário</span>
+              <span>No período</span>
+            </div>
+            <div className="space-y-1">
+              {colored.map((s, i) => {
+                const last = Number(s.values[lastIdx] || 0);
+                const prev = Number(s.values[lastIdx - 1] || 0);
+                const deltaPct = prev > 0 ? (last - prev) / prev : null;
+                const active = focusId === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onMouseEnter={() => setHoverEmpId(s.id)}
+                    onMouseLeave={() => setHoverEmpId(null)}
+                    onClick={() => togglePin(s.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition",
+                      active ? "bg-slate-900 text-white" : "hover:bg-slate-50"
+                    )}
+                  >
+                    <span className="w-4 text-[11px] font-semibold tabular-nums text-slate-400">
+                      {i + 1}
+                    </span>
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: s.color }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("block truncate text-[13px] font-medium", active ? "text-white" : "text-slate-900")}>
+                        {s.short}
+                      </span>
+                      <span className={cn("block text-[10px] tabular-nums", active ? "text-slate-300" : "text-slate-500")}>
+                        último mês {fmtMoneyCompactBR(last)}
+                        {deltaPct == null
+                          ? ""
+                          : ` · ${deltaPct >= 0 ? "+" : ""}${(deltaPct * 100).toFixed(0)}%`}
+                      </span>
+                    </span>
+                    <span className={cn("text-[12px] font-semibold tabular-nums", active ? "text-white" : "text-slate-900")}>
+                      {fmtMoneyCompactBR(s.totalCents)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 text-[11px] text-slate-400">
+              Clique para fixar uma linha. Clique de novo para ver todos.
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
