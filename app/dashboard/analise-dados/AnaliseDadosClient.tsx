@@ -1263,6 +1263,21 @@ function smoothPath(points: Array<{ x: number; y: number }>) {
   return d;
 }
 
+function niceYAxis(rawCents: number) {
+  const paddedReais = Math.max(1, (rawCents || 0) / 100) * 1.06;
+  const rough = paddedReais / 5;
+  const exp = Math.floor(Math.log10(Math.max(rough, 1)));
+  const pow = Math.pow(10, Math.max(0, exp));
+  const n = rough / pow;
+  const stepReais = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow;
+  const ymaxReais = Math.max(stepReais, Math.ceil(paddedReais / stepReais) * stepReais);
+  const ticks: number[] = [];
+  for (let v = 0; v <= ymaxReais + 0.001; v += stepReais) {
+    ticks.push(Math.round(v * 100));
+  }
+  return { ymax: Math.round(ymaxReais * 100), ticks };
+}
+
 function EmployeeMonthlyLineChart({
   months,
   series,
@@ -1302,13 +1317,9 @@ function EmployeeMonthlyLineChart({
   const n = Math.max(1, months.length);
   const dx = n <= 1 ? 0 : plotW / (n - 1);
 
-  const ymaxRaw = Math.max(1, ...colored.flatMap((s) => s.values), 0);
-  const ymaxReais = ymaxRaw / 100;
-  const pow = Math.pow(10, Math.max(0, Math.floor(Math.log10(ymaxReais || 1))));
-  const nNice = ymaxReais / pow;
-  const nice = nNice <= 1 ? 1 : nNice <= 2 ? 2 : nNice <= 5 ? 5 : 10;
-  const ymax = Math.max(100, nice * pow * 100);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * ymax);
+  const scaleSeries = pinnedId ? colored.filter((s) => s.id === pinnedId) : colored;
+  const ymaxRaw = Math.max(1, ...scaleSeries.flatMap((s) => s.values), 0);
+  const { ymax, ticks: yTicks } = niceYAxis(ymaxRaw);
   const scaleY = (v: number) => topPad + plotH - (v / (ymax || 1)) * plotH;
 
   const hovered =
