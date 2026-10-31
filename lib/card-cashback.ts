@@ -9,7 +9,7 @@ export const CARD_CASHBACK_LOGIN = "eduarda";
 const TZ = "America/Sao_Paulo";
 
 export type MonthlyBonusPart = {
-  kind: "meta" | "card" | "individual" | "recruit";
+  kind: "meta" | "card" | "individual" | "recruit" | "attendance";
   title: string;
   detail: string;
   grossCents: number;
@@ -320,6 +320,41 @@ export async function day1BonusByUser(team: string, date: string) {
         prev.netBonusCents += netCents;
         map.set(user.id, prev);
       }
+    }
+  }
+
+  const spendSetting = await prisma.bonusMonthSetting.findUnique({
+    where: { team_month: { team, month: spendMonth } },
+    select: { attendanceBonusActive: true },
+  });
+  if (spendSetting?.attendanceBonusActive !== false) {
+    const award = await prisma.attendanceAward.findUnique({
+      where: { team_month: { team, month: spendMonth } },
+      select: { userId: true, bonusCents: true },
+    });
+    const gross = Math.max(0, award?.bonusCents || 0);
+    if (award && gross > 0) {
+      const taxPercent = await commissionTaxPercent();
+      const taxCents = taxByPercent(gross, taxPercent);
+      const netCents = Math.max(0, gross - taxCents);
+      const prev = map.get(award.userId) || {
+        grossBonusCents: 0,
+        taxCents: 0,
+        netBonusCents: 0,
+        parts: [] as MonthlyBonusPart[],
+      };
+      prev.parts.push({
+        kind: "attendance",
+        title: "Bônus de assiduidade",
+        detail: `Quem cumpriu as horas em ${monthLabelPT(spendMonth)} recebe no dia 1.`,
+        grossCents: gross,
+        taxCents,
+        netCents,
+      });
+      prev.grossBonusCents += gross;
+      prev.taxCents += taxCents;
+      prev.netBonusCents += netCents;
+      map.set(award.userId, prev);
     }
   }
 

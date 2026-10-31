@@ -8,7 +8,7 @@ import {
   buildBalcaoComputedValues,
   recifeDateISO,
 } from "@/lib/balcao-commission";
-import { isFirstDayOfMonth, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import { isFirstDayOfMonth, nextMonthISO, previousMonthISO } from "@/lib/bonus/monthlyBonus";
 import { day1BonusByUser } from "@/lib/card-cashback";
 import { applyEmployeeDebtDiscountsForDate, addDaysISO } from "@/lib/payouts/applyEmployeeDebtDiscounts";
 import { isAdminRole, resolveScopedUserId } from "@/lib/payouts/resolveViewAs";
@@ -187,10 +187,12 @@ export async function GET(req: Request) {
     dayBoundsUTC(date);
 
     const todayRecife = todayISORecife();
+    const nextPayDate = `${nextMonthISO(todayRecife.slice(0, 7))}-01`;
+    const bonusByUserId = await day1BonusByUser(session.team, date);
     if (date === todayRecife) {
       await applyEmployeeDebtDiscountsForDate(session.team, date);
       await applyEmployeeDebtDiscountsForDate(session.team, addDaysISO(date, -1));
-    } else if (date < todayRecife) {
+    } else if (date < todayRecife || date === nextPayDate) {
       await applyEmployeeDebtDiscountsForDate(session.team, date);
     }
 
@@ -254,8 +256,6 @@ export async function GET(req: Request) {
         errorMessage: row.errorMessage,
       });
     }
-
-    const bonusByUserId = await day1BonusByUser(session.team, date);
 
     const { start: balcaoStart, end: balcaoEnd } = dayBoundsRecife(date);
     const balcaoOps = await prisma.balcaoOperacao.findMany({
