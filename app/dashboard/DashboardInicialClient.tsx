@@ -2,13 +2,12 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   CalendarDays,
   ChevronRight,
   Circle,
   Landmark,
-  PartyPopper,
   RefreshCw,
   Sparkles,
   Trophy,
@@ -881,110 +880,71 @@ function isHiddenCelebrant(person: { name: string; login: string }) {
   );
 }
 
-const PARTY_LOOKS = [
-  { skin: "#f3c7a3", hair: "#2a1b12", shirt: "#fbbf24", pants: "#1e3a5f", drink: "#f59e0b" },
-  { skin: "#e0a888", hair: "#111827", shirt: "#38bdf8", pants: "#312e81", drink: "#fb7185" },
-  { skin: "#f6d2b0", hair: "#78350f", shirt: "#f472b6", pants: "#164e63", drink: "#fde68a" },
-  { skin: "#d9a07a", hair: "#1c1917", shirt: "#a78bfa", pants: "#3f3f46", drink: "#fdba74" },
-] as const;
-
-function PartyBuddy({
-  name,
-  variant,
-}: {
-  name: string;
-  variant: number;
-}) {
-  const look = PARTY_LOOKS[variant % PARTY_LOOKS.length];
-  const pose = variant % 3;
-  const delay = `${(variant % 5) * 0.18}s`;
-  return (
-    <div className="flex w-[4.4rem] shrink-0 flex-col items-center">
-      <svg
-        viewBox="0 0 72 96"
-        className="tm-party-buddy h-[3.65rem] w-11 overflow-visible"
-        style={{ animationDelay: delay }}
-        aria-hidden
-      >
-        {pose === 1 ? (
-          <path
-            d="M18 28 C10 18 8 8 18 10"
-            fill="none"
-            stroke={look.skin}
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-        ) : (
-          <path
-            d="M22 40 C8 36 6 22 16 18"
-            fill="none"
-            stroke={look.skin}
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-        )}
-        <path
-          d="M50 38 C64 32 66 20 56 14"
-          fill="none"
-          stroke={look.skin}
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
-        {pose === 0 ? (
-          <g transform="translate(52 6)">
-            <rect x="0" y="8" width="10" height="12" rx="2" fill={look.drink} />
-            <rect x="9" y="11" width="3" height="7" rx="1" fill={look.drink} />
-            <ellipse cx="5" cy="8" rx="5" ry="2.2" fill="#fff7ed" />
-          </g>
-        ) : pose === 1 ? (
-          <g transform="translate(8 2)">
-            <path d="M4 18 L6 6 H12 L14 18 Z" fill="#e0f2fe" stroke="#fff" strokeWidth="1" />
-            <rect x="8.5" y="18" width="3" height="7" rx="1" fill="#fff" />
-            <ellipse cx="9" cy="5" rx="2" ry="1.4" fill="#fde68a" />
-          </g>
-        ) : (
-          <g transform="translate(54 8)">
-            <rect x="1" y="0" width="8" height="16" rx="2" fill="#86efac" />
-            <rect x="0" y="14" width="10" height="4" rx="1.5" fill="#166534" />
-          </g>
-        )}
-        <ellipse cx="36" cy="20" rx="15" ry="8" fill={look.hair} />
-        <circle cx="36" cy="24" r="12" fill={look.skin} />
-        {pose === 2 ? (
-          <path d="M22 16 Q36 4 50 16" fill={look.hair} />
-        ) : (
-          <path d="M24 16 Q36 8 48 16" fill={look.hair} />
-        )}
-        <circle cx="31.5" cy="24" r="1.5" fill="#1f2937" />
-        <circle cx="40.5" cy="24" r="1.5" fill="#1f2937" />
-        <path
-          d="M31 28.5 Q36 32.5 41 28.5"
-          fill="none"
-          stroke="#9a3412"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-        <rect x="24" y="36" width="24" height="28" rx="11" fill={look.shirt} />
-        <rect x="27" y="62" width="7" height="18" rx="3.5" fill={look.pants} />
-        <rect x="38" y="62" width="7" height="18" rx="3.5" fill={look.pants} />
-        <ellipse cx="30.5" cy="81" rx="5" ry="2.2" fill="#111827" />
-        <ellipse cx="41.5" cy="81" rx="5" ry="2.2" fill="#111827" />
-      </svg>
-      <span className="mt-0.5 max-w-full truncate text-[11px] font-bold tracking-tight text-white drop-shadow">
-        {name}
-      </span>
-    </div>
-  );
+function fmtMoneyWhole(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
 }
+
+function joinNames(names: string[]) {
+  if (names.length <= 1) return names[0] || "";
+  return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
+
+/** Sobe de 0 até o valor uma vez (respeita quem prefere sem animação). */
+function useCountUp(target: number, ms = 1100) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = reduce ? 1 : Math.min(1, (now - start) / ms);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setValue(target * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return value;
+}
+
+const WIN_AVATAR_COLORS = ["#f59e0b", "#38bdf8", "#f472b6", "#a78bfa", "#2dd4bf", "#fb7185"];
+const WIN_CONFETTI_COLORS = ["#fde68a", "#facc15", "#ffffff", "#6ee7b7", "#67e8f9", "#fda4af"];
+
+// Confete fixo (sem Math.random) para não mudar entre servidor e navegador.
+const WIN_CONFETTI = Array.from({ length: 22 }, (_, i) => {
+  const angle = (i / 22) * Math.PI * 2 + (i % 3) * 0.35;
+  const dist = 90 + ((i * 37) % 120);
+  return {
+    x: `${14 + ((i * 29) % 72)}%`,
+    dx: `${Math.round(Math.cos(angle) * dist)}px`,
+    dy: `${Math.round(Math.sin(angle) * dist * 0.6 + 70)}px`,
+    rot: `${((i * 83) % 540) - 270}deg`,
+    delay: `${(i % 6) * 0.06}s`,
+    dur: `${1.5 + (i % 4) * 0.2}s`,
+    color: WIN_CONFETTI_COLORS[i % WIN_CONFETTI_COLORS.length],
+    round: i % 3 === 0,
+  };
+});
 
 function MetaBatidaPanel({
   monthLabel,
   showLucroCta,
   people,
+  revenueCents = 0,
+  goalCents = 0,
 }: {
   monthLabel: string;
   showLucroCta?: boolean;
   people?: Array<{ name: string; login: string; role?: string }>;
+  revenueCents?: number;
+  goalCents?: number;
 }) {
   const crew = (people || [])
     .filter((p) => {
@@ -998,73 +958,122 @@ function MetaBatidaPanel({
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
+  const pct = goalCents > 0 ? (revenueCents / goalCents) * 100 : 100;
+  const pctShown = useCountUp(pct);
+  const revenueShown = useCountUp(revenueCents);
+  const aboveCents = Math.max(0, revenueCents - goalCents);
+
   return (
-    <div className="tm-meta-win relative overflow-hidden px-5 py-7 text-center text-white sm:px-8 sm:py-8">
-      <div className="tm-meta-win-shine" aria-hidden />
-      <div className="tm-meta-win-blob -right-8 -top-10 h-40 w-40 bg-white/25" aria-hidden />
-      <div
-        className="tm-meta-win-blob -bottom-12 -left-6 h-36 w-36 bg-amber-200/40"
-        style={{ animationDelay: "0.8s" }}
-        aria-hidden
-      />
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        {Array.from({ length: 10 }, (_, i) => (
-          <span key={i} className="tm-meta-win-piece" />
+    <div className="tm-win relative overflow-hidden px-5 py-6 text-white sm:px-7 sm:py-7">
+      <div className="tm-win-grid" aria-hidden />
+      <div className="tm-win-sheen" aria-hidden />
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        {WIN_CONFETTI.map((c, i) => (
+          <span
+            key={i}
+            className="tm-win-confetti"
+            style={
+              {
+                "--x": c.x,
+                "--dx": c.dx,
+                "--dy": c.dy,
+                "--rot": c.rot,
+                "--delay": c.delay,
+                "--dur": c.dur,
+                background: c.color,
+                borderRadius: c.round ? "9999px" : undefined,
+                height: c.round ? 6 : undefined,
+              } as CSSProperties
+            }
+          />
         ))}
       </div>
-      <div className="relative">
-        <div className="relative mx-auto h-14 w-14">
-          <Sparkles
-            className="tm-meta-win-spark absolute -left-5 -top-1 h-4 w-4"
-            strokeWidth={2.4}
-            aria-hidden
-          />
-          <Sparkles
-            className="tm-meta-win-spark absolute -right-5 top-1 h-3.5 w-3.5"
-            style={{ animationDelay: "0.45s" }}
-            strokeWidth={2.4}
-            aria-hidden
-          />
-          <div className="tm-meta-win-trophy-wrap flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 shadow-lg shadow-emerald-900/20 ring-1 ring-white/40">
-            <Trophy
-              className="tm-meta-win-trophy h-7 w-7 text-amber-200"
-              strokeWidth={2.1}
-              aria-hidden
-            />
+
+      <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="relative h-16 w-16 shrink-0">
+            <div className="tm-win-halo absolute -inset-3 rounded-full bg-amber-300/25 blur-xl" aria-hidden />
+            <div className="relative h-16 w-16 rounded-2xl bg-gradient-to-br from-amber-100 via-amber-400 to-amber-700 p-[2px] shadow-lg shadow-amber-900/30">
+              <div className="flex h-full w-full items-center justify-center rounded-[14px] bg-gradient-to-b from-[#0b4a3c] to-[#062e26]">
+                <Trophy className="h-8 w-8 text-amber-300" strokeWidth={1.9} aria-hidden />
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50 ring-1 ring-white/25">
-          <PartyPopper className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
-          {monthLabel}
-        </div>
-        <h3 className="tm-meta-win-title mt-3 text-2xl font-black tracking-tight sm:text-3xl">
-          Meta do mês batida!
-        </h3>
-        <p className="mx-auto mt-2 max-w-md text-sm font-medium text-emerald-50">
-          Bônus liberado conforme as regras. Equipe no ritmo.
-        </p>
-        {crew.length ? (
-          <div className="mt-4 flex flex-wrap items-end justify-center gap-1 sm:gap-2">
-            {crew.map((person, i) => (
-              <PartyBuddy key={person.key} name={person.name} variant={i} />
-            ))}
-          </div>
-        ) : null}
-        {showLucroCta ? (
-          <div className="mt-5">
-            <p className="text-sm text-white/90">
-              Mês novo: conferam o lucro de {monthLabel} antes de seguir.
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200/90">
+              Meta do mês · {monthLabel}
             </p>
-            <Link
-              href="/dashboard/lucros"
-              className="mt-3 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
-            >
-              <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
-              Checar lucro
-            </Link>
+            <h3 className="mt-1 text-2xl font-bold tracking-tight sm:text-[1.75rem]">Meta batida</h3>
+            <p className="mt-1 text-sm text-emerald-50/75">
+              Bônus liberado conforme as regras. Parabéns, equipe!
+            </p>
+          </div>
+        </div>
+
+        {goalCents > 0 ? (
+          <div className="w-full rounded-xl bg-white/[0.06] px-4 py-3.5 ring-1 ring-white/10 backdrop-blur-sm md:w-72">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-100/70">
+                Faturamento
+              </span>
+              <span className="rounded-full bg-amber-300/15 px-2 py-0.5 text-xs font-bold tabular-nums text-amber-200 ring-1 ring-amber-300/30">
+                {Math.round(pctShown)}%
+              </span>
+            </div>
+            <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight">
+              {fmtMoneyWhole(revenueShown)}
+            </div>
+            <div className="text-xs text-emerald-50/60">de {fmtMoneyWhole(goalCents)}</div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className="tm-win-bar h-full w-full rounded-full bg-gradient-to-r from-emerald-300 via-amber-300 to-amber-200" />
+            </div>
+            {aboveCents > 0 ? (
+              <div className="mt-2 text-xs font-medium text-emerald-200">
+                +{fmtMoneyWhole(aboveCents)} acima da meta
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {crew.length || showLucroCta ? (
+        <div className="relative mt-5 flex flex-col gap-4 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          {crew.length ? (
+            <div className="flex items-center gap-3">
+              <div className="flex -space-x-1">
+                {crew.map((person, i) => (
+                  <span
+                    key={person.key}
+                    title={person.name}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold text-slate-900 ring-2 ring-[#06352c]"
+                    style={{ background: WIN_AVATAR_COLORS[i % WIN_AVATAR_COLORS.length] }}
+                  >
+                    {person.name.slice(0, 2).toUpperCase()}
+                  </span>
+                ))}
+              </div>
+              <p className="text-sm text-emerald-50/85">
+                <span className="font-semibold text-white">{joinNames(crew.map((c) => c.name))}</span>
+                {crew.length === 1 ? " fez acontecer." : " fizeram acontecer."}
+              </p>
+            </div>
+          ) : (
+            <span />
+          )}
+          {showLucroCta ? (
+            <div className="flex flex-col gap-2 sm:items-end">
+              <p className="text-xs text-emerald-50/75">Mês novo: confiram o lucro de {monthLabel} antes de seguir.</p>
+              <Link
+                href="/dashboard/lucros"
+                className="inline-flex items-center gap-2 self-start rounded-xl bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 sm:self-auto"
+              >
+                <Sparkles className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                Checar lucro
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1088,14 +1097,25 @@ function BonusProgressCard({
     if (showPrevWin && prev) {
       return (
         <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
-          <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta people={people} />
+          <MetaBatidaPanel
+            monthLabel={prev.monthLabel}
+            showLucroCta
+            people={people}
+            revenueCents={prev.revenueCents}
+            goalCents={prev.revenueGoalCents}
+          />
         </section>
       );
     }
     if (bonus.revenueGoalMet) {
       return (
         <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
-          <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} />
+          <MetaBatidaPanel
+            monthLabel={bonus.monthLabel}
+            people={people}
+            revenueCents={bonus.revenueCents}
+            goalCents={bonus.revenueGoalCents}
+          />
         </section>
       );
     }
@@ -1112,7 +1132,12 @@ function BonusProgressCard({
 
   const monthProgress = hasGoal ? (
     bonus.revenueGoalMet ? (
-      <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} />
+      <MetaBatidaPanel
+            monthLabel={bonus.monthLabel}
+            people={people}
+            revenueCents={bonus.revenueCents}
+            goalCents={bonus.revenueGoalCents}
+          />
     ) : (
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="border-b border-slate-100 p-5 lg:border-b-0 lg:border-r">
@@ -1218,7 +1243,13 @@ function BonusProgressCard({
         </div>
         <div className={cn("grid gap-0", hasGoal ? "lg:grid-cols-2" : "")}>
           <div className={hasGoal ? "lg:border-r lg:border-emerald-100" : ""}>
-            <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta people={people} />
+            <MetaBatidaPanel
+            monthLabel={prev.monthLabel}
+            showLucroCta
+            people={people}
+            revenueCents={prev.revenueCents}
+            goalCents={prev.revenueGoalCents}
+          />
           </div>
           {hasGoal ? <div className="min-w-0 bg-white">{monthProgress}</div> : monthProgress}
         </div>
@@ -1260,7 +1291,12 @@ function BonusProgressCard({
           Ver regras
         </Link>
       </div>
-      {bonus.revenueGoalMet ? <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} /> : monthProgress}
+      {bonus.revenueGoalMet ? <MetaBatidaPanel
+            monthLabel={bonus.monthLabel}
+            people={people}
+            revenueCents={bonus.revenueCents}
+            goalCents={bonus.revenueGoalCents}
+          /> : monthProgress}
     </section>
   );
 }
