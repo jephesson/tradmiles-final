@@ -9,7 +9,7 @@ export const CARD_CASHBACK_LOGIN = "eduarda";
 const TZ = "America/Sao_Paulo";
 
 export type MonthlyBonusPart = {
-  kind: "meta" | "card" | "individual";
+  kind: "meta" | "card" | "individual" | "recruit";
   title: string;
   detail: string;
   grossCents: number;
@@ -224,9 +224,11 @@ export async function day1BonusByUser(team: string, date: string) {
     const br = (b.breakdown || {}) as {
       poolGrossCents?: number;
       individualGrossCents?: number;
+      recruitGrossCents?: number;
     };
     const poolGross = Math.max(0, Number(br.poolGrossCents || 0));
     const individualGross = Math.max(0, Number(br.individualGrossCents || 0));
+    const recruitGross = Math.max(0, Number(br.recruitGrossCents || 0));
     const parts: MonthlyBonusPart[] = [];
     const splitTax = (partGross: number) => {
       if (gross <= 0) return { taxCents: 0, netCents: partGross };
@@ -251,6 +253,17 @@ export async function day1BonusByUser(team: string, date: string) {
         title: "Bônus individual",
         detail: `A cada valor vendido no mês ${monthLabelPT(spendMonth)}, proporcional, pago no dia 1.`,
         grossCents: individualGross,
+        taxCents: split.taxCents,
+        netCents: split.netCents,
+      });
+    }
+    if (recruitGross > 0) {
+      const split = splitTax(recruitGross);
+      parts.push({
+        kind: "recruit",
+        title: "Bônus de recrutamento",
+        detail: `Contas de cedente aprovadas em ${monthLabelPT(spendMonth)}, pago no dia 1.`,
+        grossCents: recruitGross,
         taxCents: split.taxCents,
         netCents: split.netCents,
       });

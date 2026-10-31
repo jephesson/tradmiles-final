@@ -18,6 +18,19 @@ import { getSession } from "@/lib/auth";
 import { monthLabelPT } from "@/lib/bonus/monthlyBonus";
 import AttendanceCard from "./AttendanceCard";
 
+type RecruitRow = {
+  userId: string;
+  name: string;
+  login: string;
+  recruitCount: number;
+  recruitGoalCount: number;
+  recruitBonusCents: number;
+  earnedGrossCents: number;
+  taxCents: number;
+  netCents: number;
+  met: boolean;
+};
+
 type IndividualRow = {
   userId: string;
   name: string;
@@ -148,6 +161,8 @@ export default function BonusClient() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [individual, setIndividual] = useState<IndividualRow[]>([]);
   const [individualEnabled, setIndividualEnabled] = useState(false);
+  const [recruitment, setRecruitment] = useState<RecruitRow[]>([]);
+  const [recruitmentEnabled, setRecruitmentEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +183,8 @@ export default function BonusClient() {
       setPreview(json.preview as Preview);
       setIndividualEnabled(Boolean(json.individualEnabled));
       setIndividual(Array.isArray(json.individual) ? (json.individual as IndividualRow[]) : []);
+      setRecruitmentEnabled(Boolean(json.recruitmentEnabled));
+      setRecruitment(Array.isArray(json.recruitment) ? (json.recruitment as RecruitRow[]) : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar.");
     } finally {
@@ -304,7 +321,7 @@ export default function BonusClient() {
           <div className="min-w-0 flex-1">
             <div className="text-base font-semibold text-slate-900">Bônus de meta</div>
             <p className="mt-1 text-sm leading-snug text-slate-500">
-              Faturamento da equipe, meta individual (a cada X vendido recebe Y no dia 1) e
+              Faturamento da equipe, venda individual, recrutamento de cedentes e
               distribuição se a meta do mês for batida.
             </p>
           </div>
@@ -332,7 +349,7 @@ export default function BonusClient() {
           <button
             type="button"
             onClick={computeBonus}
-            disabled={computing || (!preview?.isActive && !individualEnabled)}
+            disabled={computing || (!preview?.isActive && !individualEnabled && !recruitmentEnabled)}
             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
             {computing ? (
@@ -454,6 +471,63 @@ export default function BonusClient() {
               )}
             </div>
           </div>
+
+          {recruitmentEnabled ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                <div className="text-sm font-semibold text-slate-800">
+                  Recrutamento · histórico do mês
+                </div>
+                <Link
+                  href="/dashboard/funcionarios/recrutamento"
+                  className="text-xs font-medium text-sky-700 hover:underline"
+                >
+                  Ver contas do mês
+                </Link>
+              </div>
+              {recruitment.length ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Funcionário</th>
+                        <th className="px-4 py-3 text-right">Entrou</th>
+                        <th className="px-4 py-3 text-right">Meta</th>
+                        <th className="px-4 py-3 text-right">Bônus da meta</th>
+                        <th className="px-4 py-3 text-right">Bruto</th>
+                        <th className="px-4 py-3 text-right">Líquido</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recruitment.map((r) => (
+                        <tr key={r.userId} className="hover:bg-slate-50/60">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-slate-900">{r.name}</div>
+                            <div className="text-xs text-slate-500">@{r.login}</div>
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums">{r.recruitCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums">{r.recruitGoalCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums">
+                            {fmtMoney(r.recruitBonusCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums font-medium">
+                            {fmtMoney(r.earnedGrossCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums font-bold text-emerald-700">
+                            {fmtMoney(r.netCents)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="px-4 py-4 text-sm text-slate-500">
+                  Nenhuma meta de recrutamento neste mês. Defina em Configurações.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {individualEnabled ? (
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -600,7 +674,8 @@ export default function BonusClient() {
             zero), 20% dividido igualmente. Imposto debitado sobre o bônus bruto.
             Pagamento no dia 1 do mês seguinte, junto às comissões. A partir de
             novembro/2026, a meta individual paga proporcionalmente: a cada X vendidos,
-            recebe Y no dia 1.
+            recebe Y no dia 1. Recrutamento: contas de cedente aprovadas e não
+            excluídas, vinculadas ao funcionário no mês; a cada N contas, o bônus no dia 1.
           </div>
         </>
       ) : null}

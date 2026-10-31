@@ -2703,6 +2703,11 @@ model EmployeeMonthGoal {
   /// Recebe Y reais no dia 1 do mês seguinte, em centavos (proporcional ao vendido)
   bonusCents     Int @default(0)
 
+  /// Quantas contas de cedente aprovadas (não excluídas) a pessoa precisa trazer
+  recruitGoalCount Int @default(0)
+  /// Bônus em centavos para essa quantidade (proporcional ao que entrou no mês)
+  recruitBonusCents Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -58,6 +58,10 @@ export function canUseIndividualBonus(month: string) {
   return isMonthISO(month) && month >= INDIVIDUAL_BONUS_START_MONTH;
 }
 
+export function canUseRecruitBonus(month: string) {
+  return canUseIndividualBonus(month);
+}
+
 /** A cada `salesGoalCents` vendidos, recebe `bonusCents` (proporcional). */
 export function computeIndividualBonusCents(args: {
   salesVolumeCents: number;
@@ -69,6 +73,19 @@ export function computeIndividualBonusCents(args: {
   const prize = Math.max(0, args.bonusCents);
   if (sold <= 0 || every <= 0 || prize <= 0) return 0;
   return Math.round((sold / every) * prize);
+}
+
+/** A cada `goalCount` contas de cedente, recebe `bonusCents` (proporcional). */
+export function computeRecruitBonusCents(args: {
+  recruitCount: number;
+  goalCount: number;
+  bonusCents: number;
+}): number {
+  const count = Math.max(0, args.recruitCount);
+  const every = Math.max(0, args.goalCount);
+  const prize = Math.max(0, args.bonusCents);
+  if (count <= 0 || every <= 0 || prize <= 0) return 0;
+  return Math.round((count / every) * prize);
 }
 
 export function isMonthISO(v: string) {

@@ -11,6 +11,8 @@ type EmployeeGoalRow = {
   login: string;
   salesGoalReais: string;
   bonusReais: string;
+  recruitGoalCount: string;
+  recruitBonusReais: string;
 };
 
 type Props = {
@@ -74,12 +76,16 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                 login: string;
                 salesGoalCents?: number;
                 bonusCents?: number;
+                recruitGoalCount?: number;
+                recruitBonusCents?: number;
               }) => ({
                 userId: u.userId,
                 name: u.name,
                 login: u.login,
                 salesGoalReais: centsToReaisInput(u.salesGoalCents || 0),
                 bonusReais: centsToReaisInput(u.bonusCents || 0),
+                recruitGoalCount: String(u.recruitGoalCount || 0),
+                recruitBonusReais: centsToReaisInput(u.recruitBonusCents || 0),
               })
             )
           : []
@@ -140,6 +146,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                 userId: e.userId,
                 salesGoalReais: parseReais(e.salesGoalReais),
                 bonusReais: parseReais(e.bonusReais),
+                recruitGoalCount: Number(String(e.recruitGoalCount || "0").replace(/\D+/g, "")) || 0,
+                recruitBonusReais: parseReais(e.recruitBonusReais),
               }))
             : [],
         }),
@@ -230,8 +238,9 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
         <h3 className="text-sm font-semibold text-slate-900">Meta individual</h3>
         <p className="mt-1 text-sm text-slate-600">
           A cada <b>X</b> reais vendidos (milhas + balcão, sem taxa), a pessoa recebe{" "}
-          <b>Y</b> reais no dia 1 do mês seguinte — proporcional ao que vendeu. Vale a
-          partir de novembro de 2026.
+          <b>Y</b> reais no dia 1. Recrutamento: a cada <b>N</b> contas de cedente
+          aprovadas e não excluídas, recebe o bônus — proporcional. Vale a partir de
+          novembro de 2026.
         </p>
         {!individualEnabled ? (
           <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -253,6 +262,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                     <th className="px-3 py-2 text-left">Funcionário</th>
                     <th className="px-3 py-2 text-left">A cada (R$ vendido)</th>
                     <th className="px-3 py-2 text-left">Recebe (R$)</th>
+                    <th className="px-3 py-2 text-left">Cedentes na meta</th>
+                    <th className="px-3 py-2 text-left">Bônus recrutamento (R$)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -290,6 +301,43 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                               list.map((r) =>
                                 r.userId === row.userId
                                   ? { ...r, bonusReais: e.target.value }
+                                  : r
+                              )
+                            )
+                          }
+                          disabled={!unlocked || disabled || loading || saving}
+                          className="w-full min-w-[120px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={row.recruitGoalCount}
+                          onChange={(e) =>
+                            setEmployees((list) =>
+                              list.map((r) =>
+                                r.userId === row.userId
+                                  ? { ...r, recruitGoalCount: e.target.value }
+                                  : r
+                              )
+                            )
+                          }
+                          disabled={!unlocked || disabled || loading || saving}
+                          className="w-full min-w-[90px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={row.recruitBonusReais}
+                          onChange={(e) =>
+                            setEmployees((list) =>
+                              list.map((r) =>
+                                r.userId === row.userId
+                                  ? { ...r, recruitBonusReais: e.target.value }
                                   : r
                               )
                             )

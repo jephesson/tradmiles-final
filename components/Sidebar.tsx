@@ -709,6 +709,10 @@ export default function Sidebar() {
               Visualizar funcionários
             </NavLink>
 
+            <NavLink href="/dashboard/funcionarios/recrutamento">
+              Recrutamento
+            </NavLink>
+
             <NavLink href="/dashboard/funcionarios/rateio">
               Rateio do lucro
             </NavLink>

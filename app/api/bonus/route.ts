@@ -3,13 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
   canUseIndividualBonus,
+  canUseRecruitBonus,
   computeIndividualBonusCents,
+  computeRecruitBonusCents,
   currentMonthISORecife,
   distributeMonthlyBonus,
   isMonthISO,
   taxByPercent,
 } from "@/lib/bonus/monthlyBonus";
 import { fetchMonthlyBonusMetrics } from "@/lib/bonus/fetchMonthlyMetrics";
+import { countApprovedRecruitsByOwner } from "@/lib/bonus/recruitment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +32,7 @@ export async function GET(req: NextRequest) {
       where: { team_month: { team: session.team, month } },
     });
 
-    const [{ metrics, eligibleUserIds, revenueCents, profitCents, taxPercent }, results, individualGoals] =
+    const [{ metrics, eligibleUserIds, revenueCents, profitCents, taxPercent }, results, individualGoals, recruitCounts] =
       await Promise.all([
         fetchMonthlyBonusMetrics(session.team, month),
         prisma.bonusMonthResult.findMany({
@@ -45,6 +48,9 @@ export async function GET(req: NextRequest) {
               where: { team: session.team, month },
             })
           : Promise.resolve([]),
+        canUseRecruitBonus(month)
+          ? countApprovedRecruitsByOwner(session.team, month)
+          : Promise.resolve(new Map<string, number>()),
       ]);
 
     const preview = distributeMonthlyBonus({
@@ -87,12 +93,47 @@ export async function GET(req: NextRequest) {
           .filter((r) => r.salesGoalCents > 0 || r.bonusCents > 0)
       : [];
 
+    const usersById = new Map(metrics.map((m) => [m.userId, m]));
+    const recruitment = canUseRecruitBonus(month)
+      ? [...new Set([...goalByUser.keys(), ...recruitCounts.keys()])]
+          .map((userId) => {
+            const g = goalByUser.get(userId);
+            const m = usersById.get(userId);
+            const recruitCount = recruitCounts.get(userId) || 0;
+            const recruitGoalCount = g?.recruitGoalCount || 0;
+            const recruitBonusCents = g?.recruitBonusCents || 0;
+            const earnedGrossCents = computeRecruitBonusCents({
+              recruitCount,
+              goalCount: recruitGoalCount,
+              bonusCents: recruitBonusCents,
+            });
+            return {
+              userId,
+              name: m?.name || "—",
+              login: m?.login || "",
+              recruitCount,
+              recruitGoalCount,
+              recruitBonusCents,
+              earnedGrossCents,
+              taxCents: taxByPercent(earnedGrossCents, taxPercent),
+              netCents: Math.max(
+                0,
+                earnedGrossCents - taxByPercent(earnedGrossCents, taxPercent)
+              ),
+              met: recruitGoalCount > 0 && recruitCount >= recruitGoalCount,
+            };
+          })
+          .filter((r) => r.recruitGoalCount > 0 || r.recruitBonusCents > 0 || r.recruitCount > 0)
+      : [];
+
     return NextResponse.json({
       ok: true,
       month,
       preview,
       individualEnabled: canUseIndividualBonus(month),
       individual,
+      recruitmentEnabled: canUseRecruitBonus(month),
+      recruitment,
       savedResults: results.map((r) => ({
         id: r.id,
         userId: r.userId,

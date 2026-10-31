@@ -1,13 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import {
   canUseIndividualBonus,
+  canUseRecruitBonus,
   computeIndividualBonusCents,
+  computeRecruitBonusCents,
   distributeMonthlyBonus,
   isFirstDayOfMonth,
   previousMonthISO,
   taxByPercent,
 } from "@/lib/bonus/monthlyBonus";
 import { fetchMonthlyBonusMetrics } from "@/lib/bonus/fetchMonthlyMetrics";
+import { countApprovedRecruitsByOwner } from "@/lib/bonus/recruitment";
 
 function recifeDateISO(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -37,8 +40,13 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
   ]);
   const paidIds = new Set(paid.map((p) => p.userId));
 
-  const { metrics, eligibleUserIds, revenueCents, profitCents, taxPercent } =
-    await fetchMonthlyBonusMetrics(team, month);
+  const [{ metrics, eligibleUserIds, revenueCents, profitCents, taxPercent }, recruitCounts] =
+    await Promise.all([
+      fetchMonthlyBonusMetrics(team, month),
+      canUseRecruitBonus(month)
+        ? countApprovedRecruitsByOwner(team, month)
+        : Promise.resolve(new Map<string, number>()),
+    ]);
 
   const preview = distributeMonthlyBonus({
     month,
@@ -65,6 +73,10 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
     individualSalesVolumeCents: number;
     individualSalesGoalCents: number;
     individualBonusSettingCents: number;
+    recruitGrossCents: number;
+    recruitCount: number;
+    recruitGoalCount: number;
+    recruitBonusSettingCents: number;
     dist?: (typeof preview.distributions)[number];
   };
 
@@ -80,6 +92,10 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
         individualSalesVolumeCents: d.metrics.salesVolumeCents,
         individualSalesGoalCents: 0,
         individualBonusSettingCents: 0,
+        recruitGrossCents: 0,
+        recruitCount: 0,
+        recruitGoalCount: 0,
+        recruitBonusSettingCents: 0,
         dist: d,
       });
     }
@@ -108,13 +124,49 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
         individualSalesVolumeCents: volume,
         individualSalesGoalCents: goal.salesGoalCents,
         individualBonusSettingCents: goal.bonusCents,
+        recruitGrossCents: 0,
+        recruitCount: 0,
+        recruitGoalCount: 0,
+        recruitBonusSettingCents: 0,
+      });
+    }
+  }
+
+  for (const [userId, goal] of goalByUser) {
+    const count = recruitCounts.get(userId) || 0;
+    const recruitGrossCents = computeRecruitBonusCents({
+      recruitCount: count,
+      goalCount: goal.recruitGoalCount,
+      bonusCents: goal.recruitBonusCents,
+    });
+    if (recruitGrossCents <= 0 && !rows.has(userId)) continue;
+    const prev = rows.get(userId);
+    if (prev) {
+      prev.recruitGrossCents = recruitGrossCents;
+      prev.recruitCount = count;
+      prev.recruitGoalCount = goal.recruitGoalCount;
+      prev.recruitBonusSettingCents = goal.recruitBonusCents;
+    } else if (recruitGrossCents > 0) {
+      rows.set(userId, {
+        userId,
+        poolGrossCents: 0,
+        individualGrossCents: 0,
+        individualSalesVolumeCents: 0,
+        individualSalesGoalCents: 0,
+        individualBonusSettingCents: 0,
+        recruitGrossCents,
+        recruitCount: count,
+        recruitGoalCount: goal.recruitGoalCount,
+        recruitBonusSettingCents: goal.recruitBonusCents,
       });
     }
   }
 
   const toSave = [...rows.values()].filter((r) => !paidIds.has(r.userId));
   const hasIndividualRules = individualGoals.some(
-    (g) => g.salesGoalCents > 0 && g.bonusCents > 0
+    (g) =>
+      (g.salesGoalCents > 0 && g.bonusCents > 0) ||
+      (g.recruitGoalCount > 0 && g.recruitBonusCents > 0)
   );
   if (!toSave.length) {
     if (companyPays || hasIndividualRules) {
@@ -134,7 +186,8 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
   const ops = toSave.map((r) => {
     const poolGross = Math.max(0, r.poolGrossCents);
     const individualGross = Math.max(0, r.individualGrossCents);
-    const grossBonusCents = poolGross + individualGross;
+    const recruitGross = Math.max(0, r.recruitGrossCents);
+    const grossBonusCents = poolGross + individualGross + recruitGross;
     const taxCents = taxByPercent(grossBonusCents, taxPercent);
     const netBonusCents = Math.max(0, grossBonusCents - taxCents);
     const d = r.dist;
@@ -164,6 +217,10 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
       individualSalesVolumeCents: r.individualSalesVolumeCents,
       individualSalesGoalCents: r.individualSalesGoalCents,
       individualBonusSettingCents: r.individualBonusSettingCents,
+      recruitGrossCents: recruitGross,
+      recruitCount: r.recruitCount,
+      recruitGoalCount: r.recruitGoalCount,
+      recruitBonusSettingCents: r.recruitBonusSettingCents,
     };
 
     return prisma.bonusMonthResult.upsert({

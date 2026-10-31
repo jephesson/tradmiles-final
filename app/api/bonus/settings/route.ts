@@ -98,6 +98,8 @@ export async function GET(req: NextRequest) {
           login: u.login,
           salesGoalCents: goalByUser.get(u.id)?.salesGoalCents ?? 0,
           bonusCents: goalByUser.get(u.id)?.bonusCents ?? 0,
+          recruitGoalCount: goalByUser.get(u.id)?.recruitGoalCount ?? 0,
+          recruitBonusCents: goalByUser.get(u.id)?.recruitBonusCents ?? 0,
         })),
       },
       suggest: {
@@ -146,7 +148,13 @@ export async function POST(req: NextRequest) {
       return bad("Meta individual vale a partir de novembro de 2026.");
     }
 
-    const employeeRows: Array<{ userId: string; salesGoalCents: number; bonusCents: number }> = [];
+    const employeeRows: Array<{
+      userId: string;
+      salesGoalCents: number;
+      bonusCents: number;
+      recruitGoalCount: number;
+      recruitBonusCents: number;
+    }> = [];
     if (canUseIndividualBonus(month)) {
       for (const row of employeesRaw) {
         const userId = String(row?.userId || "").trim();
@@ -155,10 +163,18 @@ export async function POST(req: NextRequest) {
         if (!salesParsed.ok) return bad(salesParsed.error);
         const bonusParsed = parseReaisInput(row?.bonusReais, "Bônus individual");
         if (!bonusParsed.ok) return bad(bonusParsed.error);
+        const recruitCountRaw = Number(String(row?.recruitGoalCount ?? "0").replace(",", "."));
+        if (!Number.isFinite(recruitCountRaw) || recruitCountRaw < 0) {
+          return bad("Meta de recrutamento: quantidade inválida.");
+        }
+        const recruitBonusParsed = parseReaisInput(row?.recruitBonusReais, "Bônus de recrutamento");
+        if (!recruitBonusParsed.ok) return bad(recruitBonusParsed.error);
         employeeRows.push({
           userId,
           salesGoalCents: salesParsed.cents,
           bonusCents: bonusParsed.cents,
+          recruitGoalCount: Math.trunc(recruitCountRaw),
+          recruitBonusCents: recruitBonusParsed.cents,
         });
       }
     }
@@ -190,10 +206,14 @@ export async function POST(req: NextRequest) {
             userId: row.userId,
             salesGoalCents: row.salesGoalCents,
             bonusCents: row.bonusCents,
+            recruitGoalCount: row.recruitGoalCount,
+            recruitBonusCents: row.recruitBonusCents,
           },
           update: {
             salesGoalCents: row.salesGoalCents,
             bonusCents: row.bonusCents,
+            recruitGoalCount: row.recruitGoalCount,
+            recruitBonusCents: row.recruitBonusCents,
           },
         });
       }
