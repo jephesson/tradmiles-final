@@ -165,87 +165,86 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
     }
   }
 
+  function patchEmployee(userId: string, patch: Partial<EmployeeGoalRow>) {
+    setEmployees((list) => list.map((r) => (r.userId === userId ? { ...r, ...patch } : r)));
+  }
+
+  const fieldOff = !unlocked || disabled || loading || saving;
+
   return (
     <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="text-base font-semibold text-slate-900">Bônus mensal</h2>
+      <h2 className="text-base font-semibold text-slate-900">Bônus</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Metas de faturamento e lucro líquido por mês. O bônus só é distribuído se a
-        meta de faturamento for batida.
+        Tudo no mesmo lugar: equipe, venda individual e recrutamento. Depois de
+        habilitar o mês seguinte, o texto para o WhatsApp aparece em Bônus.
       </p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <label className="block sm:col-span-2 sm:max-w-xs">
+      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <label className="block sm:max-w-xs">
           <span className="text-sm font-medium text-slate-700">Mês</span>
           <input
             type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            disabled={!unlocked || disabled || loading || saving}
+            disabled={fieldOff}
             className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base shadow-sm"
           />
-          <span className="mt-1 block text-xs text-slate-500">
-            {monthLabelPT(month)}
-          </span>
+          <span className="mt-1 block text-xs text-slate-500">{monthLabelPT(month)}</span>
         </label>
-
-        <label className="flex items-center gap-3 sm:col-span-2">
+        <label className="flex items-center gap-3 pb-1">
           <input
             type="checkbox"
             checked={isActive}
             onChange={(e) => setIsActive(e.target.checked)}
-            disabled={!unlocked || disabled || loading || saving}
+            disabled={fieldOff}
             className="h-4 w-4 rounded border-slate-300"
           />
-          <span className="text-sm font-medium text-slate-700">
-            Bônus ativo neste mês
-          </span>
-        </label>
-
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">
-            Meta de faturamento (R$)
-          </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={revenueGoalReais}
-            onChange={(e) => setRevenueGoalReais(e.target.value)}
-            disabled={!unlocked || disabled || loading || saving}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base shadow-sm"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">
-            Meta de lucro líquido (R$)
-          </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={profitGoalReais}
-            onChange={(e) => setProfitGoalReais(e.target.value)}
-            disabled={!unlocked || disabled || loading || saving}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base shadow-sm"
-          />
+          <span className="text-sm font-medium text-slate-700">Habilitar bônus deste mês</span>
         </label>
       </div>
 
-      {suggestHint ? (
-        <p className="mt-3 text-xs text-slate-500">{suggestHint}</p>
-      ) : null}
-
-      <div className="mt-8 border-t border-slate-100 pt-6">
-        <h3 className="text-sm font-semibold text-slate-900">Meta individual</h3>
+      <section className="mt-8 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+        <h3 className="text-sm font-semibold text-slate-900">1. Equipe</h3>
         <p className="mt-1 text-sm text-slate-600">
-          A cada <b>X</b> reais vendidos (milhas + balcão, sem taxa), a pessoa recebe{" "}
-          <b>Y</b> reais no dia 1. Recrutamento: a cada <b>N</b> contas de cedente
-          aprovadas e não excluídas, recebe o bônus — proporcional. Vale a partir de
-          novembro de 2026.
+          Se bater o faturamento, o time divide 0,1%. Se bater o lucro também, entra
+          mais 0,1% do lucro.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Meta de faturamento (R$)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={revenueGoalReais}
+              onChange={(e) => setRevenueGoalReais(e.target.value)}
+              disabled={fieldOff}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base shadow-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Meta de lucro líquido (R$)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={profitGoalReais}
+              onChange={(e) => setProfitGoalReais(e.target.value)}
+              disabled={fieldOff}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base shadow-sm"
+            />
+          </label>
+        </div>
+        {suggestHint ? <p className="mt-3 text-xs text-slate-500">{suggestHint}</p> : null}
+      </section>
+
+      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-sm font-semibold text-slate-900">2. Venda individual</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          A cada X vendidos (milhas + balcão, sem taxa), recebe Y no dia 1 —
+          proporcional.
         </p>
         {!individualEnabled ? (
           <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Este mês ainda não entra na regra individual. Selecione novembro/2026 ou
-            posterior.
+            Vale a partir de novembro/2026. Selecione esse mês ou posterior.
           </p>
         ) : (
           <>
@@ -262,13 +261,11 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                     <th className="px-3 py-2 text-left">Funcionário</th>
                     <th className="px-3 py-2 text-left">A cada (R$ vendido)</th>
                     <th className="px-3 py-2 text-left">Recebe (R$)</th>
-                    <th className="px-3 py-2 text-left">Cedentes na meta</th>
-                    <th className="px-3 py-2 text-left">Bônus recrutamento (R$)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {employees.map((row) => (
-                    <tr key={row.userId}>
+                    <tr key={`sale-${row.userId}`}>
                       <td className="px-3 py-2">
                         <div className="font-medium text-slate-900">{row.name}</div>
                         <div className="text-xs text-slate-500">@{row.login}</div>
@@ -278,16 +275,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                           type="text"
                           inputMode="decimal"
                           value={row.salesGoalReais}
-                          onChange={(e) =>
-                            setEmployees((list) =>
-                              list.map((r) =>
-                                r.userId === row.userId
-                                  ? { ...r, salesGoalReais: e.target.value }
-                                  : r
-                              )
-                            )
-                          }
-                          disabled={!unlocked || disabled || loading || saving}
+                          onChange={(e) => patchEmployee(row.userId, { salesGoalReais: e.target.value })}
+                          disabled={fieldOff}
                           className="w-full min-w-[140px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
                         />
                       </td>
@@ -296,53 +285,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                           type="text"
                           inputMode="decimal"
                           value={row.bonusReais}
-                          onChange={(e) =>
-                            setEmployees((list) =>
-                              list.map((r) =>
-                                r.userId === row.userId
-                                  ? { ...r, bonusReais: e.target.value }
-                                  : r
-                              )
-                            )
-                          }
-                          disabled={!unlocked || disabled || loading || saving}
-                          className="w-full min-w-[120px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={row.recruitGoalCount}
-                          onChange={(e) =>
-                            setEmployees((list) =>
-                              list.map((r) =>
-                                r.userId === row.userId
-                                  ? { ...r, recruitGoalCount: e.target.value }
-                                  : r
-                              )
-                            )
-                          }
-                          disabled={!unlocked || disabled || loading || saving}
-                          className="w-full min-w-[90px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={row.recruitBonusReais}
-                          onChange={(e) =>
-                            setEmployees((list) =>
-                              list.map((r) =>
-                                r.userId === row.userId
-                                  ? { ...r, recruitBonusReais: e.target.value }
-                                  : r
-                              )
-                            )
-                          }
-                          disabled={!unlocked || disabled || loading || saving}
+                          onChange={(e) => patchEmployee(row.userId, { bonusReais: e.target.value })}
+                          disabled={fieldOff}
                           className="w-full min-w-[120px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
                         />
                       </td>
@@ -353,7 +297,67 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
             </div>
           </>
         )}
-      </div>
+      </section>
+
+      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h3 className="text-sm font-semibold text-slate-900">3. Recrutamento</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Quantas contas de cedente aprovadas (não excluídas) cada um precisa trazer, e
+          o bônus — proporcional, no dia 1.
+        </p>
+        {!individualEnabled ? (
+          <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Vale a partir de novembro/2026.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Funcionário</th>
+                  <th className="px-3 py-2 text-left">Cedentes na meta</th>
+                  <th className="px-3 py-2 text-left">Bônus (R$)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {employees.map((row) => (
+                  <tr key={`rec-${row.userId}`}>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-900">{row.name}</div>
+                      <div className="text-xs text-slate-500">@{row.login}</div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={row.recruitGoalCount}
+                        onChange={(e) =>
+                          patchEmployee(row.userId, { recruitGoalCount: e.target.value })
+                        }
+                        disabled={fieldOff}
+                        className="w-full min-w-[90px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.recruitBonusReais}
+                        onChange={(e) =>
+                          patchEmployee(row.userId, { recruitBonusReais: e.target.value })
+                        }
+                        disabled={fieldOff}
+                        className="w-full min-w-[120px] rounded-lg border border-slate-200 px-2.5 py-1.5 tabular-nums"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {err ? (
         <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">

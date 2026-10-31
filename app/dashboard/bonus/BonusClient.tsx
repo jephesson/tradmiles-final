@@ -4,18 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Calculator,
+  Check,
   ChevronRight,
   Clock,
+  Copy,
   Loader2,
+  MessageCircle,
   RefreshCw,
   Settings,
   Trophy,
   TrendingUp,
   Users,
 } from "lucide-react";
+import { monthLabelPT } from "@/lib/bonus/monthlyBonus";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
-import { monthLabelPT } from "@/lib/bonus/monthlyBonus";
 import AttendanceCard from "./AttendanceCard";
 
 type RecruitRow = {
@@ -168,6 +171,13 @@ export default function BonusClient() {
   const [error, setError] = useState<string | null>(null);
   const [attendanceKey, setAttendanceKey] = useState(0);
   const isAdmin = getSession()?.role === "admin";
+  const [announce, setAnnounce] = useState<{
+    month: string;
+    isActive: boolean;
+    isNextMonth: boolean;
+    text: string;
+  } | null>(null);
+  const [announceCopied, setAnnounceCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -192,10 +202,31 @@ export default function BonusClient() {
     }
   }, [month]);
 
+  const loadAnnounce = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch("/api/bonus/announce", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) return;
+      setAnnounce({
+        month: String(json.month || ""),
+        isActive: Boolean(json.isActive),
+        isNextMonth: Boolean(json.isNextMonth),
+        text: String(json.text || ""),
+      });
+    } catch {
+      /* silêncio: o texto é extra */
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     if (section !== "meta") return;
     load();
   }, [load, section]);
+
+  useEffect(() => {
+    void loadAnnounce();
+  }, [loadAnnounce]);
 
   async function computeBonus() {
     if (!confirm("Calcular e salvar o bônus deste mês?")) return;
@@ -268,6 +299,7 @@ export default function BonusClient() {
             onClick={() => {
               if (section === "meta") load();
               else if (section === "attendance") setAttendanceKey((k) => k + 1);
+              void loadAnnounce();
             }}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
@@ -276,6 +308,67 @@ export default function BonusClient() {
           </button>
         </div>
       </div>
+
+      {isAdmin && announce ? (
+        <section className="rounded-2xl border border-emerald-200/80 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                <MessageCircle className="h-5 w-5" aria-hidden />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-900">
+                  Texto para o WhatsApp
+                </div>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {announce.isActive
+                    ? `Metas de ${monthLabelPT(announce.month)}${
+                        announce.isNextMonth ? " (mês seguinte, já habilitado)" : ""
+                      }. Copie e envie no grupo.`
+                    : `Habilite o bônus de ${monthLabelPT(announce.month)} em Configurações para gerar o texto.`}
+                </p>
+              </div>
+            </div>
+            {announce.isActive && announce.text ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(announce.text);
+                    setAnnounceCopied(true);
+                    window.setTimeout(() => setAnnounceCopied(false), 2000);
+                  } catch {
+                    alert("Não deu para copiar. Selecione o texto e copie.");
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                {announceCopied ? (
+                  <Check className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Copy className="h-4 w-4" aria-hidden />
+                )}
+                {announceCopied ? "Copiado" : "Copiar texto"}
+              </button>
+            ) : (
+              <Link
+                href="/dashboard/configuracoes"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Settings className="h-4 w-4" aria-hidden />
+                Habilitar em Configurações
+              </Link>
+            )}
+          </div>
+          {announce.isActive && announce.text ? (
+            <textarea
+              readOnly
+              value={announce.text}
+              className="mt-4 h-64 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-slate-800"
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <button
