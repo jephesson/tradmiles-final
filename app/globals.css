@@ -288,6 +288,21 @@ body {
   --spin: 170deg;
 }
 
+@keyframes tm-party-buddy {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-4deg);
+  }
+  50% {
+    transform: translateY(-7px) rotate(5deg);
+  }
+}
+
+.tm-party-buddy {
+  transform-origin: 50% 100%;
+  animation: tm-party-buddy 1.35s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tm-pending-glow,
   .tm-badge-pop,
@@ -298,7 +313,8 @@ body {
   .tm-meta-win-trophy,
   .tm-meta-win-title,
   .tm-meta-win-spark,
-  .tm-meta-win-piece {
+  .tm-meta-win-piece,
+  .tm-party-buddy {
     animation: none;
   }
 }

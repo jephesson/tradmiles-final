@@ -40,6 +40,7 @@ type PresenceRow = {
   id: string;
   name: string;
   login: string;
+  role?: string;
   online: boolean;
   lastPresenceAt: string | null;
 };
@@ -224,7 +225,12 @@ export default function DashboardInicialClient() {
       ) : null}
 
       {showCelebration && bonus ? (
-        <BonusProgressCard bonus={bonus} todayLabel={data?.todayLabel || ""} compact />
+        <BonusProgressCard
+          bonus={bonus}
+          todayLabel={data?.todayLabel || ""}
+          people={data?.teamPresence || []}
+          compact
+        />
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
@@ -848,15 +854,152 @@ function ProgressBar({
   );
 }
 
+function foldName(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function firstNameOf(name: string, login: string) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return parts[0] || login || "—";
+}
+
+function isHiddenCelebrant(person: { name: string; login: string }) {
+  const first = foldName(firstNameOf(person.name, person.login));
+  const login = foldName(person.login);
+  return (
+    first === "jephesson" ||
+    first === "paola" ||
+    login === "jephesson" ||
+    login === "paola"
+  );
+}
+
+const PARTY_LOOKS = [
+  { skin: "#f3c7a3", hair: "#2a1b12", shirt: "#fbbf24", pants: "#1e3a5f", drink: "#f59e0b" },
+  { skin: "#e0a888", hair: "#111827", shirt: "#38bdf8", pants: "#312e81", drink: "#fb7185" },
+  { skin: "#f6d2b0", hair: "#78350f", shirt: "#f472b6", pants: "#164e63", drink: "#fde68a" },
+  { skin: "#d9a07a", hair: "#1c1917", shirt: "#a78bfa", pants: "#3f3f46", drink: "#fdba74" },
+] as const;
+
+function PartyBuddy({
+  name,
+  variant,
+}: {
+  name: string;
+  variant: number;
+}) {
+  const look = PARTY_LOOKS[variant % PARTY_LOOKS.length];
+  const pose = variant % 3;
+  const delay = `${(variant % 5) * 0.18}s`;
+  return (
+    <div className="flex w-[4.4rem] shrink-0 flex-col items-center">
+      <svg
+        viewBox="0 0 72 96"
+        className="tm-party-buddy h-[3.65rem] w-11 overflow-visible"
+        style={{ animationDelay: delay }}
+        aria-hidden
+      >
+        {pose === 1 ? (
+          <path
+            d="M18 28 C10 18 8 8 18 10"
+            fill="none"
+            stroke={look.skin}
+            strokeWidth="5"
+            strokeLinecap="round"
+          />
+        ) : (
+          <path
+            d="M22 40 C8 36 6 22 16 18"
+            fill="none"
+            stroke={look.skin}
+            strokeWidth="5"
+            strokeLinecap="round"
+          />
+        )}
+        <path
+          d="M50 38 C64 32 66 20 56 14"
+          fill="none"
+          stroke={look.skin}
+          strokeWidth="5"
+          strokeLinecap="round"
+        />
+        {pose === 0 ? (
+          <g transform="translate(52 6)">
+            <rect x="0" y="8" width="10" height="12" rx="2" fill={look.drink} />
+            <rect x="9" y="11" width="3" height="7" rx="1" fill={look.drink} />
+            <ellipse cx="5" cy="8" rx="5" ry="2.2" fill="#fff7ed" />
+          </g>
+        ) : pose === 1 ? (
+          <g transform="translate(8 2)">
+            <path d="M4 18 L6 6 H12 L14 18 Z" fill="#e0f2fe" stroke="#fff" strokeWidth="1" />
+            <rect x="8.5" y="18" width="3" height="7" rx="1" fill="#fff" />
+            <ellipse cx="9" cy="5" rx="2" ry="1.4" fill="#fde68a" />
+          </g>
+        ) : (
+          <g transform="translate(54 8)">
+            <rect x="1" y="0" width="8" height="16" rx="2" fill="#86efac" />
+            <rect x="0" y="14" width="10" height="4" rx="1.5" fill="#166534" />
+          </g>
+        )}
+        <ellipse cx="36" cy="20" rx="15" ry="8" fill={look.hair} />
+        <circle cx="36" cy="24" r="12" fill={look.skin} />
+        {pose === 2 ? (
+          <path d="M22 16 Q36 4 50 16" fill={look.hair} />
+        ) : (
+          <path d="M24 16 Q36 8 48 16" fill={look.hair} />
+        )}
+        <circle cx="31.5" cy="24" r="1.5" fill="#1f2937" />
+        <circle cx="40.5" cy="24" r="1.5" fill="#1f2937" />
+        <path
+          d="M31 28.5 Q36 32.5 41 28.5"
+          fill="none"
+          stroke="#9a3412"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+        <rect x="24" y="36" width="24" height="28" rx="11" fill={look.shirt} />
+        <rect x="27" y="62" width="7" height="18" rx="3.5" fill={look.pants} />
+        <rect x="38" y="62" width="7" height="18" rx="3.5" fill={look.pants} />
+        <ellipse cx="30.5" cy="81" rx="5" ry="2.2" fill="#111827" />
+        <ellipse cx="41.5" cy="81" rx="5" ry="2.2" fill="#111827" />
+      </svg>
+      <span className="mt-0.5 max-w-full truncate text-[11px] font-bold tracking-tight text-white drop-shadow">
+        {name}
+      </span>
+    </div>
+  );
+}
+
 function MetaBatidaPanel({
   monthLabel,
   showLucroCta,
+  people,
 }: {
   monthLabel: string;
   showLucroCta?: boolean;
+  people?: Array<{ name: string; login: string; role?: string }>;
 }) {
+  const crew = (people || [])
+    .filter((p) => {
+      const role = String(p.role || "staff");
+      if (role !== "admin" && role !== "staff") return false;
+      return !isHiddenCelebrant(p);
+    })
+    .map((p) => ({
+      key: `${p.login}-${p.name}`,
+      name: firstNameOf(p.name, p.login),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
   return (
-    <div className="tm-meta-win relative overflow-hidden px-5 py-8 text-center text-white sm:px-8 sm:py-10">
+    <div className="tm-meta-win relative overflow-hidden px-5 py-7 text-center text-white sm:px-8 sm:py-8">
       <div className="tm-meta-win-shine" aria-hidden />
       <div className="tm-meta-win-blob -right-8 -top-10 h-40 w-40 bg-white/25" aria-hidden />
       <div
@@ -900,6 +1043,13 @@ function MetaBatidaPanel({
         <p className="mx-auto mt-2 max-w-md text-sm font-medium text-emerald-50">
           Bônus liberado conforme as regras. Equipe no ritmo.
         </p>
+        {crew.length ? (
+          <div className="mt-4 flex flex-wrap items-end justify-center gap-1 sm:gap-2">
+            {crew.map((person, i) => (
+              <PartyBuddy key={person.key} name={person.name} variant={i} />
+            ))}
+          </div>
+        ) : null}
         {showLucroCta ? (
           <div className="mt-5">
             <p className="text-sm text-white/90">
@@ -923,10 +1073,12 @@ function BonusProgressCard({
   bonus,
   todayLabel,
   compact,
+  people,
 }: {
   bonus: BonusProgress;
   todayLabel: string;
   compact?: boolean;
+  people?: Array<{ name: string; login: string }>;
 }) {
   const hasGoal = bonus.revenueGoalCents > 0;
   const prev = bonus.previousMonth || null;
@@ -936,14 +1088,14 @@ function BonusProgressCard({
     if (showPrevWin && prev) {
       return (
         <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
-          <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta />
+          <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta people={people} />
         </section>
       );
     }
     if (bonus.revenueGoalMet) {
       return (
         <section className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-white shadow-sm shadow-emerald-900/5">
-          <MetaBatidaPanel monthLabel={bonus.monthLabel} />
+          <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} />
         </section>
       );
     }
@@ -960,7 +1112,7 @@ function BonusProgressCard({
 
   const monthProgress = hasGoal ? (
     bonus.revenueGoalMet ? (
-      <MetaBatidaPanel monthLabel={bonus.monthLabel} />
+      <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} />
     ) : (
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="border-b border-slate-100 p-5 lg:border-b-0 lg:border-r">
@@ -1066,7 +1218,7 @@ function BonusProgressCard({
         </div>
         <div className={cn("grid gap-0", hasGoal ? "lg:grid-cols-2" : "")}>
           <div className={hasGoal ? "lg:border-r lg:border-emerald-100" : ""}>
-            <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta />
+            <MetaBatidaPanel monthLabel={prev.monthLabel} showLucroCta people={people} />
           </div>
           {hasGoal ? <div className="min-w-0 bg-white">{monthProgress}</div> : monthProgress}
         </div>
@@ -1108,7 +1260,7 @@ function BonusProgressCard({
           Ver regras
         </Link>
       </div>
-      {bonus.revenueGoalMet ? <MetaBatidaPanel monthLabel={bonus.monthLabel} /> : monthProgress}
+      {bonus.revenueGoalMet ? <MetaBatidaPanel monthLabel={bonus.monthLabel} people={people} /> : monthProgress}
     </section>
   );
 }

@@ -105,7 +105,7 @@ export async function GET() {
       }),
       prisma.user.findMany({
         where: { team: session.team },
-        select: { id: true, name: true, login: true, lastPresenceAt: true },
+        select: { id: true, name: true, login: true, lastPresenceAt: true, role: true },
         orderBy: { name: "asc" },
       }),
       prisma.bonusMonthSetting.findUnique({
@@ -206,6 +206,7 @@ export async function GET() {
         id: u.id,
         name: u.name,
         login: u.login,
+        role: u.role,
         online,
         lastPresenceAt: u.lastPresenceAt ? u.lastPresenceAt.toISOString() : null,
       };
