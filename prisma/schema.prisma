@@ -2678,6 +2678,11 @@ model BonusMonthSetting {
 
   isActive Boolean @default(false)
 
+  teamBonusActive        Boolean @default(true)
+  salesBonusActive       Boolean @default(true)
+  recruitBonusActive     Boolean @default(true)
+  attendanceBonusActive  Boolean @default(true)
+
   /// Meta de faturamento (PV sem taxa) do mês, em centavos
   revenueGoalCents Int @default(0)
   /// Meta de lucro líquido do mês, em centavos

@@ -53,9 +53,11 @@ export async function GET(req: NextRequest) {
           : Promise.resolve(new Map<string, number>()),
       ]);
 
+    const salesOn = setting?.salesBonusActive !== false;
+    const recruitOn = setting?.recruitBonusActive !== false;
     const preview = distributeMonthlyBonus({
       month,
-      isActive: setting?.isActive ?? false,
+      isActive: Boolean(setting?.isActive) && setting?.teamBonusActive !== false,
       revenueGoalCents: setting?.revenueGoalCents ?? 0,
       profitGoalCents: setting?.profitGoalCents ?? 0,
       revenueCents,
@@ -66,7 +68,7 @@ export async function GET(req: NextRequest) {
     });
 
     const goalByUser = new Map(individualGoals.map((g) => [g.userId, g]));
-    const individual = canUseIndividualBonus(month)
+    const individual = canUseIndividualBonus(month) && salesOn
       ? metrics
           .map((m) => {
             const g = goalByUser.get(m.userId);
@@ -94,7 +96,7 @@ export async function GET(req: NextRequest) {
       : [];
 
     const usersById = new Map(metrics.map((m) => [m.userId, m]));
-    const recruitment = canUseRecruitBonus(month)
+    const recruitment = canUseRecruitBonus(month) && recruitOn
       ? [...new Set([...goalByUser.keys(), ...recruitCounts.keys()])]
           .map((userId) => {
             const g = goalByUser.get(userId);
@@ -130,9 +132,9 @@ export async function GET(req: NextRequest) {
       ok: true,
       month,
       preview,
-      individualEnabled: canUseIndividualBonus(month),
+      individualEnabled: canUseIndividualBonus(month) && salesOn,
       individual,
-      recruitmentEnabled: canUseRecruitBonus(month),
+      recruitmentEnabled: canUseRecruitBonus(month) && recruitOn,
       recruitment,
       savedResults: results.map((r) => ({
         id: r.id,

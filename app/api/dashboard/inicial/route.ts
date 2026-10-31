@@ -114,6 +114,7 @@ export async function GET() {
         },
         select: {
           isActive: true,
+          salesBonusActive: true,
           revenueGoalCents: true,
           profitGoalCents: true,
         },
@@ -275,7 +276,10 @@ export async function GET() {
             todayBalcaoCount: todayRevenue.balcaoCount,
             isRenewalDay: Boolean(prevMonthKey),
             previousMonth: previousMonthProgress,
-            individual: individualGoal && individualGoal.salesGoalCents > 0
+            individual:
+              bonusSetting?.salesBonusActive !== false &&
+              individualGoal &&
+              individualGoal.salesGoalCents > 0
               ? (() => {
                   const mine = bonusMetrics.metrics.find((m) => m.userId === session.id);
                   const salesVolumeCents = mine?.salesVolumeCents || 0;

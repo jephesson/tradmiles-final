@@ -63,8 +63,14 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
   const goalByUser = new Map(individualGoals.map((g) => [g.userId, g]));
   const metricByUser = new Map(metrics.map((m) => [m.userId, m]));
 
+  const teamOn = setting?.teamBonusActive !== false;
+  const salesOn = setting?.salesBonusActive !== false;
+  const recruitOn = setting?.recruitBonusActive !== false;
   const companyPays =
-    Boolean(setting?.isActive) && preview.revenueGoalMet && preview.totalPoolCents > 0;
+    Boolean(setting?.isActive) &&
+    teamOn &&
+    preview.revenueGoalMet &&
+    preview.totalPoolCents > 0;
 
   type Row = {
     userId: string;
@@ -101,7 +107,7 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
     }
   }
 
-  for (const [userId, goal] of goalByUser) {
+  for (const [userId, goal] of salesOn ? goalByUser : []) {
     const m = metricByUser.get(userId);
     const volume = m?.salesVolumeCents || 0;
     const individualGrossCents = computeIndividualBonusCents({
@@ -132,7 +138,7 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
     }
   }
 
-  for (const [userId, goal] of goalByUser) {
+  for (const [userId, goal] of recruitOn ? goalByUser : []) {
     const count = recruitCounts.get(userId) || 0;
     const recruitGrossCents = computeRecruitBonusCents({
       recruitCount: count,
@@ -165,8 +171,8 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
   const toSave = [...rows.values()].filter((r) => !paidIds.has(r.userId));
   const hasIndividualRules = individualGoals.some(
     (g) =>
-      (g.salesGoalCents > 0 && g.bonusCents > 0) ||
-      (g.recruitGoalCount > 0 && g.recruitBonusCents > 0)
+      (salesOn && g.salesGoalCents > 0 && g.bonusCents > 0) ||
+      (recruitOn && g.recruitGoalCount > 0 && g.recruitBonusCents > 0)
   );
   if (!toSave.length) {
     if (companyPays || hasIndividualRules) {
@@ -269,8 +275,14 @@ export async function ensureDueMonthlyBonus(team: string, asOfISO: string) {
 
   await computeAndSaveMonthlyBonus(team, spendMonth);
   try {
-    const { saveAttendanceAward } = await import("@/lib/attendance/load");
-    await saveAttendanceAward(team, spendMonth);
+    const spendSetting = await prisma.bonusMonthSetting.findUnique({
+      where: { team_month: { team, month: spendMonth } },
+      select: { attendanceBonusActive: true },
+    });
+    if (spendSetting?.attendanceBonusActive !== false) {
+      const { saveAttendanceAward } = await import("@/lib/attendance/load");
+      await saveAttendanceAward(team, spendMonth);
+    }
   } catch {
     /* apuração de assiduidade não bloqueia o bônus de meta */
   }

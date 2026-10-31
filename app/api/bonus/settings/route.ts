@@ -88,6 +88,10 @@ export async function GET(req: NextRequest) {
       month,
       data: {
         isActive: setting?.isActive ?? false,
+        teamBonusActive: setting?.teamBonusActive ?? true,
+        salesBonusActive: setting?.salesBonusActive ?? true,
+        recruitBonusActive: setting?.recruitBonusActive ?? true,
+        attendanceBonusActive: setting?.attendanceBonusActive ?? true,
         revenueGoalCents: setting?.revenueGoalCents ?? 0,
         profitGoalCents: setting?.profitGoalCents ?? 0,
         individualEnabled: canUseIndividualBonus(month),
@@ -142,6 +146,10 @@ export async function POST(req: NextRequest) {
     if (!profitParsed.ok) return bad(profitParsed.error);
 
     const isActive = Boolean(body?.isActive);
+    const teamBonusActive = body?.teamBonusActive !== false;
+    const salesBonusActive = body?.salesBonusActive !== false;
+    const recruitBonusActive = body?.recruitBonusActive !== false;
+    const attendanceBonusActive = body?.attendanceBonusActive !== false;
 
     const employeesRaw = Array.isArray(body?.employees) ? body.employees : [];
     if (employeesRaw.length && !canUseIndividualBonus(month)) {
@@ -186,11 +194,19 @@ export async function POST(req: NextRequest) {
           team: session.team,
           month,
           isActive,
+          teamBonusActive,
+          salesBonusActive,
+          recruitBonusActive,
+          attendanceBonusActive,
           revenueGoalCents: revenueParsed.cents,
           profitGoalCents: profitParsed.cents,
         },
         update: {
           isActive,
+          teamBonusActive,
+          salesBonusActive,
+          recruitBonusActive,
+          attendanceBonusActive,
           revenueGoalCents: revenueParsed.cents,
           profitGoalCents: profitParsed.cents,
         },

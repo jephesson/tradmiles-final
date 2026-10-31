@@ -38,6 +38,10 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [isActive, setIsActive] = useState(false);
+  const [teamBonusActive, setTeamBonusActive] = useState(true);
+  const [salesBonusActive, setSalesBonusActive] = useState(true);
+  const [recruitBonusActive, setRecruitBonusActive] = useState(true);
+  const [attendanceBonusActive, setAttendanceBonusActive] = useState(true);
   const [revenueGoalReais, setRevenueGoalReais] = useState("0,00");
   const [profitGoalReais, setProfitGoalReais] = useState("0,00");
   const [loading, setLoading] = useState(false);
@@ -63,6 +67,10 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
         throw new Error(json?.error || "Falha ao carregar metas de bônus.");
       }
       setIsActive(Boolean(json.data?.isActive));
+      setTeamBonusActive(json.data?.teamBonusActive !== false);
+      setSalesBonusActive(json.data?.salesBonusActive !== false);
+      setRecruitBonusActive(json.data?.recruitBonusActive !== false);
+      setAttendanceBonusActive(json.data?.attendanceBonusActive !== false);
       setRevenueGoalReais(centsToReaisInput(json.data?.revenueGoalCents || 0));
       setProfitGoalReais(centsToReaisInput(json.data?.profitGoalCents || 0));
       setIndividualEnabled(Boolean(json.data?.individualEnabled));
@@ -139,6 +147,10 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
         body: JSON.stringify({
           month,
           isActive,
+          teamBonusActive,
+          salesBonusActive,
+          recruitBonusActive,
+          attendanceBonusActive,
           revenueGoalReais: parseReais(revenueGoalReais),
           profitGoalReais: parseReais(profitGoalReais),
           employees: individualEnabled
@@ -204,7 +216,19 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
       </div>
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
-        <h3 className="text-sm font-semibold text-slate-900">1. Equipe</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-900">1. Equipe</h3>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={teamBonusActive}
+              onChange={(e) => setTeamBonusActive(e.target.checked)}
+              disabled={fieldOff}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Ativo neste mês
+          </label>
+        </div>
         <p className="mt-1 text-sm text-slate-600">
           Se bater o faturamento, o time divide 0,1%. Se bater o lucro também, entra
           mais 0,1% do lucro.
@@ -237,7 +261,19 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
       </section>
 
       <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-        <h3 className="text-sm font-semibold text-slate-900">2. Venda individual</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-900">2. Venda individual</h3>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={salesBonusActive}
+              onChange={(e) => setSalesBonusActive(e.target.checked)}
+              disabled={fieldOff || !individualEnabled}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Ativo neste mês
+          </label>
+        </div>
         <p className="mt-1 text-sm text-slate-600">
           A cada X vendidos (milhas + balcão, sem taxa), recebe Y no dia 1 —
           proporcional.
@@ -300,7 +336,19 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
       </section>
 
       <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-        <h3 className="text-sm font-semibold text-slate-900">3. Recrutamento</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-900">3. Recrutamento</h3>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={recruitBonusActive}
+              onChange={(e) => setRecruitBonusActive(e.target.checked)}
+              disabled={fieldOff || !individualEnabled}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Ativo neste mês
+          </label>
+        </div>
         <p className="mt-1 text-sm text-slate-600">
           Quantas contas de cedente aprovadas (não excluídas) cada um precisa trazer, e
           o bônus — proporcional, no dia 1.
@@ -357,6 +405,27 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">4. Assiduidade</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              R$ 200 no dia 1 para quem cumprir as horas do mês.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={attendanceBonusActive}
+              onChange={(e) => setAttendanceBonusActive(e.target.checked)}
+              disabled={fieldOff}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Ativo neste mês
+          </label>
+        </div>
       </section>
 
       {err ? (

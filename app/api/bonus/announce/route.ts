@@ -57,6 +57,10 @@ export async function GET(req: NextRequest) {
       ? buildBonusWhatsAppText({
           month,
           isActive,
+          teamBonusActive: setting?.teamBonusActive ?? true,
+          salesBonusActive: setting?.salesBonusActive ?? true,
+          recruitBonusActive: setting?.recruitBonusActive ?? true,
+          attendanceBonusActive: setting?.attendanceBonusActive ?? true,
           revenueGoalCents: setting?.revenueGoalCents ?? 0,
           profitGoalCents: setting?.profitGoalCents ?? 0,
           employees,
