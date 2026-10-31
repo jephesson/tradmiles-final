@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
         canUseIndividualBonus(month)
           ? prisma.employeeMonthGoal.findMany({
               where: { team: session.team, month },
+              include: { user: { select: { id: true, name: true, login: true } } },
             })
           : Promise.resolve([]),
         canUseRecruitBonus(month)
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
 
     const salesOn = setting?.salesBonusActive !== false;
     const recruitOn = setting?.recruitBonusActive !== false;
+    const attendanceOn = setting?.attendanceBonusActive !== false;
     const preview = distributeMonthlyBonus({
       month,
       isActive: Boolean(setting?.isActive) && setting?.teamBonusActive !== false,
@@ -68,34 +70,38 @@ export async function GET(req: NextRequest) {
     });
 
     const goalByUser = new Map(individualGoals.map((g) => [g.userId, g]));
+    const metricsByUser = new Map(metrics.map((m) => [m.userId, m]));
     const individual = canUseIndividualBonus(month) && salesOn
-      ? metrics
-          .map((m) => {
-            const g = goalByUser.get(m.userId);
+      ? [...new Set([...metrics.map((m) => m.userId), ...goalByUser.keys()])]
+          .map((userId) => {
+            const m = metricsByUser.get(userId);
+            const g = goalByUser.get(userId);
             const salesGoalCents = g?.salesGoalCents || 0;
             const bonusCents = g?.bonusCents || 0;
+            const salesVolumeCents = m?.salesVolumeCents || 0;
             const earnedGrossCents = computeIndividualBonusCents({
-              salesVolumeCents: m.salesVolumeCents,
+              salesVolumeCents,
               salesGoalCents,
               bonusCents,
             });
             return {
-              userId: m.userId,
-              name: m.name,
-              login: m.login,
-              salesVolumeCents: m.salesVolumeCents,
+              userId,
+              name: m?.name || g?.user?.name || "—",
+              login: m?.login || g?.user?.login || "",
+              salesVolumeCents,
               salesGoalCents,
               bonusCents,
               earnedGrossCents,
               taxCents: taxByPercent(earnedGrossCents, taxPercent),
               netCents: Math.max(0, earnedGrossCents - taxByPercent(earnedGrossCents, taxPercent)),
-              met: salesGoalCents > 0 && m.salesVolumeCents >= salesGoalCents,
+              met: salesGoalCents > 0 && salesVolumeCents >= salesGoalCents,
             };
           })
           .filter((r) => r.salesGoalCents > 0 || r.bonusCents > 0)
+          .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
       : [];
 
-    const usersById = new Map(metrics.map((m) => [m.userId, m]));
+    const usersById = metricsByUser;
     const recruitment = canUseRecruitBonus(month) && recruitOn
       ? [...new Set([...goalByUser.keys(), ...recruitCounts.keys()])]
           .map((userId) => {
@@ -111,8 +117,8 @@ export async function GET(req: NextRequest) {
             });
             return {
               userId,
-              name: m?.name || "—",
-              login: m?.login || "",
+              name: m?.name || g?.user?.name || "—",
+              login: m?.login || g?.user?.login || "",
               recruitCount,
               recruitGoalCount,
               recruitBonusCents,
@@ -136,6 +142,7 @@ export async function GET(req: NextRequest) {
       individual,
       recruitmentEnabled: canUseRecruitBonus(month) && recruitOn,
       recruitment,
+      attendanceBonusActive: attendanceOn,
       savedResults: results.map((r) => ({
         id: r.id,
         userId: r.userId,

@@ -175,9 +175,11 @@ export default function BonusClient() {
     month: string;
     isActive: boolean;
     isNextMonth: boolean;
+    attendanceBonusActive: boolean;
     text: string;
   } | null>(null);
   const [announceCopied, setAnnounceCopied] = useState(false);
+  const [attendanceBonusActive, setAttendanceBonusActive] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,6 +197,9 @@ export default function BonusClient() {
       setIndividual(Array.isArray(json.individual) ? (json.individual as IndividualRow[]) : []);
       setRecruitmentEnabled(Boolean(json.recruitmentEnabled));
       setRecruitment(Array.isArray(json.recruitment) ? (json.recruitment as RecruitRow[]) : []);
+      if (typeof json.attendanceBonusActive === "boolean") {
+        setAttendanceBonusActive(json.attendanceBonusActive);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar.");
     } finally {
@@ -205,19 +210,24 @@ export default function BonusClient() {
   const loadAnnounce = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const res = await fetch("/api/bonus/announce", { cache: "no-store" });
+      const res = await fetch(
+        `/api/bonus/announce?month=${encodeURIComponent(month)}`,
+        { cache: "no-store" }
+      );
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) return;
       setAnnounce({
-        month: String(json.month || ""),
+        month: String(json.month || month),
         isActive: Boolean(json.isActive),
         isNextMonth: Boolean(json.isNextMonth),
+        attendanceBonusActive: json.attendanceBonusActive !== false,
         text: String(json.text || ""),
       });
+      setAttendanceBonusActive(json.attendanceBonusActive !== false);
     } catch {
       /* silêncio: o texto é extra */
     }
-  }, [isAdmin]);
+  }, [isAdmin, month]);
 
   useEffect(() => {
     if (section !== "meta") return;
@@ -227,6 +237,12 @@ export default function BonusClient() {
   useEffect(() => {
     void loadAnnounce();
   }, [loadAnnounce]);
+
+  useEffect(() => {
+    if (!attendanceBonusActive && section === "attendance") {
+      setSection(null);
+    }
+  }, [attendanceBonusActive, section]);
 
   async function computeBonus() {
     if (!confirm("Calcular e salvar o bônus deste mês?")) return;
@@ -309,7 +325,7 @@ export default function BonusClient() {
         </div>
       </div>
 
-      {isAdmin && announce ? (
+      {isAdmin && announce?.isActive && announce.text ? (
         <section className="rounded-2xl border border-emerald-200/80 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-start gap-3">
@@ -318,59 +334,44 @@ export default function BonusClient() {
               </div>
               <div>
                 <div className="text-sm font-semibold text-slate-900">
-                  Texto para o WhatsApp
+                  Texto para o WhatsApp · {monthLabelPT(announce.month)}
                 </div>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  {announce.isActive
-                    ? `Metas de ${monthLabelPT(announce.month)}${
-                        announce.isNextMonth ? " (mês seguinte, já habilitado)" : ""
-                      }. Copie e envie no grupo.`
-                    : `Habilite o bônus de ${monthLabelPT(announce.month)} em Configurações para gerar o texto.`}
+                  Só o que está habilitado neste mês. Copie e envie no grupo.
                 </p>
               </div>
             </div>
-            {announce.isActive && announce.text ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(announce.text);
-                    setAnnounceCopied(true);
-                    window.setTimeout(() => setAnnounceCopied(false), 2000);
-                  } catch {
-                    alert("Não deu para copiar. Selecione o texto e copie.");
-                  }
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                {announceCopied ? (
-                  <Check className="h-4 w-4" aria-hidden />
-                ) : (
-                  <Copy className="h-4 w-4" aria-hidden />
-                )}
-                {announceCopied ? "Copiado" : "Copiar texto"}
-              </button>
-            ) : (
-              <Link
-                href="/dashboard/configuracoes"
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <Settings className="h-4 w-4" aria-hidden />
-                Habilitar em Configurações
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(announce.text);
+                  setAnnounceCopied(true);
+                  window.setTimeout(() => setAnnounceCopied(false), 2000);
+                } catch {
+                  alert("Não deu para copiar. Selecione o texto e copie.");
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              {announceCopied ? (
+                <Check className="h-4 w-4" aria-hidden />
+              ) : (
+                <Copy className="h-4 w-4" aria-hidden />
+              )}
+              {announceCopied ? "Copiado" : "Copiar texto"}
+            </button>
           </div>
-          {announce.isActive && announce.text ? (
-            <textarea
-              readOnly
-              value={announce.text}
-              className="mt-4 h-64 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-slate-800"
-            />
-          ) : null}
+          <textarea
+            readOnly
+            value={announce.text}
+            className="mt-4 min-h-[28rem] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-slate-800"
+          />
         </section>
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
+        {attendanceBonusActive === false ? null : (
         <button
           type="button"
           onClick={() => setSection((s) => (s === "attendance" ? null : "attendance"))}
@@ -398,6 +399,7 @@ export default function BonusClient() {
             aria-hidden
           />
         </button>
+        )}
         <button
           type="button"
           onClick={() => setSection((s) => (s === "meta" ? null : "meta"))}
@@ -428,7 +430,9 @@ export default function BonusClient() {
         </button>
       </div>
 
-      {section === "attendance" ? <AttendanceCard key={`${month}-${attendanceKey}`} month={month} /> : null}
+      {section === "attendance" && attendanceBonusActive !== false ? (
+        <AttendanceCard key={`${month}-${attendanceKey}`} month={month} />
+      ) : null}
 
       {section === "meta" && isAdmin ? (
         <div className="flex flex-wrap items-center gap-2">
