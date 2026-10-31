@@ -702,7 +702,9 @@ function MonthGoalCard({
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <span className="tabular-nums">{bonus.monthRevenuePct}% concluído</span>
           <span>
-            {bonus.daysRemaining} dia{bonus.daysRemaining === 1 ? "" : "s"}
+            {bonus.daysRemaining <= 1
+              ? "último dia"
+              : `${bonus.daysRemaining} dias`}
           </span>
         </div>
       </div>
@@ -712,12 +714,16 @@ function MonthGoalCard({
         ) : (
           <>
             Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
-            {bonus.dailyTargetCents > 0 ? (
-              <>
-                {" "}
-                · ~<b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b>/dia
-              </>
-            ) : null}
+            {bonus.daysRemaining <= 1
+              ? " hoje"
+              : bonus.dailyTargetCents > 0
+                ? (
+                  <>
+                    {" "}
+                    · ~<b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b>/dia
+                  </>
+                )
+                : null}
           </>
         )}
       </p>
@@ -889,19 +895,25 @@ function BonusProgressCard({
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
               <span className="tabular-nums">{bonus.monthRevenuePct}% concluído</span>
               <span>
-                {bonus.daysRemaining} dia{bonus.daysRemaining === 1 ? "" : "s"} pela frente
+                {bonus.daysRemaining <= 1
+                  ? "último dia"
+                  : `${bonus.daysRemaining} dias pela frente`}
               </span>
             </div>
           </div>
           <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
             Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
-            {bonus.dailyTargetCents > 0 ? (
-              <>
-                {" "}
-                — cerca de{" "}
-                <b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b> por dia
-              </>
-            ) : null}
+            {bonus.daysRemaining <= 1
+              ? " hoje"
+              : bonus.dailyTargetCents > 0
+                ? (
+                  <>
+                    {" "}
+                    — cerca de{" "}
+                    <b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b> por dia
+                  </>
+                )
+                : null}
             .
           </p>
         </div>

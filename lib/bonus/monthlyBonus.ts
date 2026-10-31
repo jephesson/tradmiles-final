@@ -327,10 +327,16 @@ export function computeDailyRevenueTargetCents(args: {
   revenueGoalCents: number;
   revenueCents: number;
   daysRemaining: number;
+  todayRevenueCents?: number;
 }): number {
   const goal = Math.max(0, args.revenueGoalCents);
   const current = Math.max(0, args.revenueCents);
+  const today = Math.max(0, args.todayRevenueCents || 0);
   if (goal <= 0 || current >= goal) return 0;
+  // Meta do dia inclui o que já entrou hoje; senão, no último dia o alvo
+  // vira só o saldo do mês e o progresso de hoje some da conta.
+  const beforeToday = Math.max(0, current - today);
+  const remainingFromToday = Math.max(0, goal - beforeToday);
   const days = Math.max(1, args.daysRemaining);
-  return Math.ceil((goal - current) / days);
+  return Math.ceil(remainingFromToday / days);
 }

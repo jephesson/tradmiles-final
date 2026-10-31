@@ -197,12 +197,13 @@ export async function GET() {
     const revenueCents = bonusMetrics.revenueCents;
     const revenueGoalMet = revenueGoalCents > 0 && revenueCents >= revenueGoalCents;
     const daysRemaining = daysRemainingInMonth(bonusMonth, todayISO);
+    const todayRevenueCents = todayRevenue.revenueCents;
     const dailyTargetCents = computeDailyRevenueTargetCents({
       revenueGoalCents,
       revenueCents,
       daysRemaining,
+      todayRevenueCents,
     });
-    const todayRevenueCents = todayRevenue.revenueCents;
     const todayVsDailyPct =
       dailyTargetCents > 0
         ? Math.min(100, Math.round((todayRevenueCents / dailyTargetCents) * 100))
