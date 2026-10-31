@@ -93,8 +93,8 @@ export default function RecrutamentoClient() {
             Recrutamento
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Contas de cedente aprovadas e não excluídas, vinculadas ao funcionário no
-            mês. A meta e o bônus ficam em{" "}
+            Quantas contas cada um trouxe no mês (aprovadas e não excluídas, na data
+            da aprovação). A meta e o bônus ficam em{" "}
             <Link href="/dashboard/configuracoes" className="text-sky-700 hover:underline">
               Configurações
             </Link>
@@ -147,7 +147,7 @@ export default function RecrutamentoClient() {
                 <tr>
                   <th className="px-4 py-3 text-left">Funcionário</th>
                   <th className="px-4 py-3 text-right">Neste mês</th>
-                  {historyMonths.map((m) => (
+                  {historyMonths.filter((m) => m !== month).map((m) => (
                     <th key={m} className="px-3 py-3 text-right">
                       {m.slice(5)}/{m.slice(2, 4)}
                     </th>
@@ -202,7 +202,7 @@ export default function RecrutamentoClient() {
                       <td className="px-4 py-3 text-right text-base font-semibold tabular-nums text-slate-900">
                         {r.recruitCount}
                       </td>
-                      {historyMonths.map((m) => (
+                      {historyMonths.filter((m) => m !== month).map((m) => (
                         <td key={m} className="px-3 py-3 text-right tabular-nums text-slate-600">
                           {r.history[m] || 0}
                         </td>

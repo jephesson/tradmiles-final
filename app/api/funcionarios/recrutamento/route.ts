@@ -5,7 +5,6 @@ import {
   canUseRecruitBonus,
   computeRecruitBonusCents,
   currentMonthISORecife,
-  INDIVIDUAL_BONUS_START_MONTH,
   isMonthISO,
   monthLabelPT,
   taxByPercent,
@@ -29,9 +28,8 @@ export async function GET(req: NextRequest) {
     const monthParam = String(searchParams.get("month") || "").trim();
     const month = isMonthISO(monthParam) ? monthParam : currentMonthISORecife();
 
-    const historyMonths = recentRecruitMonths(month, 6).filter(
-      (m) => m >= INDIVIDUAL_BONUS_START_MONTH
-    );
+    const historyMonths = recentRecruitMonths(month, 6);
+    const monthsToLoad = [...new Set([month, ...historyMonths])];
 
     const [users, goals, taxRow, byMonth] = await Promise.all([
       prisma.user.findMany({
@@ -51,7 +49,7 @@ export async function GET(req: NextRequest) {
         select: { taxPercent: true },
       }),
       Promise.all(
-        historyMonths.map(async (m) => ({
+        monthsToLoad.map(async (m) => ({
           month: m,
           byOwner: await listApprovedRecruitsInMonth(session.team, m),
         }))
