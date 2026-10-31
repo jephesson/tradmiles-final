@@ -286,6 +286,7 @@ model User {
   // ✅ BÔNUS MENSAL
   bonusMonthResults     BonusMonthResult[] @relation("BonusMonthResultUser")
   bonusMonthResultsPaid BonusMonthResult[] @relation("BonusMonthResultPaidBy")
+  employeeMonthGoals    EmployeeMonthGoal[] @relation("EmployeeMonthGoalUser")
 
   // ✅ Gmail OAuth (token da caixa conectada)
   gmailConnectionsConnected GmailConnection[] @relation("GmailConnectionConnectedBy")
@@ -2688,6 +2689,29 @@ model BonusMonthSetting {
   @@unique([team, month], map: "uniq_bonus_month_setting_team_month")
   @@index([team, month])
   @@map("bonus_month_settings")
+}
+
+/// Meta individual: a cada `salesGoalCents` vendidos, recebe `bonusCents` no dia 1 do mês seguinte.
+model EmployeeMonthGoal {
+  id     String @id @default(cuid())
+  team   String
+  month  String // YYYY-MM
+  userId String
+
+  /// A cada X reais vendidos (PV sem taxa + balcão), em centavos
+  salesGoalCents Int @default(0)
+  /// Recebe Y reais no dia 1 do mês seguinte, em centavos (proporcional ao vendido)
+  bonusCents     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("EmployeeMonthGoalUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([team, month, userId], map: "uniq_employee_month_goal_team_month_user")
+  @@index([team, month])
+  @@index([userId])
+  @@map("employee_month_goals")
 }
 
 model BonusMonthResult {

@@ -258,6 +258,67 @@ export async function fetchHistoricalMaxForSuggest(team: string) {
 }
 
 /** Faturamento do dia (PV sem taxa + cobrança balcão), mesma base da meta de bônus. */
+export async function fetchTodayEmployeeRevenue(
+  team: string,
+  todayISO: string,
+  userId: string
+) {
+  const { start: saleStart, end: saleEnd } = dayBoundsCalendarUTC(todayISO);
+  const { start: balcaoStart, end: balcaoEnd } = dayBoundsBrazil(todayISO);
+
+  const [sales, balcaoOps] = await Promise.all([
+    prisma.sale.findMany({
+      where: {
+        date: { gte: saleStart, lt: saleEnd },
+        paymentStatus: { not: "CANCELED" },
+        sellerId: userId,
+        seller: { team },
+      },
+      select: {
+        points: true,
+        milheiroCents: true,
+        totalCents: true,
+        embarqueFeeCents: true,
+        pointsValueCents: true,
+      },
+    }),
+    prisma.balcaoOperacao.findMany({
+      where: {
+        team,
+        employeeId: userId,
+        createdAt: { gte: balcaoStart, lt: balcaoEnd },
+      },
+      select: {
+        customerChargeCents: true,
+        boardingFeeCents: true,
+      },
+    }),
+  ]);
+
+  let revenueCents = 0;
+  for (const s of sales) {
+    revenueCents += pvSemTaxaFromSaleFields({
+      totalCents: s.totalCents,
+      embarqueFeeCents: s.embarqueFeeCents,
+      pointsValueCents: s.pointsValueCents,
+      points: s.points,
+      milheiroCents: s.milheiroCents,
+    });
+  }
+  for (const op of balcaoOps) {
+    revenueCents += Math.max(
+      0,
+      safeInt(op.customerChargeCents, 0) - Math.max(0, safeInt(op.boardingFeeCents, 0))
+    );
+  }
+
+  return {
+    revenueCents,
+    salesCount: sales.length,
+    balcaoCount: balcaoOps.length,
+  };
+}
+
 export async function fetchTodayBonusRevenue(team: string, todayISO: string) {
   const { start: saleStart, end: saleEnd } = dayBoundsCalendarUTC(todayISO);
   const { start: balcaoStart, end: balcaoEnd } = dayBoundsBrazil(todayISO);

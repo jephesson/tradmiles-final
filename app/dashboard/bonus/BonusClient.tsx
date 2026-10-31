@@ -18,6 +18,19 @@ import { getSession } from "@/lib/auth";
 import { monthLabelPT } from "@/lib/bonus/monthlyBonus";
 import AttendanceCard from "./AttendanceCard";
 
+type IndividualRow = {
+  userId: string;
+  name: string;
+  login: string;
+  salesVolumeCents: number;
+  salesGoalCents: number;
+  bonusCents: number;
+  earnedGrossCents: number;
+  taxCents: number;
+  netCents: number;
+  met: boolean;
+};
+
 type Preview = {
   month: string;
   isActive: boolean;
@@ -133,6 +146,8 @@ export default function BonusClient() {
   const [month, setMonth] = useState(currentMonthInput());
   const [section, setSection] = useState<Section | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [individual, setIndividual] = useState<IndividualRow[]>([]);
+  const [individualEnabled, setIndividualEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +166,8 @@ export default function BonusClient() {
         throw new Error(json?.error || "Falha ao carregar bônus.");
       }
       setPreview(json.preview as Preview);
+      setIndividualEnabled(Boolean(json.individualEnabled));
+      setIndividual(Array.isArray(json.individual) ? (json.individual as IndividualRow[]) : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar.");
     } finally {
@@ -287,7 +304,8 @@ export default function BonusClient() {
           <div className="min-w-0 flex-1">
             <div className="text-base font-semibold text-slate-900">Bônus de meta</div>
             <p className="mt-1 text-sm leading-snug text-slate-500">
-              Faturamento, lucro líquido e distribuição se a meta do mês for batida.
+              Faturamento da equipe, meta individual (a cada X vendido recebe Y no dia 1) e
+              distribuição se a meta do mês for batida.
             </p>
           </div>
           <ChevronRight
@@ -314,7 +332,7 @@ export default function BonusClient() {
           <button
             type="button"
             onClick={computeBonus}
-            disabled={computing || !preview?.isActive}
+            disabled={computing || (!preview?.isActive && !individualEnabled)}
             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
             {computing ? (
@@ -327,7 +345,7 @@ export default function BonusClient() {
         </div>
       ) : null}
 
-      {section === "meta" && preview && !preview.isActive ? (
+      {section === "meta" && preview && !preview.isActive && !individualEnabled ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Bônus de <b>{monthLabelPT(month)}</b> não está ativo. Configure e ative
           em <Link href="/dashboard/configuracoes" className="underline">Configurações</Link>.
@@ -437,6 +455,59 @@ export default function BonusClient() {
             </div>
           </div>
 
+          {individualEnabled ? (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
+                Meta individual · a cada X vendido, recebe Y no dia 1
+              </div>
+              {individual.length ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Funcionário</th>
+                        <th className="px-4 py-3 text-right">Vendeu</th>
+                        <th className="px-4 py-3 text-right">A cada</th>
+                        <th className="px-4 py-3 text-right">Recebe</th>
+                        <th className="px-4 py-3 text-right">Bônus bruto</th>
+                        <th className="px-4 py-3 text-right">Líquido</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {individual.map((r) => (
+                        <tr key={r.userId} className="hover:bg-slate-50/60">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-slate-900">{r.name}</div>
+                            <div className="text-xs text-slate-500">@{r.login}</div>
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums">
+                            {fmtMoney(r.salesVolumeCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums">
+                            {fmtMoney(r.salesGoalCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums">
+                            {fmtMoney(r.bonusCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums font-medium">
+                            {fmtMoney(r.earnedGrossCents)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums font-bold text-emerald-700">
+                            {fmtMoney(r.netCents)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="px-4 py-4 text-sm text-slate-500">
+                  Nenhuma meta individual neste mês. Defina em Configurações.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
               Parciais e distribuição ({preview.eligibleCount} participantes)
@@ -527,7 +598,9 @@ export default function BonusClient() {
             e a compra e venda no balcão. Distribuição: 30% melhor C2, 30% maior volume,
             20% quem finalizou mais contas (só conta quando o lucro da conta é maior que
             zero), 20% dividido igualmente. Imposto debitado sobre o bônus bruto.
-            Pagamento no dia 1 do mês seguinte, junto às comissões.
+            Pagamento no dia 1 do mês seguinte, junto às comissões. A partir de
+            novembro/2026, a meta individual paga proporcionalmente: a cada X vendidos,
+            recebe Y no dia 1.
           </div>
         </>
       ) : null}

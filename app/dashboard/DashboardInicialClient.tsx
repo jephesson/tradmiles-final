@@ -68,6 +68,17 @@ type BonusProgress = {
   todayBalcaoCount: number;
   isRenewalDay?: boolean;
   previousMonth?: PreviousMonthBonus | null;
+  individual?: {
+    salesGoalCents: number;
+    bonusCents: number;
+    salesVolumeCents: number;
+    earnedGrossCents: number;
+    todayRevenueCents: number;
+    todaySalesCount: number;
+    todayBalcaoCount: number;
+    monthPct: number;
+    dailyTargetCents: number;
+  } | null;
 };
 
 type InicialData = {
@@ -223,6 +234,7 @@ export default function DashboardInicialClient() {
             <TodayPaceCard bonus={bonus} todayLabel={data?.todayLabel || ""} loading={!data && !error} />
             <MonthGoalCard bonus={bonus} loading={!data && !error} />
           </div>
+          <IndividualGoalCard bonus={bonus} loading={!data && !error} />
         </div>
 
         <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
@@ -726,6 +738,88 @@ function MonthGoalCard({
                 : null}
           </>
         )}
+      </p>
+    </section>
+  );
+}
+
+function IndividualGoalCard({
+  bonus,
+  loading,
+}: {
+  bonus: BonusProgress | null;
+  loading: boolean;
+}) {
+  const mine = bonus?.individual;
+  if (loading) {
+    return (
+      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Sua meta
+        </div>
+        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
+      </section>
+    );
+  }
+  if (!mine) return null;
+  const remainingCents = Math.max(0, mine.salesGoalCents - mine.salesVolumeCents);
+  const todayMet =
+    mine.dailyTargetCents > 0 && mine.todayRevenueCents >= mine.dailyTargetCents;
+  const todayGap = Math.max(0, mine.dailyTargetCents - mine.todayRevenueCents);
+  return (
+    <section className="rounded-2xl border border-violet-200/80 bg-white/90 p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+          Sua meta
+        </div>
+        <Link href="/dashboard/bonus" className="text-[11px] font-medium text-sky-700 hover:underline">
+          Ver bônus
+        </Link>
+      </div>
+      <p className="mt-2 text-[15px] leading-snug text-slate-800">
+        <b className="tabular-nums">{fmtMoney(mine.salesVolumeCents)}</b>
+        {" "}
+        de <span className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</span>
+      </p>
+      <div className="mt-3 space-y-2">
+        <ProgressBar
+          pct={mine.monthPct}
+          tone={mine.monthPct >= 100 ? "done" : mine.monthPct >= 80 ? "ok" : "warn"}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span className="tabular-nums">{mine.monthPct}% da meta</span>
+          <span>
+            Bônus agora{" "}
+            <b className="tabular-nums text-slate-700">{fmtMoney(mine.earnedGrossCents)}</b>
+          </span>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-slate-600">
+        A cada <b className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</b> vendidos,{" "}
+        <b className="tabular-nums">{fmtMoney(mine.bonusCents)}</b> no dia 1.
+        {remainingCents > 0 ? (
+          <>
+            {" "}
+            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
+            {mine.dailyTargetCents > 0 && bonus && bonus.daysRemaining > 1
+              ? ` · ~${fmtMoney(mine.dailyTargetCents)}/dia`
+              : bonus && bonus.daysRemaining <= 1
+                ? " hoje"
+                : ""}
+            .
+          </>
+        ) : (
+          " Meta do ciclo batida — o extra continua somando."
+        )}
+      </p>
+      <p className="mt-2 text-xs text-slate-500">
+        Hoje <b className="tabular-nums">{fmtMoney(mine.todayRevenueCents)}</b>
+        {mine.dailyTargetCents > 0 ? (
+          <>
+            {" "}
+            {todayMet ? "· ritmo ok" : `· faltam ${fmtMoney(todayGap)}`}
+          </>
+        ) : null}
       </p>
     </section>
   );

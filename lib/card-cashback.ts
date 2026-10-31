@@ -9,7 +9,7 @@ export const CARD_CASHBACK_LOGIN = "eduarda";
 const TZ = "America/Sao_Paulo";
 
 export type MonthlyBonusPart = {
-  kind: "meta" | "card";
+  kind: "meta" | "card" | "individual";
   title: string;
   detail: string;
   grossCents: number;
@@ -212,6 +212,7 @@ export async function day1BonusByUser(team: string, date: string) {
       grossBonusCents: true,
       taxCents: true,
       netBonusCents: true,
+      breakdown: true,
     },
   });
 
@@ -220,20 +221,55 @@ export async function day1BonusByUser(team: string, date: string) {
     const tax = Math.max(0, b.taxCents || 0);
     const net = Math.max(0, b.netBonusCents || 0);
     if (gross <= 0 && net <= 0) continue;
+    const br = (b.breakdown || {}) as {
+      poolGrossCents?: number;
+      individualGrossCents?: number;
+    };
+    const poolGross = Math.max(0, Number(br.poolGrossCents || 0));
+    const individualGross = Math.max(0, Number(br.individualGrossCents || 0));
+    const parts: MonthlyBonusPart[] = [];
+    const splitTax = (partGross: number) => {
+      if (gross <= 0) return { taxCents: 0, netCents: partGross };
+      const taxCents = Math.round((tax * partGross) / gross);
+      return { taxCents, netCents: Math.max(0, partGross - taxCents) };
+    };
+    if (poolGross > 0) {
+      const split = splitTax(poolGross);
+      parts.push({
+        kind: "meta",
+        title: "Bônus da meta da equipe",
+        detail: `Premiação do mês ${monthLabelPT(spendMonth)}, paga no dia 1.`,
+        grossCents: poolGross,
+        taxCents: split.taxCents,
+        netCents: split.netCents,
+      });
+    }
+    if (individualGross > 0) {
+      const split = splitTax(individualGross);
+      parts.push({
+        kind: "individual",
+        title: "Bônus individual",
+        detail: `A cada valor vendido no mês ${monthLabelPT(spendMonth)}, proporcional, pago no dia 1.`,
+        grossCents: individualGross,
+        taxCents: split.taxCents,
+        netCents: split.netCents,
+      });
+    }
+    if (!parts.length) {
+      parts.push({
+        kind: "meta",
+        title: "Bônus da meta",
+        detail: `Premiação do mês ${monthLabelPT(spendMonth)}, paga no dia 1.`,
+        grossCents: gross,
+        taxCents: tax,
+        netCents: net,
+      });
+    }
     map.set(b.userId, {
       grossBonusCents: gross,
       taxCents: tax,
       netBonusCents: net,
-      parts: [
-        {
-          kind: "meta",
-          title: "Bônus da meta",
-          detail: `Premiação do mês ${monthLabelPT(spendMonth)}, paga no dia 1.`,
-          grossCents: gross,
-          taxCents: tax,
-          netCents: net,
-        },
-      ],
+      parts,
     });
   }
 

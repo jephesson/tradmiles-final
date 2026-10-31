@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
+  canUseIndividualBonus,
   computeDailyRevenueTargetCents,
+  computeIndividualBonusCents,
   currentMonthISORecife,
   daysRemainingInMonth,
   isFirstDayOfMonth,
@@ -12,6 +14,7 @@ import {
 import {
   fetchMonthlyBonusMetrics,
   fetchTodayBonusRevenue,
+  fetchTodayEmployeeRevenue,
 } from "@/lib/bonus/fetchMonthlyMetrics";
 import { ensureDueCardCashbacks } from "@/lib/card-cashback";
 import { ensureDueMonthlyBonus } from "@/lib/bonus/saveMonthlyBonus";
@@ -87,7 +90,7 @@ export async function GET() {
     const alertEndISO = addDaysISO(todayISO, 6);
     const fetchEndISO = weekEndISO > alertEndISO ? weekEndISO : alertEndISO;
 
-    const [events, users, bonusSetting, bonusMetrics, todayRevenue, prevBonusSetting, prevBonusMetrics] =
+    const [events, users, bonusSetting, bonusMetrics, todayRevenue, prevBonusSetting, prevBonusMetrics, individualGoal, todayMine] =
       await Promise.all([
       prisma.agendaEvent.findMany({
         where: {
@@ -127,6 +130,20 @@ export async function GET() {
         : Promise.resolve(null),
       prevMonthKey
         ? fetchMonthlyBonusMetrics(session.team, prevMonthKey)
+        : Promise.resolve(null),
+      canUseIndividualBonus(bonusMonth)
+        ? prisma.employeeMonthGoal.findUnique({
+            where: {
+              team_month_userId: {
+                team: session.team,
+                month: bonusMonth,
+                userId: session.id,
+              },
+            },
+          })
+        : Promise.resolve(null),
+      canUseIndividualBonus(bonusMonth)
+        ? fetchTodayEmployeeRevenue(session.team, todayISO, session.id)
         : Promise.resolve(null),
     ]);
 
@@ -258,6 +275,40 @@ export async function GET() {
             todayBalcaoCount: todayRevenue.balcaoCount,
             isRenewalDay: Boolean(prevMonthKey),
             previousMonth: previousMonthProgress,
+            individual: individualGoal && individualGoal.salesGoalCents > 0
+              ? (() => {
+                  const mine = bonusMetrics.metrics.find((m) => m.userId === session.id);
+                  const salesVolumeCents = mine?.salesVolumeCents || 0;
+                  const todayMineCents = todayMine?.revenueCents || 0;
+                  const daysRemainingMine = daysRemaining;
+                  return {
+                    salesGoalCents: individualGoal.salesGoalCents,
+                    bonusCents: individualGoal.bonusCents,
+                    salesVolumeCents,
+                    earnedGrossCents: computeIndividualBonusCents({
+                      salesVolumeCents,
+                      salesGoalCents: individualGoal.salesGoalCents,
+                      bonusCents: individualGoal.bonusCents,
+                    }),
+                    todayRevenueCents: todayMineCents,
+                    todaySalesCount: todayMine?.salesCount || 0,
+                    todayBalcaoCount: todayMine?.balcaoCount || 0,
+                    monthPct:
+                      individualGoal.salesGoalCents > 0
+                        ? Math.min(
+                            100,
+                            Math.round((salesVolumeCents / individualGoal.salesGoalCents) * 100)
+                          )
+                        : 0,
+                    dailyTargetCents: computeDailyRevenueTargetCents({
+                      revenueGoalCents: individualGoal.salesGoalCents,
+                      revenueCents: salesVolumeCents,
+                      daysRemaining: daysRemainingMine,
+                      todayRevenueCents: todayMineCents,
+                    }),
+                  };
+                })()
+              : null,
           },
         },
       },

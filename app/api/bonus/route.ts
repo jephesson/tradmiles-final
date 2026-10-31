@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import {
+  canUseIndividualBonus,
+  computeIndividualBonusCents,
   currentMonthISORecife,
   distributeMonthlyBonus,
   isMonthISO,
+  taxByPercent,
 } from "@/lib/bonus/monthlyBonus";
 import { fetchMonthlyBonusMetrics } from "@/lib/bonus/fetchMonthlyMetrics";
 
@@ -26,7 +29,7 @@ export async function GET(req: NextRequest) {
       where: { team_month: { team: session.team, month } },
     });
 
-    const [{ metrics, eligibleUserIds, revenueCents, profitCents, taxPercent }, results] =
+    const [{ metrics, eligibleUserIds, revenueCents, profitCents, taxPercent }, results, individualGoals] =
       await Promise.all([
         fetchMonthlyBonusMetrics(session.team, month),
         prisma.bonusMonthResult.findMany({
@@ -37,6 +40,11 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { grossBonusCents: "desc" },
         }),
+        canUseIndividualBonus(month)
+          ? prisma.employeeMonthGoal.findMany({
+              where: { team: session.team, month },
+            })
+          : Promise.resolve([]),
       ]);
 
     const preview = distributeMonthlyBonus({
@@ -51,10 +59,40 @@ export async function GET(req: NextRequest) {
       taxPercent,
     });
 
+    const goalByUser = new Map(individualGoals.map((g) => [g.userId, g]));
+    const individual = canUseIndividualBonus(month)
+      ? metrics
+          .map((m) => {
+            const g = goalByUser.get(m.userId);
+            const salesGoalCents = g?.salesGoalCents || 0;
+            const bonusCents = g?.bonusCents || 0;
+            const earnedGrossCents = computeIndividualBonusCents({
+              salesVolumeCents: m.salesVolumeCents,
+              salesGoalCents,
+              bonusCents,
+            });
+            return {
+              userId: m.userId,
+              name: m.name,
+              login: m.login,
+              salesVolumeCents: m.salesVolumeCents,
+              salesGoalCents,
+              bonusCents,
+              earnedGrossCents,
+              taxCents: taxByPercent(earnedGrossCents, taxPercent),
+              netCents: Math.max(0, earnedGrossCents - taxByPercent(earnedGrossCents, taxPercent)),
+              met: salesGoalCents > 0 && m.salesVolumeCents >= salesGoalCents,
+            };
+          })
+          .filter((r) => r.salesGoalCents > 0 || r.bonusCents > 0)
+      : [];
+
     return NextResponse.json({
       ok: true,
       month,
       preview,
+      individualEnabled: canUseIndividualBonus(month),
+      individual,
       savedResults: results.map((r) => ({
         id: r.id,
         userId: r.userId,

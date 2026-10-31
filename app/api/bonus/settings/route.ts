@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
 import { settingsGateOpen } from "@/lib/settingsGate";
 import {
+  canUseIndividualBonus,
   currentMonthISORecife,
   isMonthISO,
+  previousMonthISO,
   suggestGoalsFromMax,
 } from "@/lib/bonus/monthlyBonus";
 import { fetchHistoricalMaxForSuggest } from "@/lib/bonus/fetchMonthlyMetrics";
@@ -43,12 +45,38 @@ export async function GET(req: NextRequest) {
     const monthParam = String(searchParams.get("month") || "").trim();
     const month = isMonthISO(monthParam) ? monthParam : currentMonthISORecife();
 
-    const [setting, suggest] = await Promise.all([
+    const [setting, suggest, users, goals] = await Promise.all([
       prisma.bonusMonthSetting.findUnique({
         where: { team_month: { team: session.team, month } },
       }),
       fetchHistoricalMaxForSuggest(session.team),
+      prisma.user.findMany({
+        where: { team: session.team, isActive: true, role: { in: ["admin", "staff"] } },
+        select: { id: true, name: true, login: true },
+        orderBy: { name: "asc" },
+      }),
+      canUseIndividualBonus(month)
+        ? prisma.employeeMonthGoal.findMany({
+            where: { team: session.team, month },
+          })
+        : Promise.resolve([]),
     ]);
+
+    let goalRows = goals;
+    let individualCopiedFrom: string | null = null;
+    if (canUseIndividualBonus(month) && !goalRows.length) {
+      const prevMonth = previousMonthISO(month);
+      if (canUseIndividualBonus(prevMonth)) {
+        const prevGoals = await prisma.employeeMonthGoal.findMany({
+          where: { team: session.team, month: prevMonth },
+        });
+        if (prevGoals.length) {
+          goalRows = prevGoals;
+          individualCopiedFrom = prevMonth;
+        }
+      }
+    }
+    const goalByUser = new Map(goalRows.map((g) => [g.userId, g]));
 
     const suggested = suggestGoalsFromMax(
       suggest.maxRevenueCents,
@@ -62,6 +90,15 @@ export async function GET(req: NextRequest) {
         isActive: setting?.isActive ?? false,
         revenueGoalCents: setting?.revenueGoalCents ?? 0,
         profitGoalCents: setting?.profitGoalCents ?? 0,
+        individualEnabled: canUseIndividualBonus(month),
+        individualCopiedFrom,
+        employees: users.map((u) => ({
+          userId: u.id,
+          name: u.name,
+          login: u.login,
+          salesGoalCents: goalByUser.get(u.id)?.salesGoalCents ?? 0,
+          bonusCents: goalByUser.get(u.id)?.bonusCents ?? 0,
+        })),
       },
       suggest: {
         maxRevenueCents: suggest.maxRevenueCents,
@@ -104,20 +141,63 @@ export async function POST(req: NextRequest) {
 
     const isActive = Boolean(body?.isActive);
 
-    const saved = await prisma.bonusMonthSetting.upsert({
-      where: { team_month: { team: session.team, month } },
-      create: {
-        team: session.team,
-        month,
-        isActive,
-        revenueGoalCents: revenueParsed.cents,
-        profitGoalCents: profitParsed.cents,
-      },
-      update: {
-        isActive,
-        revenueGoalCents: revenueParsed.cents,
-        profitGoalCents: profitParsed.cents,
-      },
+    const employeesRaw = Array.isArray(body?.employees) ? body.employees : [];
+    if (employeesRaw.length && !canUseIndividualBonus(month)) {
+      return bad("Meta individual vale a partir de novembro de 2026.");
+    }
+
+    const employeeRows: Array<{ userId: string; salesGoalCents: number; bonusCents: number }> = [];
+    if (canUseIndividualBonus(month)) {
+      for (const row of employeesRaw) {
+        const userId = String(row?.userId || "").trim();
+        if (!userId) continue;
+        const salesParsed = parseReaisInput(row?.salesGoalReais, "Meta individual");
+        if (!salesParsed.ok) return bad(salesParsed.error);
+        const bonusParsed = parseReaisInput(row?.bonusReais, "Bônus individual");
+        if (!bonusParsed.ok) return bad(bonusParsed.error);
+        employeeRows.push({
+          userId,
+          salesGoalCents: salesParsed.cents,
+          bonusCents: bonusParsed.cents,
+        });
+      }
+    }
+
+    const saved = await prisma.$transaction(async (tx) => {
+      const settingRow = await tx.bonusMonthSetting.upsert({
+        where: { team_month: { team: session.team, month } },
+        create: {
+          team: session.team,
+          month,
+          isActive,
+          revenueGoalCents: revenueParsed.cents,
+          profitGoalCents: profitParsed.cents,
+        },
+        update: {
+          isActive,
+          revenueGoalCents: revenueParsed.cents,
+          profitGoalCents: profitParsed.cents,
+        },
+      });
+      for (const row of employeeRows) {
+        await tx.employeeMonthGoal.upsert({
+          where: {
+            team_month_userId: { team: session.team, month, userId: row.userId },
+          },
+          create: {
+            team: session.team,
+            month,
+            userId: row.userId,
+            salesGoalCents: row.salesGoalCents,
+            bonusCents: row.bonusCents,
+          },
+          update: {
+            salesGoalCents: row.salesGoalCents,
+            bonusCents: row.bonusCents,
+          },
+        });
+      }
+      return settingRow;
     });
 
     return NextResponse.json({

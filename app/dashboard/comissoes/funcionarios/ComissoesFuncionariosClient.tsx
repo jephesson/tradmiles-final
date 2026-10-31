@@ -26,7 +26,7 @@ type UserLite = { id: string; name: string; login: string };
 type PaidByLite = { id: string; name: string } | null;
 
 type MonthlyBonusPart = {
-  kind: "meta" | "card";
+  kind: "meta" | "card" | "individual";
   title: string;
   detail: string;
   grossCents: number;

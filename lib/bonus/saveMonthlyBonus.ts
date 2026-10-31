@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import {
+  canUseIndividualBonus,
+  computeIndividualBonusCents,
   distributeMonthlyBonus,
   isFirstDayOfMonth,
   previousMonthISO,
+  taxByPercent,
 } from "@/lib/bonus/monthlyBonus";
 import { fetchMonthlyBonusMetrics } from "@/lib/bonus/fetchMonthlyMetrics";
 
@@ -18,17 +21,20 @@ function recifeDateISO(date: Date) {
 }
 
 export async function computeAndSaveMonthlyBonus(team: string, month: string) {
-  const setting = await prisma.bonusMonthSetting.findUnique({
-    where: { team_month: { team, month } },
-  });
-  if (!setting?.isActive) {
-    return { ok: false as const, month, error: "Bônus não está ativo para este mês." };
-  }
-
-  const paid = await prisma.bonusMonthResult.findMany({
-    where: { team, month, paidAt: { not: null } },
-    select: { userId: true },
-  });
+  const [setting, individualGoals, paid] = await Promise.all([
+    prisma.bonusMonthSetting.findUnique({
+      where: { team_month: { team, month } },
+    }),
+    canUseIndividualBonus(month)
+      ? prisma.employeeMonthGoal.findMany({
+          where: { team, month },
+        })
+      : Promise.resolve([]),
+    prisma.bonusMonthResult.findMany({
+      where: { team, month, paidAt: { not: null } },
+      select: { userId: true },
+    }),
+  ]);
   const paidIds = new Set(paid.map((p) => p.userId));
 
   const { metrics, eligibleUserIds, revenueCents, profitCents, taxPercent } =
@@ -36,9 +42,9 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
 
   const preview = distributeMonthlyBonus({
     month,
-    isActive: setting.isActive,
-    revenueGoalCents: setting.revenueGoalCents,
-    profitGoalCents: setting.profitGoalCents,
+    isActive: setting?.isActive ?? false,
+    revenueGoalCents: setting?.revenueGoalCents ?? 0,
+    profitGoalCents: setting?.profitGoalCents ?? 0,
     revenueCents,
     profitCents,
     metrics,
@@ -46,7 +52,77 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
     taxPercent,
   });
 
-  if (!preview.revenueGoalMet || preview.totalPoolCents <= 0) {
+  const goalByUser = new Map(individualGoals.map((g) => [g.userId, g]));
+  const metricByUser = new Map(metrics.map((m) => [m.userId, m]));
+
+  const companyPays =
+    Boolean(setting?.isActive) && preview.revenueGoalMet && preview.totalPoolCents > 0;
+
+  type Row = {
+    userId: string;
+    poolGrossCents: number;
+    individualGrossCents: number;
+    individualSalesVolumeCents: number;
+    individualSalesGoalCents: number;
+    individualBonusSettingCents: number;
+    dist?: (typeof preview.distributions)[number];
+  };
+
+  const rows = new Map<string, Row>();
+
+  if (companyPays) {
+    for (const d of preview.distributions) {
+      if (d.grossBonusCents <= 0) continue;
+      rows.set(d.userId, {
+        userId: d.userId,
+        poolGrossCents: d.grossBonusCents,
+        individualGrossCents: 0,
+        individualSalesVolumeCents: d.metrics.salesVolumeCents,
+        individualSalesGoalCents: 0,
+        individualBonusSettingCents: 0,
+        dist: d,
+      });
+    }
+  }
+
+  for (const [userId, goal] of goalByUser) {
+    const m = metricByUser.get(userId);
+    const volume = m?.salesVolumeCents || 0;
+    const individualGrossCents = computeIndividualBonusCents({
+      salesVolumeCents: volume,
+      salesGoalCents: goal.salesGoalCents,
+      bonusCents: goal.bonusCents,
+    });
+    if (individualGrossCents <= 0 && !rows.has(userId)) continue;
+    const prev = rows.get(userId);
+    if (prev) {
+      prev.individualGrossCents = individualGrossCents;
+      prev.individualSalesVolumeCents = volume;
+      prev.individualSalesGoalCents = goal.salesGoalCents;
+      prev.individualBonusSettingCents = goal.bonusCents;
+    } else if (individualGrossCents > 0) {
+      rows.set(userId, {
+        userId,
+        poolGrossCents: 0,
+        individualGrossCents,
+        individualSalesVolumeCents: volume,
+        individualSalesGoalCents: goal.salesGoalCents,
+        individualBonusSettingCents: goal.bonusCents,
+      });
+    }
+  }
+
+  const toSave = [...rows.values()].filter((r) => !paidIds.has(r.userId));
+  const hasIndividualRules = individualGoals.some(
+    (g) => g.salesGoalCents > 0 && g.bonusCents > 0
+  );
+  if (!toSave.length) {
+    if (companyPays || hasIndividualRules) {
+      return { ok: true as const, month, preview };
+    }
+    if (!setting?.isActive) {
+      return { ok: false as const, month, preview, error: "Bônus não está ativo para este mês." };
+    }
     return {
       ok: false as const,
       month,
@@ -55,60 +131,69 @@ export async function computeAndSaveMonthlyBonus(team: string, month: string) {
     };
   }
 
-  const ops = preview.distributions
-    .filter((d) => d.grossBonusCents > 0 && !paidIds.has(d.userId))
-    .map((d) =>
-      prisma.bonusMonthResult.upsert({
-        where: {
-          team_month_userId: {
-            team,
-            month,
-            userId: d.userId,
-          },
-        },
-        create: {
+  const ops = toSave.map((r) => {
+    const poolGross = Math.max(0, r.poolGrossCents);
+    const individualGross = Math.max(0, r.individualGrossCents);
+    const grossBonusCents = poolGross + individualGross;
+    const taxCents = taxByPercent(grossBonusCents, taxPercent);
+    const netBonusCents = Math.max(0, grossBonusCents - taxCents);
+    const d = r.dist;
+    const breakdown = {
+      shares: d?.shares || {
+        c2ShareCents: 0,
+        volumeShareCents: 0,
+        accountsShareCents: 0,
+        equalShareCents: 0,
+      },
+      metrics: d?.metrics || {
+        c2Cents: 0,
+        salesVolumeCents: r.individualSalesVolumeCents,
+        salesCount: 0,
+        finalizedAccounts: 0,
+      },
+      totalPoolCents: preview.totalPoolCents,
+      poolFromRevenueCents: preview.poolFromRevenueCents,
+      poolFromProfitCents: preview.poolFromProfitCents,
+      revenueGoalMet: preview.revenueGoalMet,
+      profitGoalMet: preview.profitGoalMet,
+      isWinnerC2: d?.isWinnerC2 || false,
+      isWinnerVolume: d?.isWinnerVolume || false,
+      isWinnerAccounts: d?.isWinnerAccounts || false,
+      poolGrossCents: poolGross,
+      individualGrossCents: individualGross,
+      individualSalesVolumeCents: r.individualSalesVolumeCents,
+      individualSalesGoalCents: r.individualSalesGoalCents,
+      individualBonusSettingCents: r.individualBonusSettingCents,
+    };
+
+    return prisma.bonusMonthResult.upsert({
+      where: {
+        team_month_userId: {
           team,
           month,
-          userId: d.userId,
-          grossBonusCents: d.grossBonusCents,
-          taxCents: d.taxCents,
-          netBonusCents: d.netBonusCents,
-          breakdown: {
-            shares: d.shares,
-            metrics: d.metrics,
-            totalPoolCents: preview.totalPoolCents,
-            poolFromRevenueCents: preview.poolFromRevenueCents,
-            poolFromProfitCents: preview.poolFromProfitCents,
-            revenueGoalMet: preview.revenueGoalMet,
-            profitGoalMet: preview.profitGoalMet,
-            isWinnerC2: d.isWinnerC2,
-            isWinnerVolume: d.isWinnerVolume,
-            isWinnerAccounts: d.isWinnerAccounts,
-          },
+          userId: r.userId,
         },
-        update: {
-          grossBonusCents: d.grossBonusCents,
-          taxCents: d.taxCents,
-          netBonusCents: d.netBonusCents,
-          computedAt: new Date(),
-          breakdown: {
-            shares: d.shares,
-            metrics: d.metrics,
-            totalPoolCents: preview.totalPoolCents,
-            poolFromRevenueCents: preview.poolFromRevenueCents,
-            poolFromProfitCents: preview.poolFromProfitCents,
-            revenueGoalMet: preview.revenueGoalMet,
-            profitGoalMet: preview.profitGoalMet,
-            isWinnerC2: d.isWinnerC2,
-            isWinnerVolume: d.isWinnerVolume,
-            isWinnerAccounts: d.isWinnerAccounts,
-          },
-        },
-      })
-    );
+      },
+      create: {
+        team,
+        month,
+        userId: r.userId,
+        grossBonusCents,
+        taxCents,
+        netBonusCents,
+        breakdown,
+      },
+      update: {
+        grossBonusCents,
+        taxCents,
+        netBonusCents,
+        computedAt: new Date(),
+        breakdown,
+      },
+    });
+  });
 
-  if (ops.length) await prisma.$transaction(ops);
-
+  await prisma.$transaction(ops);
   return { ok: true as const, month, preview };
 }
 
