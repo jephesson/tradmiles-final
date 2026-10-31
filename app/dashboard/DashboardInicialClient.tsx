@@ -856,18 +856,47 @@ function MetaBatidaPanel({
   showLucroCta?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 px-5 py-8 text-center text-white sm:px-8 sm:py-10">
-      <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-12 -left-6 h-36 w-36 rounded-full bg-amber-200/25 blur-2xl" />
+    <div className="tm-meta-win relative overflow-hidden px-5 py-8 text-center text-white sm:px-8 sm:py-10">
+      <div className="tm-meta-win-shine" aria-hidden />
+      <div className="tm-meta-win-blob -right-8 -top-10 h-40 w-40 bg-white/25" aria-hidden />
+      <div
+        className="tm-meta-win-blob -bottom-12 -left-6 h-36 w-36 bg-amber-200/40"
+        style={{ animationDelay: "0.8s" }}
+        aria-hidden
+      />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        {Array.from({ length: 10 }, (_, i) => (
+          <span key={i} className="tm-meta-win-piece" />
+        ))}
+      </div>
       <div className="relative">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 shadow-lg shadow-emerald-900/20 ring-1 ring-white/30">
-          <Trophy className="h-7 w-7 text-amber-200" strokeWidth={2.1} aria-hidden />
+        <div className="relative mx-auto h-14 w-14">
+          <Sparkles
+            className="tm-meta-win-spark absolute -left-5 -top-1 h-4 w-4"
+            strokeWidth={2.4}
+            aria-hidden
+          />
+          <Sparkles
+            className="tm-meta-win-spark absolute -right-5 top-1 h-3.5 w-3.5"
+            style={{ animationDelay: "0.45s" }}
+            strokeWidth={2.4}
+            aria-hidden
+          />
+          <div className="tm-meta-win-trophy-wrap flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 shadow-lg shadow-emerald-900/20 ring-1 ring-white/40">
+            <Trophy
+              className="tm-meta-win-trophy h-7 w-7 text-amber-200"
+              strokeWidth={2.1}
+              aria-hidden
+            />
+          </div>
         </div>
-        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50">
+        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50 ring-1 ring-white/25">
           <PartyPopper className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
           {monthLabel}
         </div>
-        <h3 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">Meta do mês batida!</h3>
+        <h3 className="tm-meta-win-title mt-3 text-2xl font-black tracking-tight sm:text-3xl">
+          Meta do mês batida!
+        </h3>
         <p className="mx-auto mt-2 max-w-md text-sm font-medium text-emerald-50">
           Bônus liberado conforme as regras. Equipe no ritmo.
         </p>
