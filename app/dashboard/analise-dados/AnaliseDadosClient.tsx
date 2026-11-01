@@ -11,12 +11,17 @@ function fmtMoneyBR(cents: number) {
 }
 function fmtMoneyCompactBR(cents: number) {
   const v = (cents || 0) / 100;
-  return v.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  });
+  if (!Number.isFinite(v) || v === 0) return "R$ 0";
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    const n = v / 1_000_000;
+    return `R$ ${n.toLocaleString("pt-BR", { maximumFractionDigits: n >= 10 ? 0 : 1 })} mi`;
+  }
+  if (abs >= 1000) {
+    const n = v / 1000;
+    return `R$ ${n.toLocaleString("pt-BR", { maximumFractionDigits: n >= 100 ? 0 : 1 })} mil`;
+  }
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
 function fmtInt(n: number) {
   return new Intl.NumberFormat("pt-BR").format(n || 0);
@@ -1250,29 +1255,28 @@ function firstName(name: string) {
   return second ? `${parts[0]} ${second}` : parts[0];
 }
 
-function smoothPath(points: Array<{ x: number; y: number }>) {
+function linePath(points: Array<{ x: number; y: number }>) {
   if (!points.length) return "";
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const mx = (a.x + b.x) / 2;
-    d += ` C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`;
-  }
-  return d;
+  return points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+    .join(" ");
 }
 
 function niceYAxis(rawCents: number) {
-  const paddedReais = Math.max(1, (rawCents || 0) / 100) * 1.06;
-  const rough = paddedReais / 5;
+  const rawReais = Math.max(0, Number(rawCents) || 0) / 100;
+  if (rawReais <= 0) {
+    return { ymax: 10_000, ticks: [0, 2_500, 5_000, 7_500, 10_000] };
+  }
+  const paddedReais = rawReais * 1.18;
+  const rough = paddedReais / 4;
   const exp = Math.floor(Math.log10(Math.max(rough, 1)));
   const pow = Math.pow(10, Math.max(0, exp));
   const n = rough / pow;
   const stepReais = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pow;
-  const ymaxReais = Math.max(stepReais, Math.ceil(paddedReais / stepReais) * stepReais);
+  let ymaxReais = Math.max(stepReais, Math.ceil(paddedReais / stepReais) * stepReais);
+  if (ymaxReais < rawReais * 1.08) ymaxReais += stepReais;
   const ticks: number[] = [];
-  for (let v = 0; v <= ymaxReais + 0.001; v += stepReais) {
+  for (let v = 0; v <= ymaxReais + stepReais * 0.001; v += stepReais) {
     ticks.push(Math.round(v * 100));
   }
   return { ymax: Math.round(ymaxReais * 100), ticks };
@@ -1308,19 +1312,25 @@ function EmployeeMonthlyLineChart({
 
   const w = 760;
   const h = 320;
-  const leftPad = 58;
-  const rightPad = 16;
-  const topPad = 18;
+  const leftPad = 62;
+  const rightPad = 28;
+  const topPad = 22;
   const bottomPad = 32;
   const plotW = w - leftPad - rightPad;
   const plotH = h - topPad - bottomPad;
   const n = Math.max(1, months.length);
   const dx = n <= 1 ? 0 : plotW / (n - 1);
 
-  const scaleSeries = pinnedId ? colored.filter((s) => s.id === pinnedId) : colored;
-  const ymaxRaw = Math.max(1, ...scaleSeries.flatMap((s) => s.values), 0);
+  const ymaxRaw = Math.max(
+    1,
+    ...colored.flatMap((s) => s.values.slice(0, n).map((v) => Number(v) || 0)),
+    0
+  );
   const { ymax, ticks: yTicks } = niceYAxis(ymaxRaw);
-  const scaleY = (v: number) => topPad + plotH - (v / (ymax || 1)) * plotH;
+  const scaleY = (v: number) => {
+    const y = topPad + plotH - (Math.max(0, Number(v) || 0) / (ymax || 1)) * plotH;
+    return Math.min(topPad + plotH, Math.max(topPad, y));
+  };
 
   const hovered =
     hoveredIdx != null && hoveredIdx >= 0 && hoveredIdx < n ? hoveredIdx : null;
@@ -1381,6 +1391,11 @@ function EmployeeMonthlyLineChart({
                 if (!pinnedId) setHoverEmpId(null);
               }}
             >
+              <defs>
+                <clipPath id="emp-month-plot">
+                  <rect x={leftPad} y={topPad} width={plotW} height={plotH} />
+                </clipPath>
+              </defs>
               {yTicks.map((v) => (
                 <g key={`g-${v}`}>
                   <line
@@ -1416,20 +1431,21 @@ function EmployeeMonthlyLineChart({
               ) : null}
 
               {colored.map((s) => {
-                const pts = s.values.map((v, i) => ({
+                const pts = months.map((_, i) => ({
                   x: leftPad + i * dx,
-                  y: scaleY(Number(v || 0)),
+                  y: scaleY(Number(s.values[i] || 0)),
                 }));
                 const dim = Boolean(focusId) && focusId !== s.id;
                 const active = !focusId || focusId === s.id;
-                const line = smoothPath(pts);
+                const line = linePath(pts);
                 const area = `${line} L ${pts[pts.length - 1]?.x || leftPad} ${
                   topPad + plotH
                 } L ${pts[0]?.x || leftPad} ${topPad + plotH} Z`;
                 return (
                   <g
                     key={s.id}
-                    opacity={dim ? 0.16 : 1}
+                    opacity={dim ? 0.18 : 1}
+                    clipPath="url(#emp-month-plot)"
                     onMouseEnter={() => setHoverEmpId(s.id)}
                   >
                     {active && focusId === s.id ? (
@@ -1448,10 +1464,11 @@ function EmployeeMonthlyLineChart({
                         key={`${s.id}-${i}`}
                         cx={p.x}
                         cy={p.y}
-                        r={hovered === i && active ? 4.2 : active && focusId === s.id ? 3.2 : 0}
+                        r={hovered === i && active ? 4.2 : active && focusId === s.id ? 3.2 : 2.2}
                         fill="white"
                         stroke={s.color}
                         strokeWidth="2"
+                        opacity={active && (focusId === s.id || hovered === i) ? 1 : 0}
                       />
                     ))}
                   </g>
