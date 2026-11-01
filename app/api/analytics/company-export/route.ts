@@ -68,6 +68,8 @@ type EmployeeAgg = {
   role: string;
   salesCount: number;
   passengers: number;
+  points: number;
+  balcaoPoints: number;
   salesNoFeeCents: number;
   boardingFeeCents: number;
   payoutDays: number;
@@ -296,6 +298,16 @@ function totalSoldCents(a: PeriodAgg) {
   return a.salesWithFeeCents + a.balcaoCustomerChargeCents;
 }
 
+function pointsFields(a: PeriodAgg) {
+  const pontosMilhas = Math.max(0, a.points);
+  const pontosBalcao = Math.max(0, a.balcaoPoints);
+  return {
+    pontosMilhas,
+    pontosBalcao,
+    pontosNegociados: pontosMilhas + pontosBalcao,
+  };
+}
+
 function getProgramField(program: string): keyof Pick<PeriodAgg, "latamCents" | "smilesCents" | "liveloCents" | "esferaCents"> | null {
   if (program === "LATAM") return "latamCents";
   if (program === "SMILES") return "smilesCents";
@@ -411,6 +423,7 @@ function aggToSummaryRow(label: string, start: string, end: string, days: number
     vendasMilhasComTaxa: cents(agg.salesWithFeeCents),
     balcaoVendido: cents(agg.balcaoCustomerChargeCents),
     totalVendido: cents(sold),
+    ...pointsFields(agg),
     qtdVendas: agg.salesCount,
     passageiros: agg.passengers,
     operacoesBalcao: agg.balcaoOps,
@@ -627,6 +640,8 @@ export async function GET() {
           role: user.role || "-",
           salesCount: 0,
           passengers: 0,
+          points: 0,
+          balcaoPoints: 0,
           salesNoFeeCents: 0,
           boardingFeeCents: 0,
           payoutDays: 0,
@@ -670,6 +685,7 @@ export async function GET() {
       });
       employee.salesCount += 1;
       employee.passengers += passengers;
+      employee.points += points;
       employee.salesNoFeeCents += pv;
       employee.boardingFeeCents += fee;
     }
@@ -708,6 +724,7 @@ export async function GET() {
         login: op.employee?.login || "-",
       });
       employee.balcaoOps += 1;
+      employee.balcaoPoints += Math.max(0, safeInt(op.points, 0));
       employee.balcaoGrossCents += computed.profitCents;
       employee.balcaoTaxCents += computed.taxCents;
       employee.balcaoCommissionCents += computed.sellerCommissionCents;
@@ -941,6 +958,7 @@ export async function GET() {
           vendasMilhasComTaxa: cents(a.salesWithFeeCents),
           balcaoVendido: cents(a.balcaoCustomerChargeCents),
           totalVendido: cents(totalSoldCents(a)),
+          ...pointsFields(a),
           qtdVendas: a.salesCount,
           passageiros: a.passengers,
           operacoesBalcao: a.balcaoOps,
@@ -988,6 +1006,9 @@ export async function GET() {
         { metric: "Vendas no balcao", value: cents(totalAgg.balcaoCustomerChargeCents), unit: "BRL", note: "Valor cobrado dos clientes nas operacoes de balcao." },
         { metric: "Total vendido", value: cents(totalSoldCents(totalAgg)), unit: "BRL", note: "Milhas com taxa + balcao." },
         { metric: "Quantidade de vendas de milhas", value: totalAgg.salesCount, unit: "vendas", note: "" },
+        { metric: "Pontos negociados (milhas)", value: totalAgg.points, unit: "pontos", note: "Soma dos pontos das vendas de milhas." },
+        { metric: "Pontos negociados (balcao)", value: totalAgg.balcaoPoints, unit: "pontos", note: "Soma dos pontos das operacoes de balcao." },
+        { metric: "Pontos negociados (total)", value: totalAgg.points + totalAgg.balcaoPoints, unit: "pontos", note: "Milhas + balcao, em todos os meses." },
         { metric: "Passageiros", value: totalAgg.passengers, unit: "pax", note: "" },
         { metric: "Operacoes de balcao", value: totalAgg.balcaoOps, unit: "operacoes", note: "" },
         { metric: "Lucro liquido do balcao", value: cents(totalAgg.balcaoNetProfitCents), unit: "BRL", note: "Valor vendido - fornecedor - taxa de embarque - imposto do balcao." },
@@ -1021,7 +1042,15 @@ export async function GET() {
       "pagoRegistrado",
       "pendenteFuncionarios",
     ];
-    const summaryIntegerKeys = ["dias", "qtdVendas", "passageiros", "operacoesBalcao"];
+    const summaryIntegerKeys = [
+      "dias",
+      "pontosMilhas",
+      "pontosBalcao",
+      "pontosNegociados",
+      "qtdVendas",
+      "passageiros",
+      "operacoesBalcao",
+    ];
 
     addTableSheet(
       wb,
@@ -1036,6 +1065,9 @@ export async function GET() {
         { header: "Vendas milhas com taxa", key: "vendasMilhasComTaxa", width: 22 },
         { header: "Balcao vendido", key: "balcaoVendido", width: 18 },
         { header: "Total vendido", key: "totalVendido", width: 18 },
+        { header: "Pontos milhas", key: "pontosMilhas", width: 16 },
+        { header: "Pontos balcao", key: "pontosBalcao", width: 16 },
+        { header: "Pontos negociados", key: "pontosNegociados", width: 18 },
         { header: "Qtd vendas", key: "qtdVendas", width: 14 },
         { header: "PAX", key: "passageiros", width: 12 },
         { header: "Ops balcao", key: "operacoesBalcao", width: 14 },
@@ -1066,6 +1098,7 @@ export async function GET() {
         vendasEsfera: cents(a.esferaCents),
         balcaoVendido: cents(a.balcaoCustomerChargeCents),
         totalVendido: cents(sold),
+        ...pointsFields(a),
         qtdVendas: a.salesCount,
         passageiros: a.passengers,
         operacoesBalcao: a.balcaoOps,
@@ -1094,6 +1127,9 @@ export async function GET() {
         { header: "ESFERA", key: "vendasEsfera", width: 16 },
         { header: "Balcao vendido", key: "balcaoVendido", width: 18 },
         { header: "Total vendido", key: "totalVendido", width: 18 },
+        { header: "Pontos milhas", key: "pontosMilhas", width: 16 },
+        { header: "Pontos balcao", key: "pontosBalcao", width: 16 },
+        { header: "Pontos negociados", key: "pontosNegociados", width: 18 },
         { header: "Qtd vendas", key: "qtdVendas", width: 14 },
         { header: "PAX", key: "passageiros", width: 12 },
         { header: "Ops balcao", key: "operacoesBalcao", width: 14 },
@@ -1125,7 +1161,7 @@ export async function GET() {
           "pagoRegistrado",
           "pendenteFuncionarios",
         ],
-        integerKeys: ["qtdVendas", "passageiros", "operacoesBalcao"],
+        integerKeys: ["pontosMilhas", "pontosBalcao", "pontosNegociados", "qtdVendas", "passageiros", "operacoesBalcao"],
       }
     );
 
@@ -1137,6 +1173,9 @@ export async function GET() {
       { header: "Vendas milhas com taxa", key: "vendasMilhasComTaxa", width: 22 },
       { header: "Balcao vendido", key: "balcaoVendido", width: 18 },
       { header: "Total vendido", key: "totalVendido", width: 18 },
+      { header: "Pontos milhas", key: "pontosMilhas", width: 16 },
+      { header: "Pontos balcao", key: "pontosBalcao", width: 16 },
+      { header: "Pontos negociados", key: "pontosNegociados", width: 18 },
       { header: "Qtd vendas", key: "qtdVendas", width: 14 },
       { header: "PAX", key: "passageiros", width: 12 },
       { header: "Ops balcao", key: "operacoesBalcao", width: 14 },
@@ -1155,7 +1194,7 @@ export async function GET() {
         `Diario ${days}d`,
         dailyColumns,
         dailyTableRows(dailyKeys(start, lastDayISO)),
-        { moneyKeys: summaryMoneyKeys, integerKeys: ["qtdVendas", "passageiros", "operacoesBalcao"] }
+        { moneyKeys: summaryMoneyKeys, integerKeys: ["pontosMilhas", "pontosBalcao", "pontosNegociados", "qtdVendas", "passageiros", "operacoesBalcao"] }
       );
     }
 
@@ -1164,7 +1203,7 @@ export async function GET() {
       "Diario total",
       dailyColumns,
       dailyTableRows(totalDailyKeys),
-      { moneyKeys: summaryMoneyKeys, integerKeys: ["qtdVendas", "passageiros", "operacoesBalcao"] }
+      { moneyKeys: summaryMoneyKeys, integerKeys: ["pontosMilhas", "pontosBalcao", "pontosNegociados", "qtdVendas", "passageiros", "operacoesBalcao"] }
     );
 
     const employeeRows = Array.from(employeeAgg.values())
@@ -1185,6 +1224,9 @@ export async function GET() {
         role: r.role,
         vendas: r.salesCount,
         passageiros: r.passengers,
+        pontosMilhas: r.points,
+        pontosBalcao: r.balcaoPoints,
+        pontosNegociados: r.points + r.balcaoPoints,
         vendasSemTaxa: cents(r.salesNoFeeCents),
         taxaEmbarqueVendas: cents(r.boardingFeeCents),
         diasComPagamento: r.payoutDays,
@@ -1211,6 +1253,9 @@ export async function GET() {
         { header: "Role", key: "role", width: 12 },
         { header: "Vendas", key: "vendas", width: 12 },
         { header: "PAX", key: "passageiros", width: 12 },
+        { header: "Pontos milhas", key: "pontosMilhas", width: 16 },
+        { header: "Pontos balcao", key: "pontosBalcao", width: 16 },
+        { header: "Pontos negociados", key: "pontosNegociados", width: 18 },
         { header: "Vendas sem taxa", key: "vendasSemTaxa", width: 18 },
         { header: "Taxa embarque vendas", key: "taxaEmbarqueVendas", width: 22 },
         { header: "Dias com pagamento", key: "diasComPagamento", width: 18 },
@@ -1242,7 +1287,7 @@ export async function GET() {
           "comissaoBalcao",
           "totalGeradoFuncionario",
         ],
-        integerKeys: ["vendas", "passageiros", "diasComPagamento", "operacoesBalcao"],
+        integerKeys: ["vendas", "passageiros", "pontosMilhas", "pontosBalcao", "pontosNegociados", "diasComPagamento", "operacoesBalcao"],
       }
     );
 

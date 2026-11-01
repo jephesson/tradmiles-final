@@ -129,6 +129,9 @@ function buildChannelBreakdownRows(args: {
   channel: SalesChannelSplit | null | undefined;
   compraBalcaoCents: number;
   extraTotalDetail?: string;
+  pointsTotal?: number;
+  pointsMilhas?: number;
+  pointsBalcao?: number;
 }): BreakdownRow[] {
   const venda = Number(args.channel?.vendaBalcaoCents || 0);
   const final = Number(args.channel?.clienteFinalCents || 0);
@@ -174,6 +177,20 @@ function buildChannelBreakdownRows(args: {
       pct: pctBase > 0 ? 100 : null,
     }
   );
+
+  const pointsTotal = Math.max(0, Number(args.pointsTotal || 0));
+  if (pointsTotal > 0 || Number(args.pointsMilhas || 0) > 0 || Number(args.pointsBalcao || 0) > 0) {
+    const milhas = Math.max(0, Number(args.pointsMilhas || 0));
+    const balcao = Math.max(0, Number(args.pointsBalcao || 0));
+    rows.push({
+      label: "Pontos negociados",
+      value: fmtInt(pointsTotal || milhas + balcao),
+      detail:
+        milhas || balcao
+          ? `Milhas ${fmtInt(milhas)} • balcão ${fmtInt(balcao)}`
+          : "Milhas + balcão",
+    });
+  }
 
   return rows;
 }
@@ -1838,6 +1855,7 @@ export default function AnaliseDadosClient() {
       salesCents: Number(row?.salesCents || 0),
       balcaoCents: Number(row?.balcaoCents || 0),
       grossCents: Number(row?.grossCents || 0),
+      pointsTotal: Number(row?.pointsTotal || 0) || Number(row?.points || 0) + Number(row?.balcaoPoints || 0),
     })));
   }, [data]);
 
@@ -1852,6 +1870,7 @@ export default function AnaliseDadosClient() {
       const subParts = [
         `Milhas: ${fmtMoneyBR(row.salesCents)}`,
         `${LBL.compraBalcao}: ${fmtMoneyBR(row.balcaoCents)}`,
+        `Pontos: ${fmtInt(row.pointsTotal)}`,
       ];
       if (prev && prev.grossCents > 0) {
         subParts.push(`vs ant: ${fmtPct((row.grossCents - prev.grossCents) / prev.grossCents)}`);
@@ -1965,6 +1984,7 @@ export default function AnaliseDadosClient() {
         b2,
         b3,
         total,
+        pointsTotal: Number(mm.pointsTotal || 0),
         bestDow:
           bestWd != null
             ? { label: DOW_PT_SHORT[bestWd.idx] ?? "—", grossCents: bestWd.gross }
@@ -2046,14 +2066,19 @@ export default function AnaliseDadosClient() {
 
   // ✅ % vs dia anterior (só no diário) (TIPADO)
   const chartWithDelta = useMemo<ChartPointWithSub[]>(() => {
+    const monthRows = ((data?.months || []) as any[]);
     return chartPoints.map((p: ChartPoint, i: number): ChartPointWithSub => {
-      if (chartMode !== "DAY" || i === 0) return { ...p, sub: undefined };
+      if (chartMode === "MONTH") {
+        const pts = Number(monthRows[i]?.pointsTotal || 0);
+        return { ...p, sub: pts > 0 ? `Pontos negociados: ${fmtInt(pts)}` : undefined };
+      }
+      if (i === 0) return { ...p, sub: undefined };
       const prev = chartPoints[i - 1]?.y ?? 0;
       if (prev <= 0) return { ...p, sub: "vs ant: —" };
       const pct = (p.y - prev) / prev;
       return { ...p, sub: `vs ant: ${fmtPct(pct)}` };
     });
-  }, [chartPoints, chartMode]);
+  }, [chartPoints, chartMode, data]);
 
   const avgInChart = useMemo<number>(() => {
     const ys = chartPoints.map((p) => p.y);
@@ -2149,6 +2174,7 @@ export default function AnaliseDadosClient() {
       month: m.label || m.key,
       LATAM: Number(m.byProgram?.LATAM || 0),
       SMILES: Number(m.byProgram?.SMILES || 0),
+      pointsTotal: Number(m.pointsTotal || 0),
     }));
   }, [data]);
 
@@ -2479,6 +2505,9 @@ export default function AnaliseDadosClient() {
       buildChannelBreakdownRows({
         channel: (today as any)?.salesByChannel,
         compraBalcaoCents: Number(balcaoToday?.customerChargeCents || 0),
+        pointsMilhas: Number((today as any)?.points || 0),
+        pointsBalcao: Number((today as any)?.balcaoPoints ?? balcaoToday?.points ?? 0),
+        pointsTotal: Number((today as any)?.pointsTotal || 0),
       }),
     [today, balcaoToday]
   );
@@ -2486,10 +2515,17 @@ export default function AnaliseDadosClient() {
   const monthBreakdownRows = useMemo((): BreakdownRow[] => {
     const channel =
       (consolidated as any)?.salesByChannel || (data?.summary as any)?.salesByChannel || null;
+    const pointsMilhas = Number((consolidated as any)?.points ?? (data?.summary as any)?.points ?? 0);
+    const pointsBalcao = Number(
+      (consolidated as any)?.balcaoPoints ?? (data?.summary as any)?.balcaoPoints ?? balcaoMonth?.points ?? 0
+    );
     return buildChannelBreakdownRows({
       channel,
       compraBalcaoCents: Number(consolidated?.soldBalcaoCents || 0),
       extraTotalDetail: `LATAM ${fmtMoneyBR(kpis?.latam || 0)} / Smiles ${fmtMoneyBR(kpis?.smiles || 0)} • Clubes: LATAM ${fmtInt(kpis?.clubsLatam || 0)} | Smiles ${fmtInt(kpis?.clubsSmiles || 0)}`,
+      pointsMilhas,
+      pointsBalcao,
+      pointsTotal: Number((consolidated as any)?.pointsTotal ?? (data?.summary as any)?.pointsTotal ?? pointsMilhas + pointsBalcao),
     });
   }, [consolidated, kpis, data, balcaoMonth]);
 
@@ -2856,6 +2892,7 @@ export default function AnaliseDadosClient() {
                   const gross = Number(r.grossCents || r.totalSemTaxaCents || r.totalCents || 0);
                   const sales = Number(r.salesCount || r.sales || 0);
                   const pax = Number(r.passengers || r.pax || 0);
+                  const points = Number(r.points || 0);
                   const pct = sharePct(gross, todayEmployeeTotalCents);
                   return (
                     <tr key={r.id} className="border-b border-slate-100 text-slate-800 transition hover:bg-slate-50/70">
@@ -2866,6 +2903,7 @@ export default function AnaliseDadosClient() {
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(gross)}</td>
                       <td className="px-3 py-2.5 text-xs text-slate-600">
                         {fmtInt(sales)} vendas • {fmtInt(pax)} pax
+                        {points > 0 ? ` • ${fmtInt(points)} pts` : ""}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
                         {pct != null ? fmtPctRaw(pct) : "—"}
@@ -3254,6 +3292,7 @@ export default function AnaliseDadosClient() {
                   <th className="px-3 py-2.5 text-right">Dias 11–20</th>
                   <th className="px-3 py-2.5 text-right">Dias 21–fim</th>
                   <th className="px-3 py-2.5 text-right">Total (série)</th>
+                  <th className="px-3 py-2.5 text-right">Pontos</th>
                   <th className="px-3 py-2.5 text-right">Melhor dia da semana</th>
                 </tr>
               </thead>
@@ -3280,6 +3319,9 @@ export default function AnaliseDadosClient() {
                     <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-slate-900">
                       {fmtMoneyBR(r.total)}
                     </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-800">
+                      {r.pointsTotal > 0 ? fmtInt(r.pointsTotal) : "—"}
+                    </td>
                     <td className="px-3 py-2.5 text-right text-slate-800">
                       {r.bestDow ? (
                         <div>
@@ -3296,7 +3338,7 @@ export default function AnaliseDadosClient() {
                 ))}
                 {!monthlyDecileWeekday.monthRows.length ? (
                   <tr>
-                    <td className="py-4 text-sm text-neutral-500" colSpan={6}>
+                    <td className="py-4 text-sm text-neutral-500" colSpan={7}>
                       Sem meses no período selecionado.
                     </td>
                   </tr>
@@ -3487,6 +3529,11 @@ export default function AnaliseDadosClient() {
                   </span>{" "}
                   {fmtMoneyBR(m.SMILES)}
                 </div>
+                {m.pointsTotal > 0 ? (
+                  <div className="text-xs tabular-nums text-slate-500">
+                    Pontos negociados: {fmtInt(m.pointsTotal)}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

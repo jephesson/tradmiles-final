@@ -183,6 +183,7 @@ type EmpRow = {
   grossCents: number;
   salesCount: number;
   passengers: number;
+  points: number;
 };
 
 type BalcaoAgg = {
@@ -213,12 +214,14 @@ type BalcaoRowLite = {
 type DailyHistoryAgg = {
   salesCents: number;
   balcaoCents: number;
+  points: number;
+  balcaoPoints: number;
 };
 
 function seedEmpMap(users: Array<{ id: string; name: string; login: string }>) {
   const map = new Map<string, EmpRow>();
   for (const u of users) {
-    map.set(u.id, { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 });
+    map.set(u.id, { id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0, points: 0 });
   }
   return map;
 }
@@ -226,7 +229,7 @@ function seedEmpMap(users: Array<{ id: string; name: string; login: string }>) {
 function ensureUnassigned(map: Map<string, EmpRow>) {
   const key = "__UNASSIGNED__";
   if (!map.has(key)) {
-    map.set(key, { id: key, name: "Sem vendedor", login: "—", grossCents: 0, salesCount: 0, passengers: 0 });
+    map.set(key, { id: key, name: "Sem vendedor", login: "—", grossCents: 0, salesCount: 0, passengers: 0, points: 0 });
   }
   return key;
 }
@@ -240,15 +243,18 @@ function addBalcaoVolumeToEmp(
   teamUsersById: Map<string, { id: string; name: string; login: string }>,
   employee: { id: string; name: string; login: string } | null,
   employeeId: string | null,
-  volumeCents: number
+  volumeCents: number,
+  points = 0
 ) {
   const vol = Math.max(0, Number(volumeCents || 0));
+  const pts = Math.max(0, Number(points || 0));
   const id = String(employee?.id || employeeId || "").trim();
   if (!id) {
     const key = ensureUnassigned(map);
     const cur = map.get(key)!;
     cur.grossCents += vol;
     cur.salesCount += 1;
+    cur.points += pts;
     map.set(key, cur);
     return;
   }
@@ -265,9 +271,11 @@ function addBalcaoVolumeToEmp(
       grossCents: 0,
       salesCount: 0,
       passengers: 0,
+      points: 0,
     } as EmpRow);
   cur.grossCents += vol;
   cur.salesCount += 1;
+  cur.points += pts;
   map.set(id, cur);
 }
 
@@ -501,12 +509,14 @@ export async function GET(req: NextRequest) {
     let feeToday = 0;
     let totalToday = 0;
     let paxToday = 0;
+    let pointsToday = 0;
     const todayChannel = emptySalesChannelSplit();
 
     const byEmpToday = seedEmpMap(teamUsers);
 
     for (const s of todaySales) {
-      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const salePoints = Math.max(0, Number(s.points || 0));
+      const gross = pointsValueCents(salePoints, Number(s.milheiroCents || 0));
       const fee = Math.max(0, Number(s.embarqueFeeCents || 0));
       const pax = Math.max(0, Number(s.passengers || 0));
 
@@ -514,6 +524,7 @@ export async function GET(req: NextRequest) {
       feeToday += fee;
       totalToday += gross + fee;
       paxToday += pax;
+      pointsToday += salePoints;
       accumulateSalesChannel(todayChannel, gross, pax, s.cliente?.origem);
 
       const u = s.seller;
@@ -528,10 +539,12 @@ export async function GET(req: NextRequest) {
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
+            points: 0,
           } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
+        cur.points = (cur.points || 0) + salePoints;
         byEmpToday.set(u.id, cur);
         continue;
       }
@@ -549,11 +562,13 @@ export async function GET(req: NextRequest) {
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
+            points: 0,
           } as EmpRow);
 
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
+        cur.points = (cur.points || 0) + salePoints;
         byEmpToday.set(id, cur);
         continue;
       }
@@ -563,6 +578,7 @@ export async function GET(req: NextRequest) {
       cur.grossCents += gross;
       cur.salesCount += 1;
       cur.passengers += pax;
+      cur.points = (cur.points || 0) + salePoints;
       byEmpToday.set(key, cur);
     }
 
@@ -802,6 +818,7 @@ export async function GET(req: NextRequest) {
     let feeMonth = 0;
     let totalMonth = 0;
     let paxMonth = 0;
+    let pointsMonth = 0;
     const monthChannel = emptySalesChannelSplit();
 
     const milhasProfitSettings = await prisma.settings.upsert({
@@ -835,6 +852,7 @@ export async function GET(req: NextRequest) {
       feeMonth += fee;
       totalMonth += gross + fee;
       paxMonth += Math.max(0, Number(s.passengers || 0));
+      pointsMonth += Math.max(0, points);
 
       const costDb = Number(s.purchase?.custoMilheiroCents || 0);
       const costMil =
@@ -887,7 +905,8 @@ export async function GET(req: NextRequest) {
     const byEmp = seedEmpMap(teamUsers);
 
     for (const s of monthSales) {
-      const gross = pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      const salePoints = Math.max(0, Number(s.points || 0));
+      const gross = pointsValueCents(salePoints, Number(s.milheiroCents || 0));
       const pax = Math.max(0, Number(s.passengers || 0));
 
       const u = (s as any).seller as { id: string; name: string; login: string } | null;
@@ -896,10 +915,11 @@ export async function GET(req: NextRequest) {
       if (u?.id) {
         if (!isOperatingUser(u.id)) continue;
         const cur =
-          byEmp.get(u.id) || ({ id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0 } as EmpRow);
+          byEmp.get(u.id) || ({ id: u.id, name: u.name, login: u.login, grossCents: 0, salesCount: 0, passengers: 0, points: 0 } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
+        cur.points = (cur.points || 0) + salePoints;
         byEmp.set(u.id, cur);
       } else if (sellerId) {
         if (!isOperatingUser(sellerId)) continue;
@@ -913,10 +933,12 @@ export async function GET(req: NextRequest) {
             grossCents: 0,
             salesCount: 0,
             passengers: 0,
+            points: 0,
           } as EmpRow);
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
+        cur.points = (cur.points || 0) + salePoints;
         byEmp.set(sellerId, cur);
       } else {
         const key = ensureUnassigned(byEmp);
@@ -924,6 +946,7 @@ export async function GET(req: NextRequest) {
         cur.grossCents += gross;
         cur.salesCount += 1;
         cur.passengers += pax;
+        cur.points = (cur.points || 0) + salePoints;
         byEmp.set(key, cur);
       }
     }
@@ -1090,6 +1113,7 @@ export async function GET(req: NextRequest) {
         latamValueCents: number;
         smilesPoints: number;
         smilesValueCents: number;
+        points: number;
       }
     >();
 
@@ -1107,6 +1131,7 @@ export async function GET(req: NextRequest) {
         latamValueCents: 0,
         smilesPoints: 0,
         smilesValueCents: 0,
+        points: 0,
       });
     }
 
@@ -1121,6 +1146,7 @@ export async function GET(req: NextRequest) {
       cur.gross += gross;
       cur.sales += 1;
       cur.pax += Math.max(0, Number(s.passengers || 0));
+      cur.points += Math.max(0, points);
 
       if (s.program === "LATAM") {
         cur.latam += gross;
@@ -1143,6 +1169,9 @@ export async function GET(req: NextRequest) {
         grossCents: cur.gross,
         salesCount: cur.sales,
         passengers: cur.pax,
+        points: cur.points,
+        balcaoPoints: 0,
+        pointsTotal: cur.points,
         byProgram: { LATAM: cur.latam, SMILES: cur.smiles, LIVELO: cur.livelo, ESFERA: cur.esfera, IBERIA: cur.iberia },
         milheiroByProgram: {
           LATAM: milheiroFrom(cur.latamPoints, cur.latamValueCents),
@@ -1342,10 +1371,10 @@ export async function GET(req: NextRequest) {
         Number(op.boardingFeeCents || 0)
       );
       if (inRange(op.createdAt, tStart, tEnd)) {
-        addBalcaoVolumeToEmp(byEmpToday, teamUsersById, op.employee, op.employeeId, volumeCents);
+        addBalcaoVolumeToEmp(byEmpToday, teamUsersById, op.employee, op.employeeId, volumeCents, op.points);
       }
       if (inRange(op.createdAt, mStart, mEnd)) {
-        addBalcaoVolumeToEmp(byEmp, teamUsersById, op.employee, op.employeeId, volumeCents);
+        addBalcaoVolumeToEmp(byEmp, teamUsersById, op.employee, op.employeeId, volumeCents, op.points);
       }
     }
 
@@ -1451,6 +1480,11 @@ export async function GET(req: NextRequest) {
       label: monthLabelPT(k),
       ...toBalcaoSummaryOut(balcaoByMonth.get(k) || emptyBalcaoAgg()),
     }));
+    for (const m of months) {
+      const balcaoPoints = Math.max(0, Number(balcaoByMonth.get(m.key)?.points || 0));
+      m.balcaoPoints = balcaoPoints;
+      m.pointsTotal = Math.max(0, Number(m.points || 0)) + balcaoPoints;
+    }
 
     const balcaoDays = Array.from(balcaoByDay.entries()).map(([k, agg]) => ({
       key: k,
@@ -1776,6 +1810,7 @@ export async function GET(req: NextRequest) {
         select: {
           createdAt: true,
           customerChargeCents: true,
+          points: true,
         },
         orderBy: { createdAt: "asc" },
       }),
@@ -1784,7 +1819,7 @@ export async function GET(req: NextRequest) {
     const dailyHistoryAgg = new Map<string, DailyHistoryAgg>();
 
     function ensureDailyHistory(key: string) {
-      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0 };
+      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0, points: 0, balcaoPoints: 0 };
       dailyHistoryAgg.set(key, cur);
       return cur;
     }
@@ -1793,6 +1828,7 @@ export async function GET(req: NextRequest) {
       const key = isoDayUTC(new Date(s.date as any));
       const cur = ensureDailyHistory(key);
       cur.salesCents += pointsValueCents(Number(s.points || 0), Number(s.milheiroCents || 0));
+      cur.points += Math.max(0, Number(s.points || 0));
       dailyHistoryAgg.set(key, cur);
     }
 
@@ -1800,6 +1836,7 @@ export async function GET(req: NextRequest) {
       const key = isoDayUTC(new Date(op.createdAt as any));
       const cur = ensureDailyHistory(key);
       cur.balcaoCents += Math.max(0, Number(op.customerChargeCents || 0));
+      cur.balcaoPoints += Math.max(0, Number(op.points || 0));
       dailyHistoryAgg.set(key, cur);
     }
 
@@ -1844,17 +1881,25 @@ export async function GET(req: NextRequest) {
       salesCents: number;
       balcaoCents: number;
       grossCents: number;
+      points: number;
+      balcaoPoints: number;
+      pointsTotal: number;
     }> = [];
 
     for (let d = new Date(historyStart); d < historyEndExclusive; d = addDaysUTC(d, 1)) {
       const key = isoDayUTC(d);
-      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0 };
+      const cur = dailyHistoryAgg.get(key) || { salesCents: 0, balcaoCents: 0, points: 0, balcaoPoints: 0 };
+      const points = Math.max(0, cur.points);
+      const balcaoPoints = Math.max(0, cur.balcaoPoints);
       salesDailyHistory.push({
         key,
         label: key,
         salesCents: cur.salesCents,
         balcaoCents: cur.balcaoCents,
         grossCents: cur.salesCents + cur.balcaoCents,
+        points,
+        balcaoPoints,
+        pointsTotal: points + balcaoPoints,
       });
     }
 
@@ -1885,6 +1930,9 @@ export async function GET(req: NextRequest) {
           totalCents: totalToday,
           salesCount: todaySales.length,
           passengers: paxToday,
+          points: pointsToday,
+          balcaoPoints: balcaoTodayAgg.points,
+          pointsTotal: pointsToday + balcaoTodayAgg.points,
           salesByChannel: todayChannel,
         },
 
@@ -1924,6 +1972,9 @@ export async function GET(req: NextRequest) {
           soldOutrosOrigemCents: monthChannel.outrosOrigemCents,
           soldBalcaoCents: balcaoMonthAgg.customerChargeCents,
           soldTotalCents: selectedMonthConsolidatedSoldCents,
+          points: pointsMonth,
+          balcaoPoints: balcaoMonthAgg.points,
+          pointsTotal: pointsMonth + balcaoMonthAgg.points,
           profitSalesAfterTaxWithoutFeeCents:
             selectedMonthSalesProfitAfterTaxWithoutFeeCents,
           profitVendaBalcaoCents: monthChannel.profitVendaBalcaoCents,
@@ -1975,6 +2026,9 @@ export async function GET(req: NextRequest) {
           totalCents: totalMonth,
           salesCount: monthSales.length,
           passengers: paxMonth,
+          points: pointsMonth,
+          balcaoPoints: balcaoMonthAgg.points,
+          pointsTotal: pointsMonth + balcaoMonthAgg.points,
           salesByChannel: monthChannel,
           bestDayOfWeek: best,
         },
