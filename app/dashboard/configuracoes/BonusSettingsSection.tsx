@@ -275,8 +275,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
           </label>
         </div>
         <p className="mt-1 text-sm text-slate-600">
-          A cada X vendidos (milhas + balcão, sem taxa), recebe Y no dia 1 —
-          proporcional.
+          Cota mínima de venda (milhas + balcão, sem taxa) para liberar Y no dia 1.
+          Abaixo da cota, zero. Acima, proporcional.
         </p>
         {!individualEnabled ? (
           <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -295,7 +295,7 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
                 <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 text-left">Funcionário</th>
-                    <th className="px-3 py-2 text-left">A cada (R$ vendido)</th>
+                    <th className="px-3 py-2 text-left">Cota mínima (R$)</th>
                     <th className="px-3 py-2 text-left">Recebe (R$)</th>
                   </tr>
                 </thead>
@@ -350,8 +350,8 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
           </label>
         </div>
         <p className="mt-1 text-sm text-slate-600">
-          Quantas contas de cedente aprovadas (não excluídas) cada um precisa trazer, e
-          o bônus — proporcional, no dia 1.
+          Cota mínima de contas de cedente aprovadas (não excluídas). Abaixo da cota,
+          zero. Acima, proporcional no dia 1.
         </p>
         {!individualEnabled ? (
           <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -363,7 +363,7 @@ export default function BonusSettingsSection({ unlocked, disabled }: Props) {
               <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">Funcionário</th>
-                  <th className="px-3 py-2 text-left">Cedentes na meta</th>
+                  <th className="px-3 py-2 text-left">Cota mínima</th>
                   <th className="px-3 py-2 text-left">Bônus (R$)</th>
                 </tr>
               </thead>

@@ -51,7 +51,7 @@ export type MonthlyBonusPreview = {
 const REVENUE_BPS = 10; // 0,1% = 10 bps
 const PROFIT_BPS = 10;
 
-/** Meta individual (a cada X vendido, recebe Y) vale a partir deste mês. */
+/** Meta individual (cota mínima X para liberar Y; acima, proporcional) vale a partir deste mês. */
 export const INDIVIDUAL_BONUS_START_MONTH = "2026-11";
 
 export function canUseIndividualBonus(month: string) {
@@ -62,30 +62,30 @@ export function canUseRecruitBonus(month: string) {
   return canUseIndividualBonus(month);
 }
 
-/** A cada `salesGoalCents` vendidos, recebe `bonusCents` (proporcional). */
+/** Cota mínima `salesGoalCents` para liberar `bonusCents`; abaixo, zero; acima, proporcional. */
 export function computeIndividualBonusCents(args: {
   salesVolumeCents: number;
   salesGoalCents: number;
   bonusCents: number;
 }): number {
   const sold = Math.max(0, args.salesVolumeCents);
-  const every = Math.max(0, args.salesGoalCents);
+  const quota = Math.max(0, args.salesGoalCents);
   const prize = Math.max(0, args.bonusCents);
-  if (sold <= 0 || every <= 0 || prize <= 0) return 0;
-  return Math.round((sold / every) * prize);
+  if (sold < quota || quota <= 0 || prize <= 0) return 0;
+  return Math.round((sold / quota) * prize);
 }
 
-/** A cada `goalCount` contas de cedente, recebe `bonusCents` (proporcional). */
+/** Cota mínima `goalCount` contas para liberar `bonusCents`; abaixo, zero; acima, proporcional. */
 export function computeRecruitBonusCents(args: {
   recruitCount: number;
   goalCount: number;
   bonusCents: number;
 }): number {
   const count = Math.max(0, args.recruitCount);
-  const every = Math.max(0, args.goalCount);
+  const quota = Math.max(0, args.goalCount);
   const prize = Math.max(0, args.bonusCents);
-  if (count <= 0 || every <= 0 || prize <= 0) return 0;
-  return Math.round((count / every) * prize);
+  if (count < quota || quota <= 0 || prize <= 0) return 0;
+  return Math.round((count / quota) * prize);
 }
 
 export function isMonthISO(v: string) {

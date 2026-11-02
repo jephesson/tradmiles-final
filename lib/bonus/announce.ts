@@ -69,11 +69,11 @@ export function buildBonusWhatsAppText(args: {
       lines.push("Sem meta individual neste mês.");
     } else {
       lines.push(
-        "A cada valor vendido (milhas + balcão, sem taxa), a pessoa recebe o bônus *proporcional* no dia 1. Se vender o dobro, recebe o dobro."
+        "Só libera quem bater a *cota mínima* (milhas + balcão, sem taxa). Abaixo disso, zero. Acima, proporcional no dia 1 — se vender o dobro da cota, recebe o dobro."
       );
       for (const e of sales) {
         lines.push(
-          `• ${firstName(e.name)}: a cada *${fmtBRL(e.salesGoalCents)}* vendidos → *${fmtBRL(e.bonusCents)}*`
+          `• ${firstName(e.name)}: cota *${fmtBRL(e.salesGoalCents)}* → *${fmtBRL(e.bonusCents)}*`
         );
       }
     }
@@ -89,13 +89,13 @@ export function buildBonusWhatsAppText(args: {
       lines.push("Sem meta de recrutamento neste mês.");
     } else {
       lines.push(
-        "Contam só contas *aprovadas* e *não excluídas*, vinculadas ao funcionário naquele mês. O bônus também é proporcional."
+        "Contam só contas *aprovadas* e *não excluídas*, vinculadas ao funcionário naquele mês. Só libera quem bater a *cota mínima*; abaixo, zero; acima, proporcional."
       );
       for (const e of recruit) {
         const q = e.recruitGoalCount;
         const contas = q === 1 ? "1 conta" : `${q} contas`;
         lines.push(
-          `• ${firstName(e.name)}: a cada *${contas}* → *${fmtBRL(e.recruitBonusCents)}*`
+          `• ${firstName(e.name)}: cota *${contas}* → *${fmtBRL(e.recruitBonusCents)}*`
         );
       }
     }

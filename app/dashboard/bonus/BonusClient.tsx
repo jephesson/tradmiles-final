@@ -629,7 +629,7 @@ export default function BonusClient() {
           {individualEnabled ? (
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
-                Meta individual · a cada X vendido, recebe Y no dia 1
+                Meta individual · cota mínima para liberar Y; acima, proporcional
               </div>
               {individual.length ? (
                 <div className="overflow-x-auto">
@@ -638,7 +638,7 @@ export default function BonusClient() {
                       <tr>
                         <th className="px-4 py-3 text-left">Funcionário</th>
                         <th className="px-4 py-3 text-right">Vendeu</th>
-                        <th className="px-4 py-3 text-right">A cada</th>
+                        <th className="px-4 py-3 text-right">Cota mínima</th>
                         <th className="px-4 py-3 text-right">Recebe</th>
                         <th className="px-4 py-3 text-right">Bônus bruto</th>
                         <th className="px-4 py-3 text-right">Líquido</th>
@@ -770,9 +770,10 @@ export default function BonusClient() {
             20% quem finalizou mais contas (só conta quando o lucro da conta é maior que
             zero), 20% dividido igualmente. Imposto debitado sobre o bônus bruto.
             Pagamento no dia 1 do mês seguinte, junto às comissões. A partir de
-            novembro/2026, a meta individual paga proporcionalmente: a cada X vendidos,
-            recebe Y no dia 1. Recrutamento: contas de cedente aprovadas e não
-            excluídas, vinculadas ao funcionário no mês; a cada N contas, o bônus no dia 1.
+            novembro/2026, a meta individual só libera ao bater a cota mínima; abaixo,
+            zero; acima, proporcional no dia 1. Recrutamento: contas de cedente aprovadas
+            e não excluídas, vinculadas ao funcionário no mês; só libera ao bater a cota
+            mínima de contas; acima, proporcional no dia 1.
           </div>
         </>
       ) : null}

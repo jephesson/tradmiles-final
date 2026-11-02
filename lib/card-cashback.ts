@@ -251,7 +251,7 @@ export async function day1BonusByUser(team: string, date: string) {
       parts.push({
         kind: "individual",
         title: "Bônus individual",
-        detail: `A cada valor vendido no mês ${monthLabelPT(spendMonth)}, proporcional, pago no dia 1.`,
+        detail: `Cota mínima no mês ${monthLabelPT(spendMonth)}; abaixo, zero; acima, proporcional, pago no dia 1.`,
         grossCents: individualGross,
         taxCents: split.taxCents,
         netCents: split.netCents,

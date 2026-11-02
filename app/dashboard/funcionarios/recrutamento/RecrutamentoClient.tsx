@@ -94,7 +94,8 @@ export default function RecrutamentoClient() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Quantas contas cada um trouxe no mês (aprovadas e não excluídas, na data
-            da aprovação). A meta e o bônus ficam em{" "}
+            da aprovação). O bônus só libera ao bater a cota mínima; acima, proporcional.
+            A meta fica em{" "}
             <Link href="/dashboard/configuracoes" className="text-sky-700 hover:underline">
               Configurações
             </Link>

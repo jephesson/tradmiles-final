@@ -800,12 +800,14 @@ function IndividualGoalCard({
         </div>
       </div>
       <p className="mt-3 text-xs text-slate-600">
-        A cada <b className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</b> vendidos,{" "}
-        <b className="tabular-nums">{fmtMoney(mine.bonusCents)}</b> no dia 1.
+        Cota de <b className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</b> para
+        liberar <b className="tabular-nums">{fmtMoney(mine.bonusCents)}</b> no dia 1.
+        Abaixo, zero; acima, proporcional.
         {remainingCents > 0 ? (
           <>
             {" "}
-            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
+            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b> para
+            liberar
             {mine.dailyTargetCents > 0 && bonus && bonus.daysRemaining > 1
               ? ` · ~${fmtMoney(mine.dailyTargetCents)}/dia`
               : bonus && bonus.daysRemaining <= 1
@@ -814,7 +816,7 @@ function IndividualGoalCard({
             .
           </>
         ) : (
-          " Meta do ciclo batida — o extra continua somando."
+          " Cota batida — o extra continua somando."
         )}
       </p>
       <p className="mt-2 text-xs text-slate-500">
