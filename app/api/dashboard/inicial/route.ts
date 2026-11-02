@@ -7,7 +7,6 @@ import {
   computeIndividualBonusCents,
   currentMonthISORecife,
   daysRemainingInMonth,
-  isFirstDayOfMonth,
   monthLabelPT,
   previousMonthISO,
 } from "@/lib/bonus/monthlyBonus";
@@ -24,6 +23,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+const PREV_MONTH_CELEBRATION_DAYS = 3;
+
+function dayOfMonthRecife(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
+  return m ? Number(m[3]) : 0;
+}
 
 function noCache() {
   return {
@@ -84,7 +89,11 @@ export async function GET() {
     await ensureDueMonthlyBonus(session.team, todayISO);
 
     const bonusMonth = currentMonthISORecife();
-    const prevMonthKey = isFirstDayOfMonth(todayISO) ? previousMonthISO(bonusMonth) : null;
+    const dayOfMonth = dayOfMonthRecife(todayISO);
+    const prevMonthKey =
+      dayOfMonth >= 1 && dayOfMonth <= PREV_MONTH_CELEBRATION_DAYS
+        ? previousMonthISO(bonusMonth)
+        : null;
     const weekStartISO = mondayISO(todayISO);
     const weekEndISO = sundayISO(todayISO);
     const alertEndISO = addDaysISO(todayISO, 6);
