@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
-import { aggregatePurchaseFinalizeMetrics } from "@/lib/payouts/purchaseFinalizeMetrics";
+import { aggregatePurchaseFinalizeMetrics, usesReservedC1Rule } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { readSessionCookie } from "@/lib/session";
 
@@ -77,6 +77,7 @@ export async function GET(req: Request) {
       pontosCiaTotal: true,
       metaMilheiroCents: true,
       totalCents: true,
+      comissaoCents: true,
       finalSalesCents: true,
       finalSalesPointsValueCents: true,
       finalSalesTaxesCents: true,
@@ -138,6 +139,7 @@ export async function GET(req: Request) {
       pointsValueCents: true,
       embarqueFeeCents: true,
       milheiroCents: true,
+      commissionCents: true,
       affiliateCommission: { select: { amountCents: true } },
     },
   });
@@ -186,6 +188,7 @@ export async function GET(req: Request) {
         pointsValueCents: safeInt(s.pointsValueCents, 0),
         embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
         milheiroCents: safeInt(s.milheiroCents, 0),
+        commissionCents: s.commissionCents,
         date: s.date,
         affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
       })),
@@ -193,7 +196,8 @@ export async function GET(req: Request) {
       purchaseMeta,
       bonusAboveMetaBps,
       undefined,
-      holidayISOs
+      holidayISOs,
+      usesReservedC1Rule(p.finalizedAt) ? safeInt(p.comissaoCents, 0) : null
     );
 
     const salesTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);

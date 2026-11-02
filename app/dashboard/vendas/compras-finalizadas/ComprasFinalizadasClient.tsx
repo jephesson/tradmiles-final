@@ -116,6 +116,24 @@ type DetailResp = {
 
   checks: { sumRateioCents: number };
 
+  breakdown?: {
+    rule: "reserved_c1" | "legacy";
+    salesPointsValueCents: number;
+    purchaseTotalCents: number;
+    c1ReservedCents: number;
+    soldCostCents: number;
+    unsoldCostCents: number;
+    unsoldPoints: number | null;
+    profitBrutoCents: number;
+    c2Cents: number;
+    c1PaidCents: number;
+    c1ExcessCents: number;
+    c1WeekendExtraCents: number;
+    affiliateCommissionCents: number;
+    snapshotAdjustCents: number;
+    profitLiquidoCents: number;
+  };
+
   saleReports?: Array<{
     id: string;
     numero: string;
@@ -131,6 +149,7 @@ type DetailResp = {
     costCents: number;
     bonusCents: number;
     commissionCents: number;
+    c1PaidCents?: number;
     affiliateCommissionCents: number;
     profitBrutoCents: number;
     profitLiquidoCents: number;
@@ -340,7 +359,7 @@ function PurchaseDetailPanel({
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <MetricChip label="Custo (compra)" value={fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))} />
             <MetricChip label="Venda (sem taxa)" value={fmtMoneyBR(pick(detail.metrics.salesPointsValueCents))} />
-            <MetricChip label="Bônus total" value={fmtMoneyBR(pick(detail.metrics.bonusCents))} />
+            <MetricChip label="Descontos (equipe)" value={fmtMoneyBR(pick(detail.metrics.bonusCents))} />
             <MetricChip
               label="Lucro líquido"
               value={fmtMoneyBR(pick(detail.metrics.profitLiquidoCents))}
@@ -348,11 +367,14 @@ function PurchaseDetailPanel({
             />
           </div>
 
+          {detail.breakdown ? <ProfitBreakdown b={detail.breakdown} /> : null}
+
           <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
             <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
               <div className="text-sm font-semibold text-slate-900">Vendas do ID</div>
               <div className="mt-0.5 text-xs text-slate-500">
                 {reports.length} venda(s) · custo proporcional ao milheiro da compra · bônus 30% com meta da compra
+                {detail.breakdown?.rule === "reserved_c1" ? " · C1 pago só desconta no total o que passar do reservado" : ""}
               </div>
             </div>
 
@@ -373,6 +395,7 @@ function PurchaseDetailPanel({
                       <th className="px-3 py-2.5">PV s/ taxa</th>
                       <th className="px-3 py-2.5">Custo pts</th>
                       <th className="px-3 py-2.5">Lucro bruto</th>
+                      <th className="px-3 py-2.5">C1 pago</th>
                       <th className="px-3 py-2.5">Bônus 30%</th>
                       <th className="px-3 py-2.5">Lucro líq.</th>
                     </tr>
@@ -399,6 +422,7 @@ function PurchaseDetailPanel({
                         <td className={cn("px-3 py-2.5 tabular-nums font-semibold", profitClass(s.profitBrutoCents))}>
                           {fmtMoneyBR(s.profitBrutoCents)}
                         </td>
+                        <td className="px-3 py-2.5 tabular-nums text-slate-600">{fmtMoneyBR(pick(s.c1PaidCents))}</td>
                         <td className="px-3 py-2.5 tabular-nums text-violet-700">{fmtMoneyBR(s.bonusCents)}</td>
                         <td className={cn("px-3 py-2.5 tabular-nums font-bold", profitClass(s.profitLiquidoCents))}>
                           {fmtMoneyBR(s.profitLiquidoCents)}
@@ -416,6 +440,9 @@ function PurchaseDetailPanel({
                       <td className="px-3 py-3 tabular-nums">{fmtMoneyBR(pick(detail.metrics.purchaseTotalCents))}</td>
                       <td className={cn("px-3 py-3 tabular-nums", profitClass(pick(detail.metrics.profitBrutoCents)))}>
                         {fmtMoneyBR(pick(detail.metrics.profitBrutoCents))}
+                      </td>
+                      <td className="px-3 py-3 tabular-nums text-slate-600">
+                        {fmtMoneyBR(reports.reduce((a, r) => a + pick(r.c1PaidCents), 0))}
                       </td>
                       <td className="px-3 py-3 tabular-nums text-violet-700">
                         {fmtMoneyBR(pick(detail.metrics.bonusCents))}
@@ -512,6 +539,103 @@ function PurchaseDetailPanel({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ProfitBreakdown({ b }: { b: NonNullable<DetailResp["breakdown"]> }) {
+  const reserved = b.rule === "reserved_c1";
+  const lines: Array<{ label: string; hint?: string; cents: number; kind: "base" | "minus" | "total" | "info" }> = [
+    { label: "Venda (sem taxa)", cents: b.salesPointsValueCents, kind: "base" },
+    {
+      label: "Custo da compra",
+      hint: `inclui C1 reservado de ${fmtMoneyBR(b.c1ReservedCents)}`,
+      cents: -b.purchaseTotalCents,
+      kind: "minus",
+    },
+    { label: "Lucro bruto", cents: b.profitBrutoCents, kind: "total" },
+    { label: "Bônus C2 (30% acima da meta)", cents: -b.c2Cents, kind: "minus" },
+  ];
+  if (reserved) {
+    lines.push({
+      label: "C1 acima do reservado",
+      hint: `pago ${fmtMoneyBR(b.c1PaidCents)} − reservado ${fmtMoneyBR(b.c1ReservedCents)}`,
+      cents: -b.c1ExcessCents,
+      kind: "minus",
+    });
+  } else if (b.c1WeekendExtraCents > 0) {
+    lines.push({ label: "C1 extra fim de semana/feriado", cents: -b.c1WeekendExtraCents, kind: "minus" });
+  }
+  if (b.affiliateCommissionCents > 0) {
+    lines.push({ label: "Comissão de afiliado", cents: -b.affiliateCommissionCents, kind: "minus" });
+  }
+  if (b.snapshotAdjustCents !== 0) {
+    lines.push({
+      label: "Ajuste do snapshot gravado",
+      hint: "vendas mudaram depois da finalização",
+      cents: b.snapshotAdjustCents,
+      kind: "minus",
+    });
+  }
+  lines.push({ label: "Lucro para rateio", cents: b.profitLiquidoCents, kind: "total" });
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+        <div className="text-sm font-semibold text-slate-900">Como o lucro foi calculado</div>
+        <div className="mt-0.5 text-xs text-slate-500">
+          {reserved
+            ? "C1 já reservado no custo da compra; só o C1 pago além do reservado sai do lucro para rateio."
+            : "Regra anterior a 02/11/2026: sai só o C1 extra de fim de semana/feriado."}
+        </div>
+      </div>
+      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+        <div className="divide-y divide-slate-100 text-sm">
+          {lines.map((l) => (
+            <div
+              key={l.label}
+              className={cn(
+                "flex items-baseline justify-between gap-3 py-2",
+                l.kind === "total" && "font-semibold text-slate-900"
+              )}
+            >
+              <div className="min-w-0">
+                <div className={cn(l.kind === "minus" ? "text-slate-600" : "text-slate-900")}>
+                  {l.kind === "minus" ? "− " : l.kind === "total" ? "= " : ""}
+                  {l.label}
+                </div>
+                {l.hint ? <div className="text-[11px] text-slate-500">{l.hint}</div> : null}
+              </div>
+              <div
+                className={cn(
+                  "shrink-0 tabular-nums",
+                  l.kind === "minus" ? "text-rose-700" : l.kind === "total" ? profitClass(l.cents) : "text-slate-900"
+                )}
+              >
+                {fmtMoneyBR(l.kind === "minus" ? Math.abs(l.cents) : l.cents)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2 rounded-xl bg-slate-50 p-3 text-sm">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Custo da compra</div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">Pontos vendidos</span>
+            <span className="tabular-nums text-slate-900">{fmtMoneyBR(b.soldCostCents)}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-600">
+              Sobrou sem venda{b.unsoldPoints != null ? ` (${fmtInt(b.unsoldPoints)} pts)` : ""}
+            </span>
+            <span className={cn("tabular-nums", b.unsoldCostCents > 0 ? "text-rose-700" : "text-slate-900")}>
+              {fmtMoneyBR(b.unsoldCostCents)}
+            </span>
+          </div>
+          <div className="text-[11px] text-slate-500">
+            O custo dos pontos que sobraram entra no custo total e reduz o lucro.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

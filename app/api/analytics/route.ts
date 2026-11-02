@@ -9,6 +9,7 @@ import {
   recifeDateISO,
 } from "@/lib/balcao-commission";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { addsBackReservedC1, custoMilheiroSemC1Cents, purchaseCostSemC1Cents } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 export const runtime = "nodejs";
@@ -678,7 +679,7 @@ export async function GET(req: NextRequest) {
         sellerId: true,
         seller: { select: { id: true, name: true, login: true } },
         cliente: { select: { id: true, nome: true, identificador: true, origem: true } },
-        purchase: { select: { custoMilheiroCents: true } },
+        purchase: { select: { custoMilheiroCents: true, totalCents: true, comissaoCents: true } },
       },
       orderBy: { date: "asc" },
     });
@@ -854,7 +855,11 @@ export async function GET(req: NextRequest) {
       paxMonth += Math.max(0, Number(s.passengers || 0));
       pointsMonth += Math.max(0, points);
 
-      const costDb = Number(s.purchase?.custoMilheiroCents || 0);
+      const costDb = !s.purchase
+        ? 0
+        : addsBackReservedC1(s.date)
+        ? custoMilheiroSemC1Cents(s.purchase)
+        : Number(s.purchase.custoMilheiroCents || 0);
       const costMil =
         costDb > 0 ? costDb : costMilheiroFallback(String(s.program || ""), milhasCostRates);
       const grossProfit = saleGrossProfitCents({
@@ -994,6 +999,7 @@ export async function GET(req: NextRequest) {
         numero: true,
         metaMilheiroCents: true,
         totalCents: true,
+        comissaoCents: true,
         finalizedAt: true,
       },
     });
@@ -1088,7 +1094,9 @@ export async function GET(req: NextRequest) {
           safeInt(a.soldPoints, 0) > 0;
         if (!hasSales) continue;
 
-        const profitBruto = safeInt(a.salesPointsValueCents, 0) - safeInt(p.totalCents, 0);
+        const profitBruto = safeInt(a.salesPointsValueCents, 0) - (addsBackReservedC1(p.finalizedAt)
+            ? purchaseCostSemC1Cents(p.totalCents, p.comissaoCents)
+            : safeInt(p.totalCents, 0));
         const profitLiquido = profitBruto - safeInt(a.bonusCents, 0);
         if (profitLiquido >= 0) continue;
 

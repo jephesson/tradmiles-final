@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { resolveEmployeeBonusAboveMetaBps } from "@/lib/payouts/employeeCommissionRates";
-import { aggregatePurchaseFinalizeMetrics, buildPurchaseSaleReports, purchaseNumeroVariants } from "@/lib/payouts/purchaseFinalizeMetrics";
+import {
+  aggregatePurchaseFinalizeMetrics,
+  buildPurchaseSaleReports,
+  purchaseNumeroVariants,
+  usesReservedC1Rule,
+} from "@/lib/payouts/purchaseFinalizeMetrics";
 import { buildFinalRateioBreakdown, parseFinalRateioBreakdown } from "@/lib/payouts/purchaseRateio";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 import { readSessionCookie } from "@/lib/session";
@@ -53,6 +58,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       metaMilheiroCents: true,
       custoMilheiroCents: true,
       totalCents: true,
+      comissaoCents: true,
       observacao: true,
 
       finalSalesCents: true,
@@ -127,6 +133,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const purchaseMeta = safeInt(p.metaMilheiroCents, 0);
   const purchaseTotalCents = safeInt(p.totalCents, 0);
   const custoMilheiroCents = safeInt(p.custoMilheiroCents, 0);
+  const c1ReservedCents = safeInt(p.comissaoCents, 0);
+  const reservedC1Rule = usesReservedC1Rule(finalizedAt);
 
   const saleReports = buildPurchaseSaleReports(
     sales.map((s) => ({
@@ -148,7 +156,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     custoMilheiroCents,
     bonusAboveMetaBps,
     undefined,
-    holidayISOs
+    holidayISOs,
+    reservedC1Rule
   );
 
   const metrics = aggregatePurchaseFinalizeMetrics(
@@ -159,6 +168,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       pointsValueCents: safeInt(s.pointsValueCents, 0),
       embarqueFeeCents: safeInt(s.embarqueFeeCents, 0),
       milheiroCents: safeInt(s.milheiroCents, 0),
+      commissionCents: s.commissionCents,
       date: s.date,
       affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
     })),
@@ -166,7 +176,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     purchaseMeta,
     bonusAboveMetaBps,
     undefined,
-    holidayISOs
+    holidayISOs,
+    reservedC1Rule ? c1ReservedCents : null
   );
 
   const liveTaxesCents = Math.max(metrics.salesTotalCents - metrics.salesPointsValueCents, 0);
@@ -266,6 +277,33 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       amountCents: split.amountCents,
     })) ?? [];
 
+  // Cálculo do lucro passo a passo (componentes ao vivo; bruto/líquido do snapshot quando houver).
+  const soldCostCents =
+    custoMilheiroCents > 0
+      ? Math.min(purchaseTotalCents, Math.round((storedMetrics.soldPoints * custoMilheiroCents) / 1000))
+      : purchaseTotalCents;
+  const c1WeekendExtraCents = reservedC1Rule ? 0 : Math.max(0, metrics.bonusCents - metrics.c2Cents);
+  const deductionsCents =
+    metrics.c2Cents + metrics.c1ExcessCents + c1WeekendExtraCents + metrics.affiliateCommissionCents;
+  const breakdown = {
+    rule: reservedC1Rule ? ("reserved_c1" as const) : ("legacy" as const),
+    salesPointsValueCents: storedMetrics.salesPointsValueCents,
+    purchaseTotalCents,
+    c1ReservedCents,
+    soldCostCents,
+    unsoldCostCents: Math.max(0, purchaseTotalCents - soldCostCents),
+    unsoldPoints: remainingPoints,
+    profitBrutoCents: storedMetrics.profitBrutoCents,
+    c2Cents: metrics.c2Cents,
+    c1PaidCents: metrics.c1PaidCents,
+    c1ExcessCents: metrics.c1ExcessCents,
+    c1WeekendExtraCents,
+    affiliateCommissionCents: metrics.affiliateCommissionCents,
+    snapshotAdjustCents:
+      storedMetrics.profitLiquidoCents - (storedMetrics.profitBrutoCents - deductionsCents),
+    profitLiquidoCents: storedMetrics.profitLiquidoCents,
+  };
+
   const sumBps = Array.from(bpsByPayee.values()).reduce((a, b) => a + b, 0);
   const sumRateio = rateio.reduce((a, it) => a + safeInt(it.amountCents, 0), 0);
 
@@ -294,6 +332,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       sumBps,
       isDefault: !plan,
     },
+    breakdown,
     rateio,
     checks: {
       sumRateioCents: sumRateio,

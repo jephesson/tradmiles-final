@@ -485,6 +485,7 @@ export async function GET(req: NextRequest) {
         numero: true,
         finalizedAt: true,
         totalCents: true,
+        comissaoCents: true,
         metaMilheiroCents: true,
         finalRateioBreakdown: true,
         cedente: {
@@ -534,6 +535,7 @@ export async function GET(req: NextRequest) {
               embarqueFeeCents: true,
               milheiroCents: true,
               metaMilheiroCents: true,
+              commissionCents: true,
               date: true,
               createdAt: true,
               affiliateCommission: { select: { amountCents: true } },
@@ -569,6 +571,7 @@ export async function GET(req: NextRequest) {
           id: p.id,
           numero: String(p.numero || ""),
           totalCents: p.totalCents,
+          comissaoCents: p.comissaoCents,
           metaMilheiroCents: p.metaMilheiroCents,
           finalizedAt: p.finalizedAt,
           cedente: { ownerId: String(p.cedente.ownerId || "") },
@@ -583,6 +586,7 @@ export async function GET(req: NextRequest) {
           milheiroCents: safeInt(s.milheiroCents, 0),
           metaMilheiroCents:
             safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
+          commissionCents: s.commissionCents,
           affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
           date: s.date ?? s.createdAt ?? null,
         })),

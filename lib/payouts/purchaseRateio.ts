@@ -5,6 +5,7 @@ import {
   aggregatePurchaseFinalizeMetrics,
   type PurchaseSaleRow,
   purchaseNumeroVariants,
+  usesReservedC1Rule,
 } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
@@ -172,18 +173,25 @@ export async function buildPurchaseFinalizeSnapshot(
     sales: PurchaseSaleRow[];
     purchaseTotalCents: number;
     purchaseMetaMilheiroCents: number;
+    /** Purchase.comissaoCents — C1 reservado no custo da compra. */
+    purchaseReservedC1Cents?: number | null;
     bonusAboveMetaBps: number;
     refDate: Date;
   }
 ): Promise<PurchaseFinalizeSnapshot> {
   const holidayISOs = await loadValidatedHolidayISOs(args.team);
+  const reservedC1 =
+    args.purchaseReservedC1Cents != null && usesReservedC1Rule(args.refDate)
+      ? safeInt(args.purchaseReservedC1Cents, 0)
+      : null;
   const metrics = aggregatePurchaseFinalizeMetrics(
     args.sales,
     args.purchaseTotalCents,
     args.purchaseMetaMilheiroCents,
     args.bonusAboveMetaBps,
     undefined,
-    holidayISOs
+    holidayISOs,
+    reservedC1
   );
 
   const finalRateioBreakdown =
@@ -218,6 +226,7 @@ export type SaleForRateioBackfill = {
   embarqueFeeCents: number;
   milheiroCents: number;
   metaMilheiroCents: number;
+  commissionCents?: number | null;
   affiliateCommissionCents?: number;
   date?: Date | string | null;
 };
@@ -231,6 +240,7 @@ export async function computeRateioBreakdownForPurchase(
       id: string;
       numero: string;
       totalCents: number | null;
+      comissaoCents?: number | null;
       metaMilheiroCents: number | null;
       finalizedAt: Date | null;
       cedente: { ownerId: string };
@@ -263,11 +273,13 @@ export async function computeRateioBreakdownForPurchase(
       embarqueFeeCents: s.embarqueFeeCents,
       milheiroCents: s.milheiroCents,
       bonusCents: null,
+      commissionCents: s.commissionCents ?? null,
       date: s.date,
       affiliateCommissionCents: safeInt(s.affiliateCommissionCents, 0),
     })),
     purchaseTotalCents: args.purchase.totalCents || 0,
     purchaseMetaMilheiroCents: args.purchase.metaMilheiroCents || 0,
+    purchaseReservedC1Cents: args.purchase.comissaoCents ?? null,
     bonusAboveMetaBps: args.bonusAboveMetaBps,
     refDate: args.refDate,
   });
@@ -284,6 +296,7 @@ export async function resolveC3RateioBreakdown(
       id: string;
       numero: string;
       totalCents: number | null;
+      comissaoCents?: number | null;
       metaMilheiroCents: number | null;
       finalizedAt: Date | null;
       cedente: { ownerId: string };

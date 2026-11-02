@@ -58,6 +58,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           numero: true,
           status: true,
           totalCents: true,
+          comissaoCents: true,
           metaMilheiroCents: true,
           finalizedAt: true,
           cedente: { select: { ownerId: true, owner: { select: { team: true } } } },
@@ -87,6 +88,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
           embarqueFeeCents: true,
           milheiroCents: true,
           metaMilheiroCents: true,
+          commissionCents: true,
           date: true,
         },
       });
@@ -98,6 +100,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
         sales,
         purchaseTotalCents: purchase.totalCents || 0,
         purchaseMetaMilheiroCents: purchase.metaMilheiroCents || 0,
+        purchaseReservedC1Cents: purchase.comissaoCents ?? 0,
         bonusAboveMetaBps,
         refDate: finalizedAt,
       });

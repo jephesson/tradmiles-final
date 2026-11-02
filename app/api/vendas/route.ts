@@ -485,6 +485,7 @@ export async function POST(req: Request) {
         finalizedAt: true,
         pontosCiaTotal: true,
         totalCents: true,
+        comissaoCents: true,
         metaMilheiroCents: true,
         custoMilheiroCents: true,
       } as const;
@@ -737,12 +738,14 @@ export async function POST(req: Request) {
               embarqueFeeCents,
               milheiroCents: milheiroFinal,
               bonusCents,
+              commissionCents,
               date,
               affiliateCommissionCents: affiliateAmountCents,
             },
           ],
           purchaseTotalCents: clampInt(purchase.totalCents),
           purchaseMetaMilheiroCents: metaMilheiroCents,
+          purchaseReservedC1Cents: clampInt(purchase.comissaoCents),
           bonusAboveMetaBps: employeeBonusAboveMetaBps,
           refDate: finalizedAt,
         });

@@ -7,6 +7,7 @@ import {
 import { calendarMonthBoundsUTC } from "@/lib/dates/brazilCalendar";
 import type { Prisma } from "@prisma/client";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
+import { addsBackReservedC1, custoMilheiroSemC1Cents, purchaseCostSemC1Cents } from "@/lib/payouts/purchaseFinalizeMetrics";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
 function safeInt(v: unknown, fb = 0) {
@@ -129,7 +130,8 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
         points: true,
         milheiroCents: true,
         program: true,
-        purchase: { select: { custoMilheiroCents: true } },
+        date: true,
+        purchase: { select: { custoMilheiroCents: true, totalCents: true, comissaoCents: true } },
       },
     }),
     prisma.balcaoOperacao.findMany({
@@ -153,6 +155,8 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
         numero: true,
         metaMilheiroCents: true,
         totalCents: true,
+        comissaoCents: true,
+        finalizedAt: true,
       },
     }),
   ]);
@@ -160,7 +164,11 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
   let salesProfitAfterTaxCents = 0;
   for (const s of sales) {
     const points = Number(s.points || 0);
-    const costDb = Number(s.purchase?.custoMilheiroCents || 0);
+    const costDb = !s.purchase
+        ? 0
+        : addsBackReservedC1(s.date)
+        ? custoMilheiroSemC1Cents(s.purchase)
+        : Number(s.purchase.custoMilheiroCents || 0);
     const costMil =
       costDb > 0 ? costDb : costMilheiroFallback(String(s.program || ""), costRates);
     const grossProfit = saleGrossProfitCents({
@@ -278,7 +286,9 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
         safeInt(a.salesTotalCents, 0) > 0 ||
         safeInt(a.soldPoints, 0) > 0;
       if (!hasSales) continue;
-      const profitBruto = safeInt(a.salesPointsValueCents, 0) - safeInt(p.totalCents, 0);
+      const profitBruto = safeInt(a.salesPointsValueCents, 0) - (addsBackReservedC1(p.finalizedAt)
+            ? purchaseCostSemC1Cents(p.totalCents, p.comissaoCents)
+            : safeInt(p.totalCents, 0));
       const profitLiquido = profitBruto - safeInt(a.bonusCents, 0);
       if (profitLiquido >= 0) continue;
       lossCents += profitLiquido;

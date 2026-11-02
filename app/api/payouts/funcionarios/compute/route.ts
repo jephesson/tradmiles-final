@@ -307,6 +307,7 @@ export async function POST(req: Request) {
         numero: true,
         finalizedAt: true,
         totalCents: true,
+        comissaoCents: true,
         metaMilheiroCents: true,
         finalSalesPointsValueCents: true,
         finalProfitBrutoCents: true,
@@ -600,6 +601,7 @@ export async function POST(req: Request) {
           id: p.id,
           numero: String(p.numero || ""),
           totalCents: p.totalCents,
+          comissaoCents: p.comissaoCents,
           metaMilheiroCents: p.metaMilheiroCents,
           finalizedAt: p.finalizedAt,
           cedente: { ownerId: String(p.cedente.ownerId || "") },
@@ -614,6 +616,7 @@ export async function POST(req: Request) {
           milheiroCents: safeInt(s.milheiroCents, 0),
           metaMilheiroCents:
             safeInt(s.metaMilheiroCents, 0) > 0 ? safeInt(s.metaMilheiroCents, 0) : purchaseMeta,
+          commissionCents: s.commissionCents,
           affiliateCommissionCents: safeInt(s.affiliateCommission?.amountCents, 0),
           date: s.date ?? s.createdAt ?? null,
         })),
