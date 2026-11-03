@@ -3,8 +3,8 @@
  * __reactFiber — sem isso o sexo da LATAM abre e não seleciona.
  */
 (function () {
-  if (window.__tmPageHooks === "0.2.59") return;
-  window.__tmPageHooks = "0.2.59";
+  if (window.__tmPageHooks === "0.2.60") return;
+  window.__tmPageHooks = "0.2.60";
 
   function invokeReactClick(el, boundEl) {
     if (!el) return false;
@@ -412,49 +412,48 @@
     }
   }
 
-  function callSelectOnChange(startEl, gender) {
+  /**
+   * LATAM v2 é react-jsonschema-form. O Select `passenger-N_gender` tem
+   * onChange(option) → p(option.value), com options [{ options: [{ value:
+   * "Female", label: "Feminino" }, …] }]. Chama só ele, com a opção real —
+   * o mesmo que um clique. Nunca chamar onChange dos campos RJSF acima: um
+   * objeto/evento vira o valor do sexo e a LATAM mostra "Não foi possível
+   * carregar o formulário de passageiros".
+   */
+  function callSelectOnChange(startEl, gender, i) {
     if (!startEl) return false;
     const fiberKey = Object.keys(startEl).find(
       (k) =>
         k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
     );
     if (!fiberKey) return false;
-    const payloads =
-      gender === "F"
-        ? ["Female", "FEMALE", "F", "Feminino"]
-        : ["Male", "MALE", "M", "Masculino"];
+    const want = gender === "F" ? "female" : "male";
     let f = startEl[fiberKey];
-    for (let n = 0; n < 28 && f; n++) {
+    for (let n = 0; n < 20 && f; n++) {
       const props = f.memoizedProps || f.pendingProps;
-      if (props) {
-        const hint = `${props.name || ""} ${props.id || ""} ${props.value || ""}`;
-        const looksGender = /gender|sexo|Female|Male/i.test(hint);
-        for (const name of ["onChange", "onValueChange", "onSelect"]) {
-          if (typeof props[name] !== "function") continue;
-          if (!looksGender && name !== "onValueChange") continue;
-          for (const value of payloads) {
-            try {
-              props[name](value);
-            } catch {
-              /* ignore */
-            }
-            try {
-              props[name]({
-                target: { value },
-                currentTarget: startEl,
-                type: "change",
-                preventDefault() {},
-                stopPropagation() {},
-              });
-            } catch {
-              /* ignore */
-            }
-          }
+      if (
+        props &&
+        props.name === `passenger-${i}_gender` &&
+        Array.isArray(props.options) &&
+        typeof props.onChange === "function"
+      ) {
+        const flat = props.options.flatMap((o) =>
+          Array.isArray(o?.options) ? o.options : [o]
+        );
+        const option = flat.find(
+          (o) => String(o?.value || "").toLowerCase() === want
+        );
+        if (!option) return false;
+        try {
+          props.onChange(option);
+          return true;
+        } catch {
+          return false;
         }
       }
       f = f.return;
     }
-    return true;
+    return false;
   }
 
   async function pickV2Gender(gender, i) {
@@ -463,7 +462,7 @@
     const trigger = genderTrigger(i);
 
     if (valueEl) {
-      callSelectOnChange(valueEl, gender);
+      callSelectOnChange(valueEl, gender, i);
       await sleep(40);
       if (genderValueShows(i, gender)) return { ok: true, how: "fiber-onChange" };
     }
@@ -507,13 +506,12 @@
       if (genderValueShows(i, gender)) return { ok: true, how: "keyboard" };
     }
 
-    if (valueEl) callSelectOnChange(valueEl, gender);
+    if (valueEl) callSelectOnChange(valueEl, gender, i);
     const hidden =
       document.querySelector(`input[name="passenger-${i}_gender"]`) ||
       document.getElementById(`passenger-${i}_gender`);
     if (hidden) {
       setReactInputValue(hidden, gender === "F" ? "Female" : "Male");
-      setReactInputValue(hidden, gender === "F" ? "FEMALE" : "MALE");
     }
     await sleep(40);
     return { ok: genderValueShows(i, gender), how: genderValueShows(i, gender) ? "input" : "miss" };

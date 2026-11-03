@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles LATAM Safari",
-  "version": "0.2.59",
+  "version": "0.2.60",
   "description": "Versão Safari: preenche passageiros e pagamento LATAM com dados do TradeMiles. Use junto da extensão Chrome — são pacotes separados.",
   "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": [
