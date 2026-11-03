@@ -16,6 +16,55 @@ function fmtPts(n: number) {
   return n.toLocaleString("pt-BR");
 }
 
+const DIGITS = Array.from({ length: 30 }, (_, i) => i % 10);
+
+/** Número estilo roleta: cada dígito gira e para no valor, da esquerda para a direita. */
+function SlotNumber({ value }: { value: number }) {
+  const [spun, setSpun] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setSpun(true)));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const text = fmtPts(value);
+  let digitIdx = 0;
+
+  return (
+    <span aria-label={text} className="inline-flex">
+      {text.split("").map((ch, i) => {
+        if (!/\d/.test(ch)) {
+          return (
+            <span key={i} aria-hidden>
+              {ch}
+            </span>
+          );
+        }
+        const d = Number(ch);
+        const order = digitIdx++;
+        return (
+          <span key={i} aria-hidden className="relative inline-block overflow-hidden" style={{ height: "1.2em", lineHeight: "1.2em" }}>
+            <span className="invisible">{ch}</span>
+            <span
+              className="absolute left-0 top-0 flex flex-col transition-transform ease-out motion-reduce:transition-none"
+              style={{
+                transform: `translateY(-${(spun ? 20 + d : 0) * 1.2}em)`,
+                transitionDuration: `${900 + order * 120}ms`,
+              }}
+            >
+              {DIGITS.map((n, k) => (
+                <span key={k} style={{ height: "1.2em" }}>
+                  {n}
+                </span>
+              ))}
+            </span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 function WhatsAppBubble({ href, name }: { href: string; name: string }) {
   return (
     <a
@@ -90,14 +139,14 @@ export default function ParceirosClient() {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <div className="text-xs font-medium text-slate-500">Máximo em uma conta</div>
                   <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: navy }}>
-                    {loading ? "…" : fmtPts(data?.latam.maxAccount ?? 0)}
+                    {loading ? "…" : <SlotNumber value={data?.latam.maxAccount ?? 0} />}
                   </div>
                   <div className="text-xs text-slate-400">pontos</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                   <div className="text-xs font-medium text-slate-500">Estoque total</div>
                   <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: navy }}>
-                    {loading ? "…" : fmtPts(data?.latam.total ?? 0)}
+                    {loading ? "…" : <SlotNumber value={data?.latam.total ?? 0} />}
                   </div>
                   <div className="text-xs text-slate-400">pontos</div>
                 </div>
@@ -158,9 +207,6 @@ export default function ParceirosClient() {
           <footer className="border-t border-slate-200/80 bg-slate-50/90 px-7 py-4 text-center text-[11px] leading-relaxed text-slate-500 sm:px-9">
             <p>TradeMiles — uma empresa do grupo Vias Aéreas LTDA</p>
             <p className="mt-0.5 text-slate-400">CNPJ: 63.817.773/0001-85</p>
-            <a href="/login" className="mt-2 inline-block text-xs font-medium text-sky-700 hover:underline">
-              Área interna
-            </a>
           </footer>
         </section>
       </div>
