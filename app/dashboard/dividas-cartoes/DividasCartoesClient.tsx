@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, CreditCard, Plus } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, CreditCard, Pencil, Plus } from "lucide-react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { currentMonthISORecife, nextMonthISO, previousMonthISO } from "@/lib/bonus/monthlyBonus";
+import {
+  addMonthsISO as addMonthsISOLib,
+  calendarDaysBetween,
+  FIRST_DUE_FAR_DAYS,
+  firstDueIsFar,
+  recifeTodayISO,
+} from "@/lib/card-debt/dates";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 
@@ -20,6 +27,9 @@ type Row = {
   status: string;
   paidAt?: string | null;
   paidVia?: string | null;
+  firstDueDate?: string | null;
+  installmentCount?: number;
+  installmentAmountCents?: number;
 };
 
 type Totals = {
@@ -59,10 +69,28 @@ function parseReaisToCents(input: string) {
 }
 
 function addMonthsISO(iso: string, add: number) {
-  const [y, m, d] = String(iso || "").split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  const dt = new Date(Date.UTC(y, m - 1 + add, d));
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+  return addMonthsISOLib(iso, add);
+}
+
+function centsToReaisInput(cents: number) {
+  return ((cents || 0) / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function FarDueWarning({ firstDue }: { firstDue: string }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDue) || !firstDueIsFar(firstDue)) return null;
+  const days = calendarDaysBetween(recifeTodayISO(), firstDue);
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+      <div>
+        A 1ª parcela está a <b>{days} dias</b> ({dateBR(firstDue)}). Confira o{" "}
+        <b>ano</b> — o aviso aparece quando passa de {FIRST_DUE_FAR_DAYS} dias.
+      </div>
+    </div>
+  );
 }
 
 
@@ -93,6 +121,14 @@ export default function DividasCartoesClient() {
   const [creating, setCreating] = useState(false);
   const [showPix, setShowPix] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
+  const [editing, setEditing] = useState<{
+    id: string;
+    title: string;
+    amount: string;
+    count: string;
+    firstDue: string;
+  } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const visible = tab === "mes" ? rows : openRows;
   const listed = useMemo(
@@ -113,19 +149,39 @@ export default function DividasCartoesClient() {
   const newTotalCents = newInstallmentCents * newCountN;
 
   const groups = useMemo(() => {
-    const map = new Map<string, { purchaseId: string; title: string; addedAt: string | null; items: Row[] }>();
+    const map = new Map<
+      string,
+      {
+        purchaseId: string;
+        title: string;
+        addedAt: string | null;
+        firstDueDate: string | null;
+        items: Row[];
+      }
+    >();
     for (const r of listed) {
       const cur = map.get(r.purchaseId) || {
         purchaseId: r.purchaseId,
         title: r.title,
         addedAt: r.addedAt || null,
+        firstDueDate: r.firstDueDate || null,
         items: [],
       };
       cur.items.push(r);
+      if (r.firstDueDate) cur.firstDueDate = r.firstDueDate;
       map.set(r.purchaseId, cur);
     }
     return [...map.values()];
   }, [listed]);
+
+  const editInstallmentCents = useMemo(
+    () => (editing ? parseReaisToCents(editing.amount) : 0),
+    [editing]
+  );
+  const editCountN = useMemo(
+    () => (editing ? Math.max(0, Math.trunc(Number(editing.count) || 0)) : 0),
+    [editing]
+  );
 
   async function loadMonth(ym = month) {
     setLoading(true);
@@ -280,6 +336,72 @@ export default function DividasCartoesClient() {
     }
   }
 
+  async function openEdit(purchaseId: string, fallback?: Row) {
+    try {
+      const res = await fetch(`/api/dividas-cartoes/compras/${purchaseId}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Falha ao abrir a compra.");
+      setEditing({
+        id: json.data.id,
+        title: json.data.title || "",
+        amount: centsToReaisInput(json.data.amountCents || 0),
+        count: String(json.data.count || 1),
+        firstDue: json.data.firstDueDate || "",
+      });
+    } catch (e: any) {
+      if (fallback) {
+        setEditing({
+          id: purchaseId,
+          title: fallback.title,
+          amount: centsToReaisInput(fallback.installmentAmountCents || fallback.amountCents),
+          count: String(fallback.installmentCount || 1),
+          firstDue: fallback.firstDueDate || fallback.dueDate,
+        });
+        return;
+      }
+      alert(e?.message || "Erro");
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing || savingEdit) return;
+    if (!editing.title.trim()) return alert("Informe a descrição da compra.");
+    if (editInstallmentCents <= 0) return alert("Informe o valor da parcela.");
+    if (editCountN <= 0) return alert("Informe a quantidade de parcelas.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editing.firstDue)) return alert("Informe a data da 1ª parcela.");
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/dividas-cartoes/compras/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: editing.title,
+          amountCents: editInstallmentCents,
+          count: editCountN,
+          firstDueDate: editing.firstDue,
+        }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Erro ao salvar.");
+      const dueMonth = editing.firstDue.slice(0, 7);
+      setEditing(null);
+      if (/^\d{4}-\d{2}$/.test(dueMonth) && dueMonth !== month) {
+        setMonth(dueMonth);
+      } else {
+        await loadMonth(month);
+      }
+      await loadOpen();
+    } catch (e: any) {
+      alert(e?.message || "Erro");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   const monthOpenIds = rows.filter((r) => r.status === "OPEN").map((r) => r.id);
   const listedOpenIds = listed.filter((r) => r.status === "OPEN").map((r) => r.id);
   const allListedSelected = listedOpenIds.length > 0 && listedOpenIds.every((id) => selected[id]);
@@ -396,6 +518,7 @@ export default function DividasCartoesClient() {
                 </span>
               </div>
             ) : null}
+            <FarDueWarning firstDue={newDue} />
           </div>
         ) : null}
       </div>
@@ -542,9 +665,27 @@ export default function DividasCartoesClient() {
                     <div className="text-xs text-slate-500">
                       {g.addedAt ? `Adicionada em ${dateBR(g.addedAt)}` : null}
                       {g.addedAt ? " · " : null}
+                      {g.firstDueDate ? `1ª parcela ${dateBR(g.firstDueDate)}` : null}
+                      {g.firstDueDate ? " · " : null}
                       {openItems.length ? `${openItems.length} em aberto · ${money(groupCents)}` : "Tudo pago neste recorte"}
                     </div>
+                    {g.firstDueDate && firstDueIsFar(g.firstDueDate) ? (
+                      <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-amber-800">
+                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                        1ª parcela a mais de {FIRST_DUE_FAR_DAYS} dias — confira o ano
+                      </div>
+                    ) : null}
                   </div>
+                  {viewOnly ? null : (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:underline"
+                      onClick={() => void openEdit(g.purchaseId, g.items[0])}
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden />
+                      Editar
+                    </button>
+                  )}
                   {openItems.length && !viewOnly ? (
                     <button
                       type="button"
@@ -662,6 +803,9 @@ export default function DividasCartoesClient() {
                 <dd className="tabular-nums text-base font-bold text-slate-900">{money(newTotalCents)}</dd>
               </div>
             </dl>
+            <div className="mt-3">
+              <FarDueWarning firstDue={newDue} />
+            </div>
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
@@ -677,7 +821,100 @@ export default function DividasCartoesClient() {
                 onClick={() => void createPurchase()}
                 className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               >
-                {creating ? "Cadastrando..." : "Confirmar"}
+                {creating
+                  ? "Cadastrando..."
+                  : firstDueIsFar(newDue)
+                    ? "Confirmar mesmo assim"
+                    : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={() => !savingEdit && setEditing(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-bold tracking-tight text-slate-900">Editar compra</div>
+            <p className="mt-1 text-sm text-slate-500">
+              Ajuste o título, o valor, a quantidade e a data da 1ª parcela. As demais datas
+              acompanham mês a mês.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-medium text-slate-600">
+                Compra
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  value={editing.title}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs font-medium text-slate-600">
+                  Valor da parcela
+                  <input
+                    className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    value={editing.amount}
+                    onChange={(e) => setEditing({ ...editing, amount: e.target.value })}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Qtd de parcelas
+                  <input
+                    className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    value={editing.count}
+                    onChange={(e) => setEditing({ ...editing, count: e.target.value })}
+                  />
+                </label>
+              </div>
+              <label className="block text-xs font-medium text-slate-600">
+                Data da 1ª parcela
+                <input
+                  type="date"
+                  className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  value={editing.firstDue}
+                  onChange={(e) => setEditing({ ...editing, firstDue: e.target.value })}
+                />
+              </label>
+              {editCountN > 1 && /^\d{4}-\d{2}-\d{2}$/.test(editing.firstDue) ? (
+                <div className="text-xs text-slate-500">
+                  Última parcela: {dateBR(addMonthsISO(editing.firstDue, editCountN - 1))}
+                  {editInstallmentCents > 0 ? (
+                    <>
+                      {" "}
+                      · Total {money(editInstallmentCents * editCountN)}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              <FarDueWarning firstDue={editing.firstDue} />
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => setEditing(null)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => void saveEdit()}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {savingEdit
+                  ? "Salvando..."
+                  : firstDueIsFar(editing.firstDue)
+                    ? "Salvar mesmo assim"
+                    : "Salvar"}
               </button>
             </div>
           </div>

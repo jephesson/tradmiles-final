@@ -97,7 +97,21 @@ export async function GET(req: Request) {
 
   const monthRows = await prisma.cardDebtInstallment.findMany({
     where: { ...scope, dueDate: { gte: start, lt: end } },
-    include: { purchase: { select: { id: true, title: true, createdAt: true } } },
+    include: {
+      purchase: {
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          _count: { select: { installments: true } },
+          installments: {
+            select: { n: true, dueDate: true, amountCents: true },
+            orderBy: { n: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
     orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
   });
 
@@ -126,6 +140,11 @@ export async function GET(req: Request) {
         status: r.status,
         paidAt: r.paidAt,
         paidVia: r.paidVia,
+        firstDueDate: r.purchase.installments[0]
+          ? isoDate(r.purchase.installments[0].dueDate)
+          : isoDate(r.dueDate),
+        installmentCount: r.purchase._count.installments,
+        installmentAmountCents: r.purchase.installments[0]?.amountCents || r.amountCents,
       })),
       totals: {
         monthOpenCents: monthOpen.reduce((s, r) => s + r.amountCents, 0),

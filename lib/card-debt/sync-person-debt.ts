@@ -50,6 +50,17 @@ export async function addCardPurchaseToPersonDebt(opts: {
   });
 }
 
+export async function adjustCardLedgerTotal(opts: { creditorId: string; deltaCents: number }) {
+  if (!opts.deltaCents) return;
+  const existing = await getCardLedgerDebt(opts.creditorId);
+  if (!existing) return;
+  const next = Math.max(0, safeInt(existing.totalCents) + Math.round(opts.deltaCents));
+  await prisma.debt.update({
+    where: { id: existing.id },
+    data: { totalCents: next },
+  });
+}
+
 export async function abateCardPayOnPersonDebt(opts: {
   creditorId: string;
   creditorName?: string | null;

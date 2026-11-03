@@ -20,7 +20,20 @@ export async function GET() {
   const { creditor } = await resolveCardDebtCreditor(sess);
   const rows = await prisma.cardDebtInstallment.findMany({
     where: { ...installmentScope(sess, creditor?.id || null), status: "OPEN" },
-    include: { purchase: { select: { id: true, title: true } } },
+    include: {
+      purchase: {
+        select: {
+          id: true,
+          title: true,
+          _count: { select: { installments: true } },
+          installments: {
+            select: { n: true, dueDate: true, amountCents: true },
+            orderBy: { n: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
     orderBy: [{ dueDate: "asc" }, { purchase: { title: "asc" } }, { n: "asc" }],
   });
   return NextResponse.json({
@@ -33,6 +46,11 @@ export async function GET() {
       dueDate: isoDate(r.dueDate),
       amountCents: r.amountCents,
       status: r.status,
+      firstDueDate: r.purchase.installments[0]
+        ? isoDate(r.purchase.installments[0].dueDate)
+        : isoDate(r.dueDate),
+      installmentCount: r.purchase._count.installments,
+      installmentAmountCents: r.purchase.installments[0]?.amountCents || r.amountCents,
     })),
   });
 }
