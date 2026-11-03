@@ -3,8 +3,8 @@
  * __reactFiber — sem isso o sexo da LATAM abre e não seleciona.
  */
 (function () {
-  if (window.__tmPageHooks === "0.2.60") return;
-  window.__tmPageHooks = "0.2.60";
+  if (window.__tmPageHooks === "0.2.61") return;
+  window.__tmPageHooks = "0.2.61";
 
   function invokeReactClick(el, boundEl) {
     if (!el) return false;
@@ -517,6 +517,74 @@
     return { ok: genderValueShows(i, gender), how: genderValueShows(i, gender) ? "input" : "miss" };
   }
 
+  function normText(s) {
+    return String(s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Select genérico do v2 (react-jsonschema-form): nacionalidade, tipo de
+   * documento… Chama onChange(option) do Select `name`, igual a um clique.
+   */
+  async function pickV2Select(name, value, label) {
+    const el =
+      document.querySelector(`input[name="${name}"][type="hidden"]`) ||
+      document.querySelector(`input[name="${name}"]`) ||
+      document.getElementById(`${name}-value`);
+    if (!el) return { ok: false, how: "no-field" };
+    const fiberKey = Object.keys(el).find(
+      (k) =>
+        k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
+    );
+    if (!fiberKey) return { ok: false, how: "no-fiber" };
+    let f = el[fiberKey];
+    let props = null;
+    for (let n = 0; n < 25 && f; n++) {
+      const p = f.memoizedProps || f.pendingProps;
+      if (
+        p &&
+        p.name === name &&
+        Array.isArray(p.options) &&
+        typeof p.onChange === "function"
+      ) {
+        props = p;
+        break;
+      }
+      f = f.return;
+    }
+    if (!props) return { ok: false, how: "no-select" };
+    const flat = props.options.flatMap((o) =>
+      Array.isArray(o?.options) ? o.options : [o]
+    );
+    const wantValue = String(value || "").toLowerCase();
+    const wantLabel = normText(label);
+    const option =
+      (wantValue &&
+        flat.find((o) => String(o?.value || "").toLowerCase() === wantValue)) ||
+      (wantLabel && flat.find((o) => normText(o?.label) === wantLabel)) ||
+      null;
+    if (!option) return { ok: false, how: "no-option" };
+    if (String(props.value || "") === String(option.value)) {
+      return { ok: true, how: "already", value: option.value };
+    }
+    try {
+      props.onChange(option);
+    } catch {
+      return { ok: false, how: "throw" };
+    }
+    await sleep(150);
+    const hidden = document.querySelector(`input[name="${name}"][type="hidden"]`);
+    return {
+      ok: !hidden || hidden.value === String(option.value),
+      how: "onChange",
+      value: option.value,
+    };
+  }
+
   window.addEventListener("message", (ev) => {
     const data = ev.data;
     if (!data || data.source !== "trademiles") return;
@@ -564,6 +632,24 @@
             id: msgId,
             ok: !!result.ok,
             how: result.how,
+          },
+          "*"
+        );
+      });
+      return;
+    }
+
+    if (data.type === "pick-v2-select") {
+      const msgId = data.id;
+      pickV2Select(String(data.name || ""), data.value, data.label).then((result) => {
+        window.postMessage(
+          {
+            source: "trademiles-page",
+            type: "pick-v2-select-done",
+            id: msgId,
+            ok: !!result.ok,
+            how: result.how,
+            value: result.value ?? null,
           },
           "*"
         );

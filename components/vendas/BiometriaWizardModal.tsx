@@ -2096,6 +2096,8 @@ export default function BiometriaWizardModal({
                                   ) : (
                                     `CPF ${p.cpf}`
                                   )
+                                ) : p.nationality || p.nationalityLabel ? (
+                                  "sem CPF (estrangeiro)"
                                 ) : (
                                   "CPF —"
                                 )}
@@ -2104,6 +2106,24 @@ export default function BiometriaWizardModal({
                                 {" · "}
                                 {p.phone ? `Tel ${p.phone}` : "tel —"}
                               </div>
+                              {p.nationality ||
+                              p.nationalityLabel ||
+                              p.documentNumber ? (
+                                <div className="mt-0.5 text-slate-500">
+                                  {[
+                                    p.nationalityLabel ||
+                                      p.nationality ||
+                                      "Brasil",
+                                    p.documentNumber
+                                      ? `${
+                                          p.documentType === "ID"
+                                            ? "Identidade"
+                                            : "Passaporte"
+                                        } ${p.documentNumber}`
+                                      : "documento —",
+                                  ].join(" · ")}
+                                </div>
+                              ) : null}
                               {cpfBad ? (
                                 <div className="mt-1 text-[10px] font-semibold text-amber-800">
                                   CPF inválido — confira os dígitos antes de
@@ -2113,7 +2133,9 @@ export default function BiometriaWizardModal({
                               {cpfGen && !cpfBad ? (
                                 <div className="mt-1 text-[10px] font-semibold text-sky-800">
                                   CPF gerado automaticamente (não veio no
-                                  texto). Cliente altera no check-in.
+                                  texto). Cliente altera no check-in. Em voo
+                                  internacional o CPF fica vazio — vai só o
+                                  documento.
                                 </div>
                               ) : null}
                               {missingBirth ? (

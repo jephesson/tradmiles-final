@@ -633,25 +633,28 @@ async function typeChars(el, value, { clear = true, delay = 40 } = {}) {
   const proto = HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
 
-  let cur = "";
   for (const ch of str) {
-    cur += ch;
     el.dispatchEvent(
       new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true })
     );
     el.dispatchEvent(
       new KeyboardEvent("keypress", { key: ch, bubbles: true, cancelable: true })
     );
+    // Digita em cima do valor JÁ mascarado ("01/08/202" + "5"). Montar a
+    // string crua ("01082025") deixa a máscara presa no penúltimo valor e,
+    // no próximo re-render, o último dígito some.
+    const prev = String(el.value || "");
+    const next = prev + ch;
     const tracker = el._valueTracker;
     if (tracker) {
       try {
-        tracker.setValue(cur.slice(0, -1));
+        tracker.setValue(prev);
       } catch {
         /* ignore */
       }
     }
-    if (setter) setter.call(el, cur);
-    else el.value = cur;
+    if (setter) setter.call(el, next);
+    else el.value = next;
     el.dispatchEvent(
       new InputEvent("input", {
         bubbles: true,
@@ -819,6 +822,27 @@ function findPassengerDobInput(passengerIndex, root) {
  * digitar 8 dígitos; type=date → YYYY-MM-DD.
  * opts.expand=false no formulário com "Confirmar dados" (evita loop abrir/fechar).
  */
+/**
+ * Máscara do v2 (DD/MM/AAAA, com calendário no bebê) só grava no formData no
+ * onBlur do React — que escuta focusout, não "blur". Sem isso, o próximo
+ * re-render (ex.: Sexo) devolve o valor parcial ("01/08/202").
+ */
+async function birthDateCommitted(el) {
+  if (!birthFieldHasDate(el)) return false;
+  try {
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  } catch {
+    /* ignore */
+  }
+  try {
+    el.blur?.();
+  } catch {
+    /* ignore */
+  }
+  await sleep(250);
+  return birthFieldHasDate(el);
+}
+
 async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   const expand = opts.expand !== false;
   const parts = birthParts(pax);
@@ -857,7 +881,10 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
 
   if (birthFieldHasDate(el)) {
     const cur = String(el.value || "").replace(/\D/g, "");
-    if (cur === digits || el.value === iso) return 1;
+    if (cur === digits || el.value === iso) {
+      await birthDateCommitted(el);
+      return 1;
+    }
   }
 
   try {
@@ -879,24 +906,24 @@ async function fillBirthDate(root, pax, passengerIndex, opts = {}) {
   // Máscara texto (formulário antigo / pagamentos)
   await typeChars(el, digits, { clear: true, delay: 45 });
   await sleep(160);
-  if (birthFieldHasDate(el)) return 1;
+  if (await birthDateCommitted(el)) return 1;
 
   await typeChars(el, digits, { clear: true, delay: 70 });
   await sleep(160);
-  if (birthFieldHasDate(el)) return 1;
+  if (await birthDateCommitted(el)) return 1;
 
   const dashed = `${parts.day}-${parts.month}-${parts.year}`;
   await typeChars(el, dashed, { clear: true, delay: 35 });
   await sleep(120);
-  if (birthFieldHasDate(el)) return 1;
+  if (await birthDateCommitted(el)) return 1;
 
   await typeChars(el, spaced, { clear: true, delay: 35 });
   await sleep(120);
-  if (birthFieldHasDate(el)) return 1;
+  if (await birthDateCommitted(el)) return 1;
 
   setNativeValue(el, pretty);
   await sleep(80);
-  if (birthFieldHasDate(el)) return 1;
+  if (await birthDateCommitted(el)) return 1;
 
   console.warn("[TradeMiles] Data de nascimento não grudou:", {
     value: el.value,
@@ -3678,6 +3705,144 @@ async function fillOnePassengerConfirmForm(pax, idx, opts = {}) {
   return { fields: n, root, activeIdx };
 }
 
+/** Select do v2 (nacionalidade, tipo de documento) via mundo MAIN (page-hooks.js). */
+function pickV2SelectInPage(name, value, label) {
+  const id = `tm-s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return new Promise((resolve) => {
+    const onMsg = (ev) => {
+      const data = ev.data;
+      if (
+        !data ||
+        data.source !== "trademiles-page" ||
+        data.type !== "pick-v2-select-done" ||
+        data.id !== id
+      ) {
+        return;
+      }
+      window.removeEventListener("message", onMsg);
+      resolve({ ok: !!data.ok, how: data.how || null });
+    };
+    window.addEventListener("message", onMsg);
+    window.postMessage(
+      {
+        source: "trademiles",
+        type: "pick-v2-select",
+        id,
+        name,
+        value: value == null ? "" : String(value),
+        label: label == null ? "" : String(label),
+      },
+      "*"
+    );
+    setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      resolve({ ok: false, how: "timeout" });
+    }, 3000);
+  });
+}
+
+/** Criança/bebê (< 12 anos hoje) pelo nascimento do pax. */
+function paxIsMinor(pax) {
+  const iso =
+    String(pax?.birthDate || "").match(/^(\d{4})-(\d{2})-(\d{2})/) ||
+    null;
+  const br = iso
+    ? null
+    : String(pax?.birthDateBR || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const y = iso ? Number(iso[1]) : br ? Number(br[3]) : 0;
+  const m = iso ? Number(iso[2]) : br ? Number(br[2]) : 0;
+  const d = iso ? Number(iso[3]) : br ? Number(br[1]) : 0;
+  if (!y) return false;
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) {
+    age--;
+  }
+  return age < 12;
+}
+
+/**
+ * Estrangeiro: escolhe a nacionalidade (abre Tipo/Nº de documento).
+ * Internacional ou estrangeiro: Passaporte/Cédula + número, se veio no texto.
+ * Sem nacionalidade no texto = brasileiro — não mexe (fluxo de sempre, com CPF).
+ */
+async function fillTravelDocumentV2(i, pax) {
+  let n = 0;
+  const nat = String(pax.nationality || "").toUpperCase();
+  if (nat && nat !== "BR") {
+    const r = await pickV2SelectInPage(
+      `passenger-${i}_nationality`,
+      nat,
+      pax.nationalityLabel
+    );
+    console.info("[TradeMiles] Nacionalidade pax", i, "→", nat, r);
+    if (r.ok) n++;
+    await sleep(600);
+  } else if (!nat && pax.nationalityLabel) {
+    console.warn(
+      "[TradeMiles] Estrangeiro sem país reconhecido — escolha a nacionalidade à mão",
+      pax.nationalityLabel
+    );
+  }
+
+  const numberSel = `input[name="passenger-${i}_documentNumber"]`;
+  // No nacional/brasileiro o input existe escondido — só conta se estiver na tela
+  const numberVisible = () => {
+    const el = document.querySelector(numberSel);
+    return Boolean(el && isVisible(el));
+  };
+  if (!numberVisible()) {
+    if (pax.documentNumber) {
+      console.info("[TradeMiles] LATAM não pediu Nº de documento pax", i);
+    }
+    return n;
+  }
+  // Criança/bebê no nacional: LATAM exige Nº de documento (CPF opcional) —
+  // repete o CPF, como no formulário de pagamentos.
+  const cpfDigits = String(pax.cpf || "").replace(/\D/g, "");
+  const docNumber =
+    pax.documentNumber || (paxIsMinor(pax) && cpfDigits ? cpfDigits : null);
+  if (!docNumber) {
+    console.warn(
+      "[TradeMiles] LATAM pede Nº de documento pax",
+      i,
+      "mas não veio passaporte/identidade no texto"
+    );
+    return n;
+  }
+  const docType = pax.documentNumber ? pax.documentType : "ID";
+
+  const type = docType === "ID" ? "DNI" : "PASAPORTE";
+  const t = await pickV2SelectInPage(
+    `passenger-${i}_documentType`,
+    type,
+    docType === "ID" ? "Cédula de Identidade" : "Passaporte"
+  );
+  console.info("[TradeMiles] Tipo de documento pax", i, "→", type, t);
+  if (t.ok) n++;
+  await sleep(350);
+
+  const el = document.querySelector(numberSel);
+  if (el) {
+    try {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    } catch {
+      el.scrollIntoView?.({ block: "center" });
+    }
+    await sleep(200);
+    const want = String(docNumber).toUpperCase();
+    if (String(el.value || "").toUpperCase() !== want) {
+      if (!setNativeValue(el, want, { soft: true })) {
+        await typeChars(el, want, { clear: true, delay: 30 });
+      }
+    }
+    await sleep(150);
+    if (String(el.value || "").toUpperCase() === want) n++;
+    else console.warn("[TradeMiles] Nº de documento não grudou pax", i, el.value);
+  }
+  return n;
+}
+
 /** Formulário /v2/passageiros — abre Adulto N se precisar, preenche com calma. */
 async function fillOnePassengerAccordion(i, pax) {
   let n = 0;
@@ -3739,8 +3904,23 @@ async function fillOnePassengerAccordion(i, pax) {
   n += fillInSection(root, pax, "adult");
   await sleep(350);
 
-  // CPF por último entre docs — nunca limpar antes
-  n += await fillCpfForPax(i, pax);
+  // Nacionalidade antes do CPF: trocar o país re-renderiza os campos de documento
+  n += await fillTravelDocumentV2(i, pax);
+  await sleep(300);
+
+  // Internacional ou estrangeiro (LATAM mostra Nº de documento): CPF é opcional.
+  // CPF gerado só existia para o nacional — aqui fica vazio.
+  const docField = document.querySelector(
+    `input[name="passenger-${i}_documentNumber"]`
+  );
+  const cpfOptional = Boolean(docField && isVisible(docField));
+  // Criança/bebê mantém o CPF (gerado ou não) — é ele que vai no Nº de documento
+  if (cpfOptional && pax.cpfGenerated && !paxIsMinor(pax)) {
+    console.info("[TradeMiles] CPF opcional (documento de viagem) — não usa CPF gerado pax", i);
+  } else {
+    // CPF por último entre docs — nunca limpar antes
+    n += await fillCpfForPax(i, pax);
+  }
   await sleep(400);
 
   n += await fillBirthDate(root, pax, i, { expand: false });
@@ -4117,6 +4297,26 @@ async function fillAllAccordion(passengers) {
     total += await fillContactFields(titularEmail, titularPhone, {
       passengerIndex: 0,
     });
+  }
+
+  // Conferência final da data: o contato re-renderiza o formulário e a máscara
+  // do bebê (com calendário) pode voltar a mostrar "01/08/202". Redigita só
+  // quem não bate com o esperado — nada é preenchido depois disto.
+  await sleep(400);
+  for (let i = 0; i < max; i++) {
+    const parts = birthParts(enriched[i]);
+    if (!parts) continue;
+    const want = `${parts.day}${parts.month}${parts.year}`;
+    for (let t = 0; t < 2; t++) {
+      const dobEl = findPassengerDobInput(i, document.body);
+      if (!dobEl || dobEl.type === "date") break;
+      const got = String(dobEl.value || "").replace(/\D/g, "");
+      if (got === want) break;
+      console.warn("[TradeMiles] Data pax", i, "na tela:", dobEl.value, "— redigitando");
+      await typeChars(dobEl, want, { clear: true, delay: 45 });
+      await birthDateCommitted(dobEl);
+      await sleep(300);
+    }
   }
 
   await dismissSavedPassengersPopover();

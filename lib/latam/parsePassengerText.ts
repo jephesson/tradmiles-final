@@ -1,3 +1,9 @@
+import {
+  type TravelDocType,
+  extractTravelDocument,
+  formatTravelDocumentLines,
+  isForeignPassenger,
+} from "@/lib/latam/travelDocument";
 import { onlyDigits, isValidCpf } from "@/lib/cpf";
 
 export type LatamPaxKind = "ADT" | "CHD" | "INF";
@@ -17,6 +23,12 @@ export type ParsedPassenger = {
   email: string | null;
   phone: string | null;
   gender: "M" | "F" | null;
+  /** ISO-2 do país; ausente/null = brasileiro (fluxo de sempre, com CPF). */
+  nationality?: string | null;
+  nationalityLabel?: string | null;
+  /** Passaporte ou identidade — LATAM pede em voo internacional e para estrangeiro. */
+  documentType?: TravelDocType | null;
+  documentNumber?: string | null;
   raw: string;
 };
 
@@ -44,8 +56,11 @@ const LABEL_KEYS = [
   "último\\s*nome",
   "sobrenome",
   "nascimento",
+  "nacionalidade",
+  "nationality",
   "passaporte",
   "passport",
+  "pasaporte",
   "documento",
   "telefone",
   "celular",
@@ -72,6 +87,7 @@ const LABEL_KEYS = [
   "doc",
   "idt",
   "cie",
+  "dni",
   "rg",
   "dn",
   "pax",
@@ -937,7 +953,7 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
     }
 
     // Linha de identidade/passaporte sem rótulo capturado — não vira telefone nem nome
-    if (/^\s*(idt|identidade|rg|cie|passaporte|passport|rne)\b/i.test(line))
+    if (/^\s*(idt|identidade|rg|cie|dni|passaporte|passport|pasaporte|rne|nacionalidade|nationality|estrangeir[oa])\b/i.test(line))
       continue;
 
     const emailM = line.match(EMAIL_RE);
@@ -1060,7 +1076,7 @@ function extractFloatingContacts(text: string): {
   // Remove linhas de Idt/RG para não virarem "telefone"
   const cleaned = String(text || "")
     .split(/\n+/)
-    .filter((ln) => !/^\s*(idt|identidade|rg|cie|passaporte|passport|rne)\b/i.test(ln))
+    .filter((ln) => !/^\s*(idt|identidade|rg|cie|dni|passaporte|passport|pasaporte|rne|nacionalidade|nationality|estrangeir[oa])\b/i.test(ln))
     .join("\n");
 
   const emails = Array.from(
@@ -1097,7 +1113,7 @@ function lineLooksLikeName(trimmed: string): boolean {
   if (/^\s*(comprar\s+voos|mais\s+econ[oô]mico)\b/i.test(trimmed)) return false;
   // Linha rotulada (Data Nascimento:, Documento:, Sexo:, etc.) nunca é nome de pax
   if (
-    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|passaporte|passport|rne|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero|tipo)\b/i.test(
+    /^\s*(nome|sobrenome|documento|doc|cpf|cnpj|rg|idt|identidade|dni|passaporte|passport|pasaporte|rne|nacionalidade|nationality|estrangeir[oa]|data\s+(?:de\s+)?nasc|nasc(?:imento)?|dn|e-?mail|email|tel|cel|fone|zap|whats|passageira|passageiro|pax(?:\s+do\s+beb[eê])?|beb[eê]|contato|sexo|genero|gênero|tipo)\b/i.test(
       trimmed
     )
   ) {
@@ -1456,6 +1472,18 @@ export function collapseDuplicatePassengers(
   return unique;
 }
 
+/** Nacionalidade + passaporte/identidade lidos do bloco do passageiro. */
+export function withTravelDocument<T extends ParsedPassenger>(p: T, source: string): T {
+  const doc = extractTravelDocument(source);
+  return {
+    ...p,
+    nationality: p.nationality ?? doc.nationality,
+    nationalityLabel: p.nationalityLabel ?? doc.nationalityLabel,
+    documentType: p.documentType ?? doc.documentType,
+    documentNumber: p.documentNumber ?? doc.documentNumber,
+  };
+}
+
 export function formatParsedPassengerText(
   passengers: ParsedPassenger[]
 ): string {
@@ -1471,6 +1499,7 @@ export function formatParsedPassengerText(
         name,
         p.birthDateBR ? `Nasc ${p.birthDateBR}` : "",
         p.cpf ? `CPF ${p.cpf}` : "",
+        ...formatTravelDocumentLines(p),
         p.email || "",
         p.phone || "",
       ]
@@ -1508,7 +1537,8 @@ export function parsePassengerText(
       return false;
     });
 
-  const withCpfs: ParsedPassenger[] = parsed.map((p) => {
+  const withCpfs: ParsedPassenger[] = parsed.map((p0) => {
+    const p = withTravelDocument(p0, p0.raw);
     const meta = withCpfMeta(p);
     if (meta.cpf) return meta;
     const fromText =
@@ -1519,6 +1549,8 @@ export function parsePassengerText(
     if (fromText) {
       return withCpfMeta({ ...meta, cpf: fromText });
     }
+    // Estrangeiro viaja com passaporte/identidade — não inventa CPF
+    if (isForeignPassenger(meta)) return meta;
     // Sem CPF (RG/passaporte) → gera válido; cliente altera no check-in
     const generated = generateValidCpf();
     return {

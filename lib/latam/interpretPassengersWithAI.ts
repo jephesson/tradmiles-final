@@ -1,4 +1,5 @@
 import type { ParsedPassenger, TitularContact } from "@/lib/latam/parsePassengerText";
+import { resolveNationality } from "@/lib/latam/travelDocument";
 import {
   collapseDuplicatePassengers,
   extractCpfsFromSource,
@@ -21,6 +22,9 @@ Responda SOMENTE JSON válido:
       "gender": "M" | "F" | null,
       "email": string | null,
       "phone": string | null,
+      "nationality": string | null,
+      "documentType": "PASSPORT" | "ID" | null,
+      "documentNumber": string | null,
       "isInfant": boolean
     }
   ]
@@ -29,7 +33,8 @@ Regras:
 - fullName = nome completo como na passagem (sem rótulos tipo "Pax", "bebê", "do bebê").
 - NÃO coloque F, M, Fem, Masc, Feminino ou Masculino no nome. Isso é sexo: use o campo gender (M ou F). Ex.: "Yreza Cruz 02/03/2000 F 07372135583" → fullName "Yreza Cruz", gender "F".
 - birthDate é OBRIGATÓRIO quando aparecer no texto (DD/MM/YYYY ou YYYY-MM-DD).
-- Linhas de Passaporte / Passport / RG / Idt NÃO são passageiros — ignore o número e associe ao nome anterior.
+- Linhas de Passaporte / Passport / RG / Idt / DNI NÃO são passageiros — associe ao nome anterior: documentType "PASSPORT" (passaporte) ou "ID" (RG, identidade, DNI, cédula) e documentNumber só com letras e números.
+- nationality = código ISO de 2 letras do país (ex.: "DE", "AR", "US") só quando o texto disser a nacionalidade ou que é estrangeiro de tal país. Sem menção → null (brasileiro). Nunca deduza pelo nome.
 - cpf é STRING com 11 dígitos, inclusive zeros à esquerda (ex.: "03323904206"). Nunca envie CPF como número JSON (o zero some). null só se realmente não houver.
 - Inclua bebês (isInfant=true). Não invente passageiros.
 - Ordem da lista: adultos (12+), depois crianças (2–11), depois bebês (<2).
@@ -137,9 +142,23 @@ function mapAiPassenger(
   const phoneDig = onlyDigits(String(raw?.phone || ""));
   const phone = phoneDig.length >= 10 ? phoneDig : null;
 
+  const nat = resolveNationality(raw?.nationality);
+  const nationality = nat.iso && nat.iso !== "BR" ? nat.iso : null;
+  const nationalityLabel = nationality ? nat.label : null;
+  const docTypeRaw = String(raw?.documentType || "").toUpperCase();
+  const documentNumber =
+    String(raw?.documentNumber || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "") || null;
+  const documentType =
+    documentNumber && (docTypeRaw === "PASSPORT" || docTypeRaw === "ID")
+      ? (docTypeRaw as "PASSPORT" | "ID")
+      : null;
+
   let cpfFinal = cpf || null;
   let cpfGenerated = false;
-  if (!cpfFinal) {
+  // Estrangeiro viaja com passaporte/identidade — não inventa CPF
+  if (!cpfFinal && !nationality) {
     cpfFinal = generateValidCpf();
     cpfGenerated = true;
   }
@@ -156,6 +175,10 @@ function mapAiPassenger(
     email,
     phone,
     gender,
+    nationality,
+    nationalityLabel,
+    documentType: documentNumber ? documentType : null,
+    documentNumber: documentType ? documentNumber : null,
     raw: block.trim(),
   };
 }
@@ -267,7 +290,9 @@ function fillCpfFromRegex(
   return ai.map((p) => {
     const key = nameKey(p);
     const byName = withCpf.find((r) => nameKey(r) === key);
-    const match = byName || (withCpf.length === 1 ? withCpf[0] : null);
+    // Estrangeiro sem CPF não herda o CPF de outro passageiro
+    const match =
+      byName || (withCpf.length === 1 && !p.nationality ? withCpf[0] : null);
     if (match?.cpf) {
       return {
         ...p,
@@ -320,6 +345,10 @@ export async function parsePassengerTextWithFallback(
             ...p,
             email: p.email || same?.email || titular?.email || null,
             phone: p.phone || same?.phone || titular?.phone || null,
+            nationality: p.nationality || same?.nationality || null,
+            nationalityLabel: p.nationalityLabel || same?.nationalityLabel || null,
+            documentType: p.documentNumber ? p.documentType : same?.documentType || null,
+            documentNumber: p.documentNumber || same?.documentNumber || null,
           };
         })
       );
