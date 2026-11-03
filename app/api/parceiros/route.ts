@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TEAM = "@vias_aereas";
-const MIN_LATAM_PTS = 2000;
+/** Só entram contas acima deste saldo. O total público é metade do estoque filtrado. */
+const MIN_LATAM_PTS = 25_000;
+const PUBLIC_STOCK_SHARE = 0.5;
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
 const WA_TEXT =
   "Olá! Vi a página de parceiros da Vias Aéreas e quero falar sobre pontos LATAM.";
@@ -30,7 +32,7 @@ export async function GET() {
       prisma.cedente.aggregate({
         where: {
           status: "APPROVED",
-          pontosLatam: { gte: MIN_LATAM_PTS },
+          pontosLatam: { gt: MIN_LATAM_PTS },
           owner: { team: TEAM },
         },
         _sum: { pontosLatam: true },
@@ -63,7 +65,7 @@ export async function GET() {
         data: {
           latam: {
             maxAccount: stock._max.pontosLatam ?? 0,
-            total: stock._sum.pontosLatam ?? 0,
+            total: Math.round((stock._sum.pontosLatam ?? 0) * PUBLIC_STOCK_SHARE),
             minAccountThreshold: MIN_LATAM_PTS,
           },
           online,

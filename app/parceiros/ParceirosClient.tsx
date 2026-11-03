@@ -84,7 +84,7 @@ export default function ParceirosClient() {
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">LATAM Pass</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Contas com {fmtPts(data?.latam.minAccountThreshold ?? 2000)} pontos ou mais.
+                Contas com mais de {fmtPts(data?.latam.minAccountThreshold ?? 25000)} pontos.
               </p>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
