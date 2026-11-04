@@ -8,6 +8,7 @@ import {
   Package,
   Plus,
   Receipt,
+  RotateCcw,
   Save,
   Search,
   Sparkles,
@@ -1132,6 +1133,30 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     }
   }
 
+  async function reopenPurchase() {
+    if (!draft || draft.status !== "CLOSED") return;
+    const okConfirm = window.confirm(
+      "Voltar esta compra para OPEN?\n\nOs pontos desta compra saem do saldo do cedente, a comissão pendente é cancelada e os clubes gerados por ela são removidos. Depois é só liberar de novo."
+    );
+    if (!okConfirm) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const out = await api<{ ok: true; compra: any }>(`/api/compras/${draft.id}/reabrir`, {
+        method: "POST",
+      });
+      const ced = out.compra?.cedente || cedenteSel;
+      if (out.compra?.cedente) setCedenteSel(out.compra.cedente);
+      const p2 = normalizeDraft(out.compra, ced);
+      setDraft({ ...p2, ...computeTotals(p2) });
+      setBaselineDeltas(null);
+    } catch (e: any) {
+      setError(e?.message || "Falha ao voltar para OPEN.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function updateDraft(patch: Partial<PurchaseDraft>) {
     if (!draft) return;
     const next = normalizeDraft({ ...draft, ...patch }, cedenteSel);
@@ -1663,6 +1688,7 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
             itemsLocked={itemsLocked}
             onSave={() => void saveDraft(draft)}
             onRelease={releasePurchase}
+            onReopen={reopenPurchase}
           />
         )}
       </div>
@@ -2764,8 +2790,9 @@ function DraftActions(props: {
   itemsLocked: boolean;
   onSave: () => void;
   onRelease: () => void;
+  onReopen: () => void;
 }) {
-  const { draft, saving, isReleased, itemsLocked, onSave, onRelease } = props;
+  const { draft, saving, isReleased, itemsLocked, onSave, onRelease, onReopen } = props;
 
   const ptsMilheiro = pointsForMilheiro(draft);
   const releaseDisabled =
@@ -2786,6 +2813,13 @@ function DraftActions(props: {
         )}
         Salvar agora
       </button>
+
+      {isReleased && !draft.finalizedAt ? (
+        <button type="button" onClick={onReopen} disabled={saving} className={BTN_SECONDARY}>
+          <RotateCcw className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
+          Voltar para OPEN
+        </button>
+      ) : null}
 
       <button type="button" onClick={onRelease} disabled={releaseDisabled} className={BTN_EMERALD}>
         <Unlock className="h-4 w-4" strokeWidth={2} aria-hidden />
