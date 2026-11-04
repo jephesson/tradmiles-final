@@ -8,8 +8,6 @@ import {
 } from "@/lib/vendas/cancelFine";
 import { triggerEmployeePayoutAutoComputeDates } from "@/lib/payouts/autoCompute";
 import {
-  createPurchaseFromReturnedSale,
-  finalizeSourcePurchaseAsOfPaidDay,
   paidCommissionDatesForSale,
   uniqueRecifeDates,
 } from "@/lib/purchases/returnAfterPaidCommission";
@@ -121,20 +119,9 @@ export async function POST(req: Request) {
       dates: commissionDates,
     });
     const commissionAlreadyPaid = paidDates.length > 0;
-    const asOfIso = [...paidDates].sort().pop() || uniqueRecifeDates([venda.date])[0];
 
-    if (commissionAlreadyPaid && venda.purchaseId) {
-      await finalizeSourcePurchaseAsOfPaidDay({
-        team: session.team,
-        actorId: session.id,
-        actorLogin: session.login,
-        purchaseId: venda.purchaseId,
-        asOfIso,
-        includeCanceledSaleId: venda.id,
-      });
-    }
-
-    // 1) estornar pontos (sempre)
+    // 1) estornar pontos (sempre). Ficam na compra de origem: a venda cancelada sai da conta
+    //    dela, mesmo com a comissão do funcionário já paga.
     await restorePoints({
       cedenteId: venda.cedenteId,
       program: venda.program,
@@ -285,26 +272,6 @@ export async function POST(req: Request) {
       },
     });
 
-    let returnPurchase: { id: string; numero: string; remainingCostCents: number; points: number } | null =
-      null;
-    if (commissionAlreadyPaid) {
-      returnPurchase = await createPurchaseFromReturnedSale({
-        team: session.team,
-        actorId: session.id,
-        actorLogin: session.login,
-        sale: {
-          id: venda.id,
-          numero: venda.numero,
-          locator: venda.locator,
-          points: venda.points,
-          program: venda.program,
-          milheiroCents: venda.milheiroCents,
-          cedenteId: venda.cedenteId,
-          purchaseId: venda.purchaseId,
-        },
-      });
-    }
-
     const datesToRecompute = commissionAlreadyPaid
       ? commissionDates.filter((d) => !paidDates.includes(d))
       : commissionDates;
@@ -325,7 +292,6 @@ export async function POST(req: Request) {
       cancelRefundDebtId,
       wasPaid,
       commissionAlreadyPaid,
-      returnPurchase,
       payoutAutoCompute,
     });
   } catch (e: any) {

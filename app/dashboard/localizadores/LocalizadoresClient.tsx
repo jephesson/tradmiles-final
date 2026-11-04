@@ -350,13 +350,8 @@ export default function LocalizadoresClient() {
         )
       );
       setCancelTarget(null);
-      if (json?.commissionAlreadyPaid || json?.returnPurchase?.numero) {
-        const bits = ["Cancelada."];
-        if (json.commissionAlreadyPaid) bits.push("Comissão já paga do funcionário foi mantida.");
-        if (json.returnPurchase?.numero) {
-          bits.push(`Compra nova ${json.returnPurchase.numero} com os pontos devolvidos.`);
-        }
-        alert(bits.join("\n"));
+      if (json?.commissionAlreadyPaid) {
+        alert("Cancelada.\nComissão já paga do funcionário foi mantida.");
       }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Falha ao cancelar.");

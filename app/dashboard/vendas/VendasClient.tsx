@@ -1227,7 +1227,6 @@ export default function VendasClient() {
         fineCents?: number;
         refundCents?: number;
         commissionAlreadyPaid?: boolean;
-        returnPurchase?: { numero?: string; points?: number } | null;
       }>("/api/vendas/cancelar", {
         method: "POST",
         body: JSON.stringify({
@@ -1278,11 +1277,6 @@ export default function VendasClient() {
       }
       if (out.commissionAlreadyPaid) {
         parts.push("Comissão já paga do funcionário foi mantida.");
-      }
-      if (out.returnPurchase?.numero) {
-        parts.push(
-          `Compra nova ${out.returnPurchase.numero} com os pontos devolvidos.`
-        );
       }
       if (parts.length > 1) alert(parts.join("\n"));
     } catch (error: unknown) {
