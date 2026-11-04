@@ -329,9 +329,38 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
   let inbound = parseFlightDate(String(data.inbound || data.returnDate || "")) || seed?.inbound || "";
   if (outbound && !plausibleFlightDate(outbound)) outbound = seed?.outbound || outbound;
   if (inbound && !plausibleFlightDate(inbound)) inbound = seed?.inbound || inbound;
+  // Trechos da tabela: a rota sai da IDA (a VOLTA só dá a data de volta).
+  const legs = (Array.isArray(data.legs) ? data.legs : [])
+    .map((l: any) => ({
+      volta: /VOLTA|RETURN|INBOUND/i.test(String(l?.direction || "")),
+      from: toIata(String(l?.from || "")),
+      to: toIata(String(l?.to || "")),
+      date: parseFlightDate(String(l?.date || "")) || "",
+    }))
+    .filter((l) => l.from && l.to);
+  const idaLegs = legs.filter((l) => !l.volta);
+  const voltaLegs = legs.filter((l) => l.volta);
+  if (idaLegs.length) {
+    origin = idaLegs[0].from;
+    destination = idaLegs[idaLegs.length - 1].to;
+    if (idaLegs[0].date && plausibleFlightDate(idaLegs[0].date)) outbound = idaLegs[0].date;
+  }
+  if (voltaLegs.length && voltaLegs[0].date && plausibleFlightDate(voltaLegs[0].date)) {
+    inbound = voltaLegs[0].date;
+  }
+  // Ida e volta com destino = origem: o destino é onde a volta começa.
+  if (origin && origin === destination) {
+    destination =
+      (voltaLegs[0]?.from !== origin && voltaLegs[0]?.from) ||
+      (seed?.destination !== origin && seed?.destination) ||
+      "";
+  }
   const tripRaw = String(data.trip || "").toUpperCase();
   const trip: "IDA" | "IDA_VOLTA" =
-    tripRaw.includes("VOLTA") || tripRaw === "RT" || Boolean(inbound && inbound !== outbound)
+    tripRaw.includes("VOLTA") ||
+    tripRaw === "RT" ||
+    voltaLegs.length > 0 ||
+    Boolean(inbound && inbound !== outbound)
       ? "IDA_VOLTA"
       : "IDA";
   const list = Array.isArray(data.passengers) ? data.passengers : [];
@@ -478,6 +507,7 @@ Regras:
 - Ignore comprovantes de Pix, recibos ("declaro ter recebido"), links e papo — não são passageiros.
 - Cotação em texto da agência: "✈️ IDA – LATAM | 20/12 📍 Porto Alegre (POA) ➝ Teresina (THE)" → use os IATA entre parênteses; "VOLTA" é o inbound.
 - origin/destination são IATA do trecho (GRU, XAP…). Não use cidade genérica SAO se o print mostrar GRU.
+- Ida e volta: destination é o destino da IDA (onde a volta começa), nunca igual à origin.
 - outbound = data da IDA do voo, nunca a data de nascimento.
 - inbound só se houver volta.
 - paxType: INF < 2 na ida, CHD 2–11, ADT 12+.
@@ -520,7 +550,7 @@ export async function parseTelegramEmissionFromImages(
 
 Tipos comuns:
 1) CARD DE BUSCA LATAM PASS (amarelo/branco, ou print do site "Combine suas milhas + dinheiro"): origem e destino, horários (11:50 MOC → 13:20 GRU), datas tipo "seg., 26 out", milhas por passageiro (ex. 8.924 milhas + BRL 35,39), Light/Plus. NÃO é ficha de passageiro.
-2) TABELA DE SISTEMA DE AGÊNCIA: cabeçalho "IDA | GYN - MCZ | 1 conexão" (ou VOLTA) e colunas Cia / # Voo / Paradas / Classe / Data / Origem / Destino / Milhas. A data vem completa (DD/MM/AAAA). origin = origem do 1º trecho e destination = destino do ÚLTIMO trecho — a conexão (ex. BSB) NÃO é destino.
+2) TABELA DE SISTEMA DE AGÊNCIA: cabeçalho "IDA | GYN - MCZ | 1 conexão" (ou VOLTA) e colunas Cia / # Voo / Paradas / Classe / Data / Origem / Destino / Milhas. A data vem completa (DD/MM/AAAA). Use o CABEÇALHO: em "IDA | JDO - GRU | direto", origin=JDO e destination=GRU. Com conexão, destination = destino do último trecho DA IDA (a conexão, ex. BSB, NÃO é destino). A tabela VOLTA (GRU - JDO) é a volta: dá só o inbound, NUNCA o destination. Em ida e volta, origin e destination são sempre diferentes.
 3) FICHA DE PASSAGEIRO: nome, CPF, nascimento, às vezes e-mail e telefone.
 4) COMPROVANTE DE PIX / pagamento / recibo (Inter, Mercado Pago, "Pix enviado", "Pagamento Pix incluído", valor, CNPJ, chave Pix): IGNORE por completo — nomes, CPF e CNPJ dali NÃO são passageiros e não dizem nada do voo.
 
@@ -531,6 +561,7 @@ JSON:
   "outbound": "YYYY-MM-DD",
   "inbound": "YYYY-MM-DD ou null",
   "trip": "IDA ou IDA_VOLTA",
+  "legs": [{ "direction": "IDA ou VOLTA", "from": "IATA", "to": "IATA", "date": "YYYY-MM-DD" }],
   "adt": 1,
   "chd": 0,
   "inf": 0,
@@ -540,6 +571,7 @@ Hoje (Recife): ${recifeTodayIso()}.
 No card de voo: leia o IATA visível (SSA, CWB, GRU, CGH…). Se só aparecer cidade (Salvador, Curitiba), converta para IATA (SSA, CWB). Nunca use as 3 primeiras letras da cidade (SAL, CUR).
 Datas do VOO: "seg., 26 out" / "ter., 27 out" → YYYY-MM-DD do próximo dia válido a partir de hoje. NÃO use data de nascimento.
 Se houver ida e volta no mesmo print, preencha outbound E inbound e trip=IDA_VOLTA.
+legs: um item por trecho/voo, na ordem, marcando se é da IDA ou da VOLTA.
 Passageiros: só se houver ficha/nome+CPF. Do card de voo NÃO invente passageiro. E-mail e telefone se aparecerem.`,
     },
     ...images.map((img) => ({
