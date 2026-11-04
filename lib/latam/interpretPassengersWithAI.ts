@@ -40,6 +40,9 @@ Regras:
 - Ordem da lista: adultos (12+), depois crianças (2–11), depois bebês (<2).
 - Ficha Telegram (Nome / Sobrenome / CPF / Data Nascimento, ou blocos NOME: / CPF: / NASCIMENTO:): junte nome+sobrenome; pode haver vários passageiros no mesmo texto.
 - WhatsApp sem rótulo também: nome completo numa linha, CPF (11 dígitos) na seguinte, data (DD/MM/YYYY) na outra; e-mail e telefone podem vir em mensagens seguintes. Extraia mesmo assim.
+- Formatos vistos nos grupos: "Nome  DD/MM/AAAA F 00000000000" numa linha só (F/M é sexo); "01- NOME: … DN: … CPF: … EMAIL: …" numerado; "Nome completo: … CPF: … Data de nascimento: …" numa linha; CPF com ponto no lugar do traço (000.000.000.00); data com ponto (12.03.1979) ou mês por extenso (15-MAIO-1993). Não confunda o fim do CPF com a data.
+- E-mail digitado errado: "fulano12gmail .com" → "fulano12@gmail.com"; "fulano@gmail. Com" → "fulano@gmail.com".
+- Ignore comprovantes de Pix, recibos e links da LATAM — não são passageiros.
 - Ignore horários de bolha (14:51), print de busca de voo (milhas, horários, aeroportos) e o papo. Não invente passageiro a partir disso.
 - Ignore linhas de contato soltas (e-mail/telefone do grupo) se não forem de um pax — mas se houver um passageiro, associe o e-mail/telefone a ele.
 - Extraia os passageiros da emissão atual. Se o texto misturar várias vendas, fique só na que o usuário descreveu.

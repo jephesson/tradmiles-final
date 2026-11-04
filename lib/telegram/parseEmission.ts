@@ -475,6 +475,8 @@ Responda SOMENTE JSON:
 }
 Regras:
 - Pegue SÓ a emissão atual (print do voo + fichas). Ignore "passagem foi emitida" e vendas anteriores.
+- Ignore comprovantes de Pix, recibos ("declaro ter recebido"), links e papo — não são passageiros.
+- Cotação em texto da agência: "✈️ IDA – LATAM | 20/12 📍 Porto Alegre (POA) ➝ Teresina (THE)" → use os IATA entre parênteses; "VOLTA" é o inbound.
 - origin/destination são IATA do trecho (GRU, XAP…). Não use cidade genérica SAO se o print mostrar GRU.
 - outbound = data da IDA do voo, nunca a data de nascimento.
 - inbound só se houver volta.
@@ -516,9 +518,11 @@ export async function parseTelegramEmissionFromImages(
       type: "text",
       text: `Leia estas imagens do Telegram/WhatsApp.
 
-Há dois tipos comuns:
-1) CARD DE BUSCA LATAM PASS (amarelo/branco): origem e destino, datas tipo "seg., 26 out", milhas (ex. 42.818), Light/Plus, duração. NÃO é ficha de passageiro.
-2) FICHA DE PASSAGEIRO: nome, CPF, nascimento, às vezes e-mail e telefone.
+Tipos comuns:
+1) CARD DE BUSCA LATAM PASS (amarelo/branco, ou print do site "Combine suas milhas + dinheiro"): origem e destino, horários (11:50 MOC → 13:20 GRU), datas tipo "seg., 26 out", milhas por passageiro (ex. 8.924 milhas + BRL 35,39), Light/Plus. NÃO é ficha de passageiro.
+2) TABELA DE SISTEMA DE AGÊNCIA: cabeçalho "IDA | GYN - MCZ | 1 conexão" (ou VOLTA) e colunas Cia / # Voo / Paradas / Classe / Data / Origem / Destino / Milhas. A data vem completa (DD/MM/AAAA). origin = origem do 1º trecho e destination = destino do ÚLTIMO trecho — a conexão (ex. BSB) NÃO é destino.
+3) FICHA DE PASSAGEIRO: nome, CPF, nascimento, às vezes e-mail e telefone.
+4) COMPROVANTE DE PIX / pagamento / recibo (Inter, Mercado Pago, "Pix enviado", "Pagamento Pix incluído", valor, CNPJ, chave Pix): IGNORE por completo — nomes, CPF e CNPJ dali NÃO são passageiros e não dizem nada do voo.
 
 JSON:
 {

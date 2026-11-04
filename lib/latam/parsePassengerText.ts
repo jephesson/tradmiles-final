@@ -363,6 +363,16 @@ function stripGenderTokensFromName(full: string): {
   return { name: kept.join(" "), gender };
 }
 
+/** Linha de dados ("12/04/1970 F 05053869090"): F/M solto é o sexo. */
+function genderFromDataLine(line: string): "M" | "F" | null {
+  if (!/\d/.test(line)) return null;
+  for (const tok of String(line || "").split(/[\s,;|]+/)) {
+    const g = parseGenderToken(tok);
+    if (g) return g;
+  }
+  return null;
+}
+
 function splitName(full: string) {
   const parts = stripGenderTokensFromName(full)
     .name.split(/\s+/)
@@ -544,9 +554,22 @@ const MONTH_NAME_TO_NUM: Record<string, string> = {
   dezembro: "12",
 };
 
+/** Ano com 4 dígitos primeiro: "12.03.1979" ganha de "29. 12.03" (fim do CPF + início da data). */
+const DATE_FULL_YEAR_RE =
+  /\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*((?:19|20)\d{2})\b/;
+/** CPF com ou sem máscara (inclusive "000.000.000.00") — some antes de procurar data. */
+const CPF_LIKE_RE = /\b\d{3}\.?\d{3}\.?\d{3}\s?[-.]?\s?\d{2}\b/g;
+
 function parseDateFromText(s: string, { allowCompact = false } = {}): string | null {
-  const raw = String(s || "").trim();
-  if (!raw) return null;
+  const original = String(s || "").trim();
+  if (!original) return null;
+  const raw = original.replace(CPF_LIKE_RE, " ").trim() || original;
+
+  const full = raw.match(DATE_FULL_YEAR_RE);
+  if (full) {
+    const iso = toISODate(full[1], full[2], full[3]);
+    if (iso) return iso;
+  }
 
   // Numérico clássico: 02/05/1995, 02-05-1995, 02.05.1995
   const dateM = raw.match(DATE_RE);
@@ -609,6 +632,18 @@ function preprocessPassengerText(raw: string): string {
   t = t.replace(
     /\bdata\s+(?:de\s+)?nasc(?:imento)?\b/gi,
     "Nascimento"
+  );
+
+  // E-mail digitado no Zap: "fulano@gmail. Com" → "fulano@gmail.com"
+  t = t.replace(
+    /(@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*)[^\S\n]*\.[^\S\n]*(com|br|net|org)\b/gi,
+    (_, host: string, tld: string) => `${host}.${tld.toLowerCase()}`
+  );
+  // Sem @: "fulano12gmail .com" → "fulano12@gmail.com" (só provedores comuns)
+  t = t.replace(
+    /(^|[\s:])([A-Z0-9._%+-]{3,}?)(gmail|hotmail|outlook|yahoo|icloud|live|bol|uol)[^\S\n]*\.[^\S\n]*(com(?:\.br)?)\b/gim,
+    (all, pre: string, user: string, host: string, tld: string) =>
+      /@$/.test(user) ? all : `${pre}${user}@${host.toLowerCase()}.${tld.toLowerCase()}`
   );
 
   // Colapsa espaços repetidos (mantém quebras de linha)
@@ -1014,7 +1049,8 @@ function parseFreeformBlock(block: string): ParsedPassenger | null {
   const { firstName, lastName } = splitName(stripped.name);
   if (!gender) {
     for (const line of lines) {
-      const fromLine = stripGenderTokensFromName(line).gender;
+      const fromLine =
+        stripGenderTokensFromName(line).gender || genderFromDataLine(line);
       if (fromLine) {
         gender = fromLine;
         break;
