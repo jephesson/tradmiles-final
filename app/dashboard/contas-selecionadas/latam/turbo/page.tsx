@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   FileDown,
+  KeyRound,
   Loader2,
   MessageCircle,
   Search,
@@ -15,6 +16,10 @@ import {
 import { cn } from "@/lib/cn";
 import { formatDateBR } from "@/lib/dates/brazilCalendar";
 import { buildWhatsAppLink, normalizeBRPhoneToE164 } from "@/lib/whatsapp";
+import {
+  CedenteCredentialsModal,
+  type CredentialsCedente,
+} from "@/components/cedentes/CedenteCredentialsModal";
 
 type TurboStatus = "PENDING" | "TRANSFERRED" | "SKIPPED";
 type ClubStatus = "ACTIVE" | "PAUSED" | "CANCELED";
@@ -281,6 +286,20 @@ function GroupSummaryCard({
   );
 }
 
+function CredentialsButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+      title="Credenciais e código de verificação"
+      onClick={onClick}
+    >
+      <KeyRound size={16} aria-hidden />
+      <span className="sr-only">Credenciais</span>
+    </button>
+  );
+}
+
 function Section({
   id,
   title,
@@ -288,6 +307,7 @@ function Section({
   rows,
   monthKey,
   onChange,
+  onOpenCredentials,
   showClub = true,
   showCancelBadge = false,
   showCanceledDoneBadge = false,
@@ -299,6 +319,7 @@ function Section({
   rows: Row[];
   monthKey: string;
   onChange: (cedenteId: string, patch: Partial<{ status: TurboStatus; points: number }>) => void;
+  onOpenCredentials: (cedente: CredentialsCedente) => void;
   showClub?: boolean;
   showCancelBadge?: boolean;
   showCanceledDoneBadge?: boolean;
@@ -511,6 +532,7 @@ function Section({
                           <MessageCircle size={16} aria-hidden />
                         </span>
                       )}
+                      <CredentialsButton onClick={() => onOpenCredentials(r.cedente)} />
                       <button
                         type="button"
                         className={cn(
@@ -576,6 +598,7 @@ export default function LatamTurboPage() {
   const [data, setData] = useState<ApiResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [credCedente, setCredCedente] = useState<CredentialsCedente | null>(null);
   const [onlyRelevant, setOnlyRelevant] = useState(true);
   const [monthKey, setMonthKey] = useState(() => {
     const d = new Date();
@@ -855,6 +878,7 @@ export default function LatamTurboPage() {
           rows={data.lists.active}
           monthKey={displayMonth}
           onChange={applyChange}
+          onOpenCredentials={setCredCedente}
           showCancelBadge={false}
         />
 
@@ -864,6 +888,7 @@ export default function LatamTurboPage() {
           rows={data.lists.inactive}
           monthKey={displayMonth}
           onChange={applyChange}
+          onOpenCredentials={setCredCedente}
           showCancelBadge={false}
         />
 
@@ -873,6 +898,7 @@ export default function LatamTurboPage() {
           rows={data.lists.cancelThisMonth}
           monthKey={displayMonth}
           onChange={applyChange}
+          onOpenCredentials={setCredCedente}
           showCancelBadge={true}
           pendingPdf
         />
@@ -884,6 +910,7 @@ export default function LatamTurboPage() {
             rows={data.lists.canceledInMonth}
             monthKey={displayMonth}
             onChange={applyChange}
+            onOpenCredentials={setCredCedente}
             showCancelBadge={false}
             showCanceledDoneBadge={true}
           />
@@ -969,7 +996,10 @@ export default function LatamTurboPage() {
                       />
                     </td>
                     <td className="px-3 py-3 pr-4 text-xs text-slate-400">
-                      edite e clique fora
+                      <div className="flex items-center gap-2">
+                        <CredentialsButton onClick={() => setCredCedente(r.cedente)} />
+                        edite e clique fora
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -989,6 +1019,10 @@ export default function LatamTurboPage() {
           </div>
         </section>
       </div>
+
+      {credCedente ? (
+        <CedenteCredentialsModal cedente={credCedente} onClose={() => setCredCedente(null)} />
+      ) : null}
     </div>
   );
 }
