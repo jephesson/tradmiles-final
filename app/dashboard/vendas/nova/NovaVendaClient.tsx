@@ -1601,9 +1601,11 @@ export default function NovaVendaClient({
     });
   }, [eligibleSuggestions, cedenteQ]);
 
-  const visibleSuggestions = useMemo(
-    () => filteredSuggestions.slice(0, 10),
-    [filteredSuggestions]
+  const visibleSuggestions = filteredSuggestions;
+  /** Muda a cada nova lista/busca para reanimar a entrada das linhas. */
+  const sugAnimKey = useMemo(
+    () => `${normStr(cedenteQ)}|${filteredSuggestions.map((s) => s.cedente.id).join(",")}`,
+    [cedenteQ, filteredSuggestions]
   );
 
   const countLabel = useMemo(() => {
@@ -1612,10 +1614,8 @@ export default function NovaVendaClient({
     const q = normStr(cedenteQ);
     if (!eligibleSuggestions.length) return "0 resultados";
     if (q)
-      return `${Math.min(10, filteredSuggestions.length)} de ${
-        filteredSuggestions.length
-      } (busca)`;
-    return `${Math.min(10, eligibleSuggestions.length)} de ${eligibleSuggestions.length}`;
+      return `${filteredSuggestions.length} de ${eligibleSuggestions.length} (busca)`;
+    return `${eligibleSuggestions.length} elegíveis`;
   }, [loadingSug, sel, cedenteQ, eligibleSuggestions.length, filteredSuggestions.length]);
 
   const selfLabel = useMemo(
@@ -2671,7 +2671,7 @@ export default function NovaVendaClient({
                 </button>
               </div>
               <p className="mt-2 text-xs text-slate-500">
-                Lista com até <span className="font-semibold text-slate-700">10</span> sugestões. Use a
+                Mostrando <span className="font-semibold text-slate-700">todos os elegíveis</span>. Use a
                 busca para filtrar.
               </p>
             </div>
@@ -2709,7 +2709,7 @@ export default function NovaVendaClient({
                     </tr>
                   ) : null}
 
-                  {visibleSuggestions.map((s) => {
+                  {visibleSuggestions.map((s, idx) => {
                     const badge = badgeClass(s.priorityLabel);
                     const paxAfter =
                       (s.availablePassengersYear || 0) -
@@ -2728,8 +2728,9 @@ export default function NovaVendaClient({
 
                     return (
                       <tr
-                        key={s.cedente.id}
-                        className="border-b border-slate-100 transition hover:bg-slate-50/80 last:border-b-0"
+                        key={`${sugAnimKey}:${s.cedente.id}`}
+                        className="tm-row-in border-b border-slate-100 transition hover:bg-slate-50/80 last:border-b-0"
+                        style={{ animationDelay: `${Math.min(idx, 40) * 35}ms` }}
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-start gap-2">

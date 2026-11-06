@@ -176,3 +176,25 @@ body {
     display: none;
   }
 }
+
+/* Lista de cedentes sugeridos: linhas entram uma a uma. */
+@keyframes tm-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tm-row-in {
+  animation: tm-row-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-row-in {
+    animation: none;
+  }
+}
