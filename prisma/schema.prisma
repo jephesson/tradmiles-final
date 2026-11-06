@@ -3011,3 +3011,16 @@ model TelegramEmissionExample {
   @@index([team, origin, destination])
   @@map("telegram_emission_examples")
 }
+
+/** Vendas (milhas) agrupadas por hora do dia (Recife), um registro por time/dia. Cache para a análise por horário. */
+model SalesHourlyDay {
+  id         String   @id @default(cuid())
+  team       String
+  day        String
+  /** 24 posições: { count, pax, points, valueCents } — valor sem taxa de embarque. */
+  hours      Json
+  computedAt DateTime @default(now())
+
+  @@unique([team, day])
+  @@map("sales_hourly_days")
+}

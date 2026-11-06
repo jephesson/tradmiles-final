@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BarChart3, Copy, Download, MessageSquareText, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { compactAnalyticsForAi } from "@/lib/analytics-feedback-compact";
+import { SalesByHourChart } from "@/components/analytics/SalesByHourChart";
 
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
@@ -2959,6 +2960,8 @@ export default function AnaliseDadosClient() {
           tone="emerald"
         />
       </div>
+
+      <SalesByHourChart />
 
       {/* MÊS FOCO */}
       <BreakdownPanel
