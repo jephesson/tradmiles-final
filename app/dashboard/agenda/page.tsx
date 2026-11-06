@@ -615,8 +615,7 @@ export default function AgendaPage() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
           <div className="font-semibold">Alerta: intervalos de horário vagos (próximos 7 dias)</div>
           <p className="mt-0.5 text-xs text-amber-800">
-            Seg–sex: 2 manhãs, 2 tardes e 2 noites por pessoa. Fim de semana: 2 turnos entre os 6.
-            72h antes do dia, qualquer um pode preencher vagas remanescentes. 00h–08h fica liberado.
+            Horários ainda sem ninguém escalado. Qualquer pessoa da equipe pode preencher.
           </p>
           <ul className="mt-2 max-h-56 space-y-0.5 overflow-y-auto text-xs [scrollbar-width:thin]">
             {alertGaps.map((g, i) => (
@@ -1148,8 +1147,7 @@ export default function AgendaPage() {
                 </div>
 
                 <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-                  O intervalo precisa caber no turno. Seg–sex: 2 manhãs + 2 tardes + 2 noites. Fim de
-                  semana: 2 turnos. 72h antes, vagas remanescentes ficam liberadas para qualquer um.
+                  O intervalo precisa caber no turno escolhido. Não há limite de turnos por pessoa.
                 </p>
               </>
             )}

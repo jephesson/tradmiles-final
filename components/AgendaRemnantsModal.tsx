@@ -65,8 +65,7 @@ export default function AgendaRemnantsModal() {
             <div>
               <div className="text-lg font-bold text-slate-900">Horários remanescentes</div>
               <p className="mt-0.5 text-sm text-slate-600">
-                Faltam cobrir estes intervalos. Até 72h antes do dia, qualquer pessoa pode se
-                escalar nas vagas.
+                Faltam cobrir estes intervalos. Qualquer pessoa da equipe pode se escalar.
               </p>
             </div>
           </div>

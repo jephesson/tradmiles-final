@@ -243,10 +243,6 @@ export function shiftHasGap(
   return gapsForRange(dateISO, dateISO, shifts).some((g) => g.kind === kind);
 }
 
-function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-  return aStart < bEnd && aEnd > bStart;
-}
-
 export function assertCanTakeShift(args: {
   userId: string;
   dateISO: string;
@@ -266,33 +262,6 @@ export function assertCanTakeShift(args: {
   const kind = classifyShift(args.startMin, args.endMin);
   if (!kind) {
     return "O intervalo precisa caber em um turno: 08:00–13:00, 13:00–18:00, 18:00–00:00, ou 00:00–08:00 (liberado).";
-  }
-  if (kind === "LIVRE") return null;
-
-  const quota = quotaForUser({
-    userId: args.userId,
-    dateISO: args.dateISO,
-    kind,
-    existing: args.teamShifts.filter((e) => !e.type || e.type === "SHIFT"),
-  });
-  if (quota.ok) return null;
-
-  const remnant = isRemnantWindow(args.dateISO, args.now);
-  if (!remnant) {
-    if (isWeekendISO(args.dateISO)) {
-      return `Cota do fim de semana esgotada (${WEEKEND_SHIFT_QUOTA} turnos). 72h antes do dia é possível preencher horários vagos.`;
-    }
-    return `Cota esgotada: no máximo ${WEEKDAY_QUOTA[kind]} turnos de ${SHIFT_WINDOWS[kind].label.toLowerCase()} de segunda a sexta. 72h antes do dia é possível preencher horários vagos.`;
-  }
-
-  const w = SHIFT_WINDOWS[kind];
-  const dayCov = args.teamShifts
-    .filter((e) => e.dateISO === args.dateISO && (!e.type || e.type === "SHIFT"))
-    .map((e) => ({ startMin: e.startMin, endMin: e.endMin }));
-  const gaps = uncoveredInWindow(w.startMin, w.endMin, dayCov);
-  const fillsGap = gaps.some((g) => overlap(args.startMin, args.endMin, g.startMin, g.endMin));
-  if (!fillsGap) {
-    return "Esse horário já está coberto. Na janela de 72h só é possível se escalar em intervalos ou turnos remanescentes (vagos).";
   }
   return null;
 }
