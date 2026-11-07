@@ -2021,36 +2021,82 @@ export default function NovaVendaClient({
   ];
 
   if (saleFlow === null) {
+    const bullets = (items: string[], dot: string) => (
+      <ul className="mt-5 space-y-2">
+        {items.map((t) => (
+          <li key={t} className="flex items-start gap-2 text-sm">
+            <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+            {t}
+          </li>
+        ))}
+      </ul>
+    );
     return (
-      <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Nova venda</h1>
-          <p className="mt-1 text-sm text-slate-500">Escolha o fluxo desta venda.</p>
+      <div className="mx-auto flex min-h-[70vh] max-w-5xl flex-col justify-center gap-8 p-4 sm:p-6">
+        <div className="text-center">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Nova venda</div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+            Para quem é esta emissão?
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">Escolha certo: cada fluxo cobra e registra de um jeito.</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+
+        <div className="grid gap-5 md:grid-cols-2">
           <button
             type="button"
             onClick={() => setSaleFlow("NORMAL")}
-            className="tm-row-in group rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"
+            className="tm-row-in group relative flex flex-col overflow-hidden rounded-3xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-50 via-white to-white p-7 text-left shadow-lg shadow-emerald-900/5 transition duration-200 hover:-translate-y-1 hover:border-emerald-500 hover:shadow-xl hover:shadow-emerald-900/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-emerald-300"
           >
-            <div className="text-3xl">🧾</div>
-            <div className="mt-3 text-lg font-bold text-slate-900">Fluxo normal</div>
-            <p className="mt-1 text-sm text-slate-500">
-              Venda para cliente: Telegram, cedente, biometria, extensão LATAM e cobrança — como sempre.
-            </p>
+            <span className="absolute right-5 top-5 rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+              Padrão
+            </span>
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+              <MessageCircle className="h-7 w-7" />
+            </span>
+            <div className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Venda final</div>
+            <div className="mt-1 text-sm font-semibold text-emerald-700">Cliente pelo Telegram</div>
+            <div className="text-slate-600">
+              {bullets(
+                [
+                  "Demanda chega no Telegram",
+                  "Cedente, biometria e extensão LATAM",
+                  "Cobrança enviada ao cliente",
+                ],
+                "bg-emerald-500"
+              )}
+            </div>
+            <span className="mt-7 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition group-hover:bg-emerald-700">
+              Fazer venda normal <ChevronRight className="h-4 w-4" />
+            </span>
           </button>
+
           <button
             type="button"
             onClick={() => setSaleFlow("PARCEIRO")}
-            style={{ animationDelay: "60ms" }}
-            className="tm-row-in group rounded-2xl border border-sky-200 bg-sky-50/50 p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md"
+            style={{ animationDelay: "80ms" }}
+            className="tm-row-in group relative flex flex-col overflow-hidden rounded-3xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-50 via-white to-white p-7 text-left shadow-lg shadow-sky-900/5 transition duration-200 hover:-translate-y-1 hover:border-sky-500 hover:shadow-xl hover:shadow-sky-900/10 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-300"
           >
-            <div className="text-3xl">✈️</div>
-            <div className="mt-3 text-lg font-bold text-sky-950">Fluxo parceiro · Voar Fácil</div>
-            <p className="mt-1 text-sm text-sky-900/70">
-              Cole o link do pedido: voos e passageiros entram sozinhos. No fim, preenche o formulário do Voar
-              Fácil com localizador, taxas, e-tickets e o titular do cedente.
-            </p>
+            <span className="absolute right-5 top-5 rounded-full bg-sky-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+              Parceiro
+            </span>
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-600 text-white shadow-md shadow-sky-600/30">
+              <Plane className="h-7 w-7" />
+            </span>
+            <div className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Voar Fácil</div>
+            <div className="mt-1 text-sm font-semibold text-sky-700">Pedido do parceiro pelo link</div>
+            <div className="text-slate-600">
+              {bullets(
+                [
+                  "Só quando o pedido veio do Voar Fácil",
+                  "Cole o link: voos e passageiros entram sozinhos",
+                  "No fim, preenche o formulário do parceiro",
+                ],
+                "bg-sky-500"
+              )}
+            </div>
+            <span className="mt-7 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-bold text-white transition group-hover:bg-sky-700">
+              Fazer venda Voar Fácil <ChevronRight className="h-4 w-4" />
+            </span>
           </button>
         </div>
       </div>
@@ -2073,11 +2119,11 @@ export default function NovaVendaClient({
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
                 saleFlow === "PARCEIRO"
-                  ? "border-sky-200 bg-sky-50 text-sky-800"
-                  : "border-slate-200 bg-white text-slate-600"
+                  ? "border-sky-300 bg-sky-600 text-white"
+                  : "border-emerald-300 bg-emerald-600 text-white"
               )}
             >
-              {saleFlow === "PARCEIRO" ? "✈ Parceiro Voar Fácil" : "Fluxo normal"} · trocar
+              {saleFlow === "PARCEIRO" ? "✈ Parceiro Voar Fácil" : "Venda final · Telegram"} · trocar
             </button>
             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
               {program} · {fmtInt(pointsTotal)} pts · {fmtInt(passengers)} PAX
