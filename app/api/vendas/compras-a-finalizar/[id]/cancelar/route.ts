@@ -54,6 +54,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       finalizedAt: new Date(),
       finalizedById: session.id,
       observacao: obs,
+      finalizeArchived: true,
     },
   });
 

@@ -1324,6 +1324,8 @@ model Purchase {
   finalizedAt   DateTime?
   finalizedById String?
   finalizedBy   User?     @relation("PurchaseFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+  /** Arquivada sem impacto (pontos juntados em outra compra): não gera prejuízo. */
+  finalizeArchived Boolean @default(false)
 
   finalSalesCents            Int?
   finalSalesPointsValueCents Int?

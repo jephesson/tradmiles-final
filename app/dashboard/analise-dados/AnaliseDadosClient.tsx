@@ -3041,7 +3041,7 @@ export default function AnaliseDadosClient() {
                       <td className="px-3 py-2.5">
                         Lucro líquido
                         <div className="mt-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-500">
-                          Milhas: (milheiro venda − custo) × pts/1000 − imposto
+                          Comissões C1+C2+C3 (sem imposto) + balcão − prejuízo · canais proporcionais
                         </div>
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoneyBR(monthProfitSplit.venda)}</td>
@@ -3115,7 +3115,7 @@ export default function AnaliseDadosClient() {
         }))}
         accent="text-emerald-700"
         valueLabel="Lucro do mês"
-        footer="Lucro total consolidado por mês, após impostos e com prejuízo debitado nas milhas."
+        footer="Lucro do mês: comissões C1+C2+C3 (sem imposto) + balcão − prejuízo nas milhas. É o valor usado para pagar e no bônus."
       />
 
       {/* Gráfico evolução */}

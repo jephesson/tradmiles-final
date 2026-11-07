@@ -637,8 +637,8 @@ export async function GET(req: NextRequest) {
     const currentMonthProfitAfterTaxWithoutFeeRawCents = currentMonthPayouts.reduce(
       (acc, p) =>
         acc +
-        (Math.max(0, Number(p.grossProfitCents || 0)) -
-          Math.max(0, Number(p.tax7Cents || 0))),
+        // Lucro oficial = comissões (C1+C2+C3) sem descontar imposto
+        Math.max(0, Number(p.grossProfitCents || 0)),
       0
     );
 
@@ -651,8 +651,8 @@ export async function GET(req: NextRequest) {
     const previousMonthProfitAfterTaxWithoutFeeRawCents = previousMonthPayouts.reduce(
       (acc, p) =>
         acc +
-        (Math.max(0, Number(p.grossProfitCents || 0)) -
-          Math.max(0, Number(p.tax7Cents || 0))),
+        // Lucro oficial = comissões (C1+C2+C3) sem descontar imposto
+        Math.max(0, Number(p.grossProfitCents || 0)),
       0
     );
 
@@ -992,6 +992,8 @@ export async function GET(req: NextRequest) {
       where: {
         status: "CLOSED",
         finalizedAt: { not: null, gte: lossRangeStart, lt: lossRangeEnd },
+        // Arquivada sem impacto não gera prejuízo
+        finalizeArchived: false,
         cedente: { owner: { team } },
       },
       select: {
@@ -1204,9 +1206,9 @@ export async function GET(req: NextRequest) {
     for (const p of payoutHist) {
       const k = String(p.date || "").slice(0, 7);
       if (!profitByMonth.has(k)) continue;
+      // Lucro oficial = comissões (C1+C2+C3) sem descontar imposto
       const grossProfit = Math.max(0, Number(p.grossProfitCents || 0));
-      const tax = Math.max(0, Number(p.tax7Cents || 0));
-      profitByMonth.set(k, (profitByMonth.get(k) || 0) + (grossProfit - tax));
+      profitByMonth.set(k, (profitByMonth.get(k) || 0) + grossProfit);
     }
 
     const profitMonths = monthKeys.map((k) => {
@@ -1507,6 +1509,24 @@ export async function GET(req: NextRequest) {
       (profitByMonth.get(month) || 0) + (lossByMonth.get(month) || 0);
     const selectedMonthConsolidatedSoldCents =
       grossMonth + balcaoMonthAgg.customerChargeCents;
+    // Lucro oficial do mês (milhas) = comissões do mês; por canal fica proporcional
+    {
+      const official = profitByMonth.get(month) || 0;
+      const parts = [
+        monthChannel.profitVendaBalcaoCents,
+        monthChannel.profitClienteFinalCents,
+        monthChannel.profitOutrosOrigemCents,
+      ];
+      const byProfit = parts.every((v) => v >= 0) && parts.some((v) => v > 0);
+      const weights = byProfit
+        ? parts
+        : [monthChannel.vendaBalcaoCents, monthChannel.clienteFinalCents, monthChannel.outrosOrigemCents];
+      const wSum = weights.reduce((a, b) => a + Math.max(0, b), 0);
+      const share = (i: number) => (wSum > 0 ? Math.round((official * Math.max(0, weights[i])) / wSum) : 0);
+      monthChannel.profitVendaBalcaoCents = share(0);
+      monthChannel.profitClienteFinalCents = share(1);
+      monthChannel.profitOutrosOrigemCents = official - share(0) - share(1);
+    }
     const selectedMonthChannelProfitAfterTaxCents =
       monthChannel.profitVendaBalcaoCents +
       monthChannel.profitClienteFinalCents +

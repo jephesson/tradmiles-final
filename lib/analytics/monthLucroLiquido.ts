@@ -87,8 +87,8 @@ function saleTeamWhere(team: string): Prisma.SaleWhereInput {
 }
 
 /**
- * Lucro líquido do mês = mesma linha Total da Análise de dados:
- * lucro das vendas (PV − custo, pós-imposto) + balcão líquido − prejuízo debitado nas milhas.
+ * Lucro do mês (oficial, o mesmo usado para pagar e na Análise de dados):
+ * comissões dos fechamentos (C1+C2+C3, sem descontar imposto) + balcão líquido − prejuízo nas milhas.
  */
 export async function fetchMonthConsolidatedLucroLiquido(team: string, month: string) {
   const { start, end } = calendarMonthBoundsUTC(month);
@@ -148,6 +148,8 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
       where: {
         status: "CLOSED",
         finalizedAt: { not: null, gte: start, lt: end },
+        // Arquivada sem impacto não gera prejuízo
+        finalizeArchived: false,
         cedente: { owner: { team } },
       },
       select: {
@@ -161,7 +163,20 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
     }),
   ]);
 
-  let salesProfitAfterTaxCents = 0;
+  // Lucro das milhas = soma das comissões dos fechamentos do mês (sem imposto)
+  const nextMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1))
+    .toISOString()
+    .slice(0, 7);
+  const payoutAgg = await prisma.employeePayout.findMany({
+    where: { team, date: { gte: `${month}-01`, lt: `${nextMonth}-01` } },
+    select: { grossProfitCents: true },
+  });
+  const salesProfitAfterTaxCents = payoutAgg.reduce(
+    (acc, p) => acc + Math.max(0, safeInt(p.grossProfitCents, 0)),
+    0
+  );
+  /** Antiga conta venda a venda (PV − custo − imposto), só para referência. */
+  let salesProfitPerSaleCents = 0;
   for (const s of sales) {
     const points = Number(s.points || 0);
     const costDb = !s.purchase
@@ -176,7 +191,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
       milheiroCents: Number(s.milheiroCents || 0),
       costMilheiroCents: costMil,
     });
-    salesProfitAfterTaxCents += grossProfit - taxOnProfitCents(grossProfit, taxPercent);
+    salesProfitPerSaleCents += grossProfit - taxOnProfitCents(grossProfit, taxPercent);
   }
 
   let balcaoNetProfitCents = 0;
@@ -297,6 +312,7 @@ export async function fetchMonthConsolidatedLucroLiquido(team: string, month: st
 
   return {
     salesProfitAfterTaxCents,
+    salesProfitPerSaleCents,
     balcaoNetProfitCents,
     lossCents,
     profitCents: salesProfitAfterTaxCents + balcaoNetProfitCents + lossCents,

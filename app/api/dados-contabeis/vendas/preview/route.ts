@@ -219,6 +219,8 @@ async function computeLossTotalCentsLikePrejuizo(team: string, scopeMonth: strin
     where: {
       status: "CLOSED",
       finalizedAt: { not: null, gte: start, lt: end },
+      // Arquivada sem impacto não gera prejuízo
+      finalizeArchived: false,
       cedente: { owner: { team } },
     },
     orderBy: [{ finalizedAt: "desc" }, { updatedAt: "desc" }],

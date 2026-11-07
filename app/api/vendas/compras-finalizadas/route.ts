@@ -89,6 +89,7 @@ export async function GET(req: Request) {
       finalAvgMilheiroCents: true,
       finalRemainingPoints: true,
       finalizedAt: true,
+      finalizeArchived: true,
       finalizedBy: { select: { id: true, name: true, login: true } },
       cedente: { select: { id: true, identificador: true, nomeCompleto: true } },
       createdAt: true,

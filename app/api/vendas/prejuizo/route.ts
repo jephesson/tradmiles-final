@@ -93,6 +93,8 @@ export async function GET(req: NextRequest) {
     const wherePurch: any = {
       status: "CLOSED",
       finalizedAt: { not: null },
+      // Arquivada sem impacto não gera prejuízo
+      finalizeArchived: false,
       cedente: { owner: { team: session.team } },
     };
 

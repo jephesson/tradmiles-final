@@ -38,6 +38,8 @@ type Row = {
   finalProfitBrutoCents: number | null;
   finalBonusCents: number | null;
   finalProfitCents: number | null;
+  /** Arquivada sem impacto: não gera prejuízo. */
+  finalizeArchived?: boolean;
 
   finalSoldPoints: number | null;
   finalPax: number | null;
@@ -894,7 +896,9 @@ export default function ComprasFinalizadasClient() {
       out.sumTaxes += pick(r.finalSalesTaxesCents);
       out.sumProfitBruto += pick(r.finalProfitBrutoCents);
       out.sumBonus += pick(r.finalBonusCents);
-      out.sumProfit += pick(r.finalProfitCents);
+      // Arquivada sem impacto não entra como prejuízo
+      const pr = pick(r.finalProfitCents);
+      out.sumProfit += r.finalizeArchived && pr < 0 ? 0 : pr;
       out.sumSoldPoints += pick(r.finalSoldPoints);
       out.sumPax += pick(r.finalPax);
     }
@@ -1079,8 +1083,13 @@ export default function ComprasFinalizadasClient() {
                         <div className="text-xs text-slate-500">Taxas: {fmtMoneyBR(pick(r.finalSalesTaxesCents))}</div>
                       </td>
 
-                      <td className={cn("px-4 py-3.5 text-base font-bold tabular-nums", profitClass(profit))}>
-                        {fmtMoneyBR(profit)}
+                      <td className={cn("px-4 py-3.5 text-base font-bold tabular-nums", r.finalizeArchived && profit < 0 ? "text-slate-400" : profitClass(profit))}>
+                        {r.finalizeArchived && profit < 0 ? "R$ 0,00" : fmtMoneyBR(profit)}
+                        {r.finalizeArchived ? (
+                          <div className="mt-0.5 w-fit rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            Arquivada · sem impacto
+                          </div>
+                        ) : null}
                       </td>
 
                       <td className="px-4 py-3.5">
