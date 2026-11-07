@@ -3027,3 +3027,24 @@ model SalesHourlyDay {
   @@unique([team, day])
   @@map("sales_hourly_days")
 }
+
+/** Pedido do parceiro Voar Fácil lido pela extensão (voos + passageiros) e dados para preencher a emissão. */
+model VoarFacilOrder {
+  id          String   @id @default(cuid())
+  team        String
+  createdById String?
+  /** Hash do link (32 hex). */
+  code        String
+  pedido      String?
+  url         String
+  data        Json
+  /** Dados da venda para preencher o formulário "Emitido". */
+  fill        Json?
+  saleId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([team, code])
+  @@index([team, updatedAt])
+  @@map("voarfacil_orders")
+}

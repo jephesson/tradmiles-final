@@ -32,7 +32,48 @@ async function fetchFillPayload() {
   return { ok: false, error: lastError || "TradeMiles offline." };
 }
 
+/** Chama a API do TradeMiles com o cookie do usuário (tenta www, apex e localhost). */
+async function appApi(path, init) {
+  let lastError = null;
+  for (const origin of APP_ORIGINS) {
+    try {
+      const res = await fetch(`${origin}${path}`, {
+        credentials: "include",
+        cache: "no-store",
+        redirect: "follow",
+        ...(init || {}),
+      });
+      const json = await res.json().catch(() => null);
+      if (res.status === 401) {
+        lastError = "Faça login no TradeMiles nesta mesma janela (use www.trademiles.com.br).";
+        continue;
+      }
+      if (!res.ok || !json?.ok) {
+        lastError = json?.error || `Erro ${res.status}.`;
+        if (res.status === 404 || res.status === 400) return { ok: false, error: lastError };
+        continue;
+      }
+      return { ok: true, origin, data: json.data };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "Falha de rede.";
+    }
+  }
+  return { ok: false, error: lastError || "TradeMiles offline." };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "TM_VF_CAPTURE") {
+    appApi("/api/voarfacil/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: msg.order }),
+    }).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === "TM_VF_GET_FILL") {
+    appApi(`/api/voarfacil/orders/by-code?code=${encodeURIComponent(msg.code || "")}`).then(sendResponse);
+    return true;
+  }
   if (msg?.type === "TM_GET_FILL_PAYLOAD") {
     fetchFillPayload().then(sendResponse);
     return true;

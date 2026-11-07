@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageCircle,
   Monitor,
+  Plane,
   RefreshCw,
   Search,
   SkipForward,
@@ -36,6 +37,8 @@ import {
 } from "@/lib/latam/validacaoLinks";
 import ScreenRegionPicker from "@/components/vendas/ScreenRegionPicker";
 import TelegramPassengerPicker from "@/components/vendas/TelegramPassengerPicker";
+import VoarFacilOrderPicker from "@/components/vendas/VoarFacilOrderPicker";
+import { type VoarFacilOrderLite, voarFacilPassengerText } from "@/lib/voarfacil/order";
 
 type Program = "LATAM" | "SMILES";
 
@@ -323,6 +326,9 @@ type Props = {
     ownerName: string;
   }>;
   onSwitchCedente?: (cedenteId: string) => void | Promise<void>;
+  /** Pedido do parceiro Voar Fácil escolhido na venda (voos + passageiros). */
+  voarFacilOrder?: VoarFacilOrderLite | null;
+  onVoarFacilOrder?: (order: VoarFacilOrderLite) => void;
   onClose: () => void;
   onComplete: (result: {
     purchaseCode: string | null;
@@ -381,6 +387,8 @@ export default function BiometriaWizardModal({
   initialInfants = 0,
   cedenteOptions = [],
   onSwitchCedente,
+  voarFacilOrder = null,
+  onVoarFacilOrder,
   onClose,
   onComplete,
 }: Props) {
@@ -415,6 +423,7 @@ export default function BiometriaWizardModal({
   const [docExtractWarnings, setDocExtractWarnings] = useState<string[]>([]);
   const [screenCapture, setScreenCapture] = useState<string | null>(null);
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showVoarFacil, setShowVoarFacil] = useState(false);
   const [latamPaymentCards, setLatamPaymentCards] = useState<
     Array<{
       id: string;
@@ -818,6 +827,89 @@ export default function BiometriaWizardModal({
       skippedOrder: opts.skippedOrder,
       feeCardPreset: resolveFeeCardPreset(),
     });
+  }
+
+  /** Aplica voo (abre a pesquisa) e passageiros — Telegram ou pedido Voar Fácil. */
+  function applyFlightAndPassengers(payload: {
+    flight?: {
+      origin?: string;
+      destination?: string;
+      outbound?: string;
+      inbound?: string;
+      trip?: string;
+      adt?: number;
+      chd?: number;
+      inf?: number;
+    } | null;
+    passengerText: string;
+  }) {
+    const f = payload.flight;
+    if (f) {
+      if (f.origin) setSearchOrigin(f.origin);
+      if (f.destination) setSearchDestination(f.destination);
+      if (f.outbound) setSearchOutbound(f.outbound);
+      if (f.inbound) setSearchInbound(f.inbound);
+      setSearchTrip(
+        f.inbound || f.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA"
+      );
+      setSearchAdt(Math.max(1, Math.min(9, f.adt || 1)));
+      setSearchChd(Math.max(0, Math.min(9, f.chd || 0)));
+      setSearchInf(Math.max(0, Math.min(9, f.inf || 0)));
+      if (program === "LATAM" && f.origin && f.destination && f.outbound) {
+        const link = buildLatamSearchLink({
+          origin: f.origin,
+          destination: f.destination,
+          outbound: f.outbound,
+          inbound: f.inbound,
+          trip: f.inbound || f.trip === "IDA_VOLTA" ? "RT" : "OW",
+          adt: f.adt || 1,
+          chd: f.chd,
+          inf: f.inf,
+        });
+        if (link) window.open(link, "_blank");
+      } else if (f.origin && f.destination && f.outbound) {
+        const url = buildSmilesSearchUrl(
+          f.origin,
+          f.destination,
+          f.outbound,
+          f.adt || 1,
+          f.trip === "IDA_VOLTA" ? f.inbound || null : null,
+          { children: f.chd, infants: f.inf }
+        );
+        if (url) window.open(url, "_blank");
+      }
+    }
+    if (payload.passengerText.trim()) {
+      setLatamPassengerText(dedupePassengerText(payload.passengerText));
+      setUseLatamExtension(true);
+      pendingTelegramPrep.current = true;
+    }
+  }
+
+  function applyVoarFacil(order: VoarFacilOrderLite) {
+    const d = order.data;
+    const ida = d.legs.find((l) => l.direction === "IDA") || d.legs[0];
+    const volta = d.legs.find((l) => l.direction === "VOLTA");
+    applyFlightAndPassengers({
+      flight: ida
+        ? {
+            origin: ida.from,
+            destination: ida.to,
+            outbound: ida.date,
+            inbound: volta?.date || "",
+            trip: volta ? "IDA_VOLTA" : "IDA",
+            adt: Math.max(1, d.counts.adt || 0),
+            chd: d.counts.chd || 0,
+            inf: d.counts.inf || 0,
+          }
+        : null,
+      passengerText: voarFacilPassengerText(d),
+    });
+  }
+
+  function openVoarFacil() {
+    if (voarFacilOrder) applyVoarFacil(voarFacilOrder);
+    else setShowVoarFacil(true);
   }
 
   function goAfterCode() {
@@ -1805,6 +1897,17 @@ export default function BiometriaWizardModal({
                   <MessageCircle className="h-3.5 w-3.5" />
                   Ler no Telegram
                 </button>
+                {voarFacilOrder ? (
+                  <button
+                    type="button"
+                    onClick={openVoarFacil}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100"
+                    title={voarFacilOrder ? `Pedido ${voarFacilOrder.pedido || ""}: voo e passageiros` : "Escolher pedido do Voar Fácil"}
+                  >
+                    <Plane className="h-3.5 w-3.5" />
+                    Voar Fácil
+                  </button>
+                ) : null}
               </div>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -2041,6 +2144,17 @@ export default function BiometriaWizardModal({
                             <MessageCircle className="h-3.5 w-3.5" />
                             Telegram
                           </button>
+                          {voarFacilOrder ? (
+                            <button
+                              type="button"
+                              disabled={docExtracting}
+                              onClick={openVoarFacil}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-800 shadow-sm hover:bg-sky-100 disabled:opacity-60"
+                            >
+                              <Plane className="h-3.5 w-3.5" />
+                              Voar Fácil
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             disabled={docExtracting}
@@ -2558,6 +2672,17 @@ export default function BiometriaWizardModal({
           onConfirm={(file) => void extractDocumentsFromFiles([file])}
         />
       ) : null}
+      {showVoarFacil ? (
+        <VoarFacilOrderPicker
+          onClose={() => setShowVoarFacil(false)}
+          onPick={(o) => {
+            onVoarFacilOrder?.(o);
+            applyVoarFacil(o);
+            setShowVoarFacil(false);
+          }}
+        />
+      ) : null}
+
       {showTelegram ? (
         <TelegramPassengerPicker
           existingText={latamPassengerText}
@@ -2575,47 +2700,7 @@ export default function BiometriaWizardModal({
           }}
           onClose={() => setShowTelegram(false)}
           onApply={(payload) => {
-            const f = payload.flight;
-            if (f) {
-              if (f.origin) setSearchOrigin(f.origin);
-              if (f.destination) setSearchDestination(f.destination);
-              if (f.outbound) setSearchOutbound(f.outbound);
-              if (f.inbound) setSearchInbound(f.inbound);
-              setSearchTrip(
-                f.inbound || f.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA"
-              );
-              setSearchAdt(Math.max(1, Math.min(9, f.adt || 1)));
-              setSearchChd(Math.max(0, Math.min(9, f.chd || 0)));
-              setSearchInf(Math.max(0, Math.min(9, f.inf || 0)));
-              if (program === "LATAM" && f.origin && f.destination && f.outbound) {
-                const link = buildLatamSearchLink({
-                  origin: f.origin,
-                  destination: f.destination,
-                  outbound: f.outbound,
-                  inbound: f.inbound,
-                  trip: f.inbound || f.trip === "IDA_VOLTA" ? "RT" : "OW",
-                  adt: f.adt,
-                  chd: f.chd,
-                  inf: f.inf,
-                });
-                if (link) window.open(link, "_blank");
-              } else if (f.origin && f.destination && f.outbound) {
-                const url = buildSmilesSearchUrl(
-                  f.origin,
-                  f.destination,
-                  f.outbound,
-                  f.adt,
-                  f.trip === "IDA_VOLTA" ? f.inbound || null : null,
-                  { children: f.chd, infants: f.inf }
-                );
-                if (url) window.open(url, "_blank");
-              }
-            }
-            if (payload.passengerText.trim()) {
-              setLatamPassengerText(dedupePassengerText(payload.passengerText));
-              setUseLatamExtension(true);
-              pendingTelegramPrep.current = true;
-            }
+            applyFlightAndPassengers(payload);
             setShowTelegram(false);
           }}
         />

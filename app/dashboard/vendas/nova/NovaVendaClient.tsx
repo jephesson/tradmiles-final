@@ -33,6 +33,8 @@ import {
   weekendC1ExtraCents,
 } from "@/lib/payouts/employeeCommissionRates";
 import BiometriaWizardModal from "@/components/vendas/BiometriaWizardModal";
+import VoarFacilOrderPicker from "@/components/vendas/VoarFacilOrderPicker";
+import { type VoarFacilOrderLite, voarFacilLegTotals } from "@/lib/voarfacil/order";
 import { prefetchTelegram } from "@/lib/telegram/clientCache";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
@@ -1383,6 +1385,91 @@ export default function NovaVendaClient({
   ]);
 
   const [postSaveOpen, setPostSaveOpen] = useState(false);
+  /** Parceiro Voar Fácil: pedido lido pela extensão + venda salva para preencher a emissão. */
+  const [voarFacilOrder, setVoarFacilOrder] = useState<VoarFacilOrderLite | null>(null);
+  const [showVoarFacilPicker, setShowVoarFacilPicker] = useState(false);
+  const [savedSaleId, setSavedSaleId] = useState<string | null>(null);
+  const [voarFacilFilling, setVoarFacilFilling] = useState(false);
+  const [voarFacilMsg, setVoarFacilMsg] = useState("");
+  /** Fluxo escolhido ao abrir a venda: normal (como sempre) ou parceiro (Voar Fácil). */
+  const [saleFlow, setSaleFlow] = useState<"NORMAL" | "PARCEIRO" | null>(null);
+  const [vfLink, setVfLink] = useState("");
+  const [vfReading, setVfReading] = useState(false);
+  const [vfReadError, setVfReadError] = useState("");
+
+  function readVoarFacilLink() {
+    return readVoarFacilLinkFrom(vfLink);
+  }
+
+  async function readVoarFacilLinkFrom(raw: string) {
+    const url = raw.trim();
+    if (!url || vfReading) return;
+    setVfReading(true);
+    setVfReadError("");
+    try {
+      const res = await fetch("/api/voarfacil/orders/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Não consegui ler o pedido.");
+      applyVoarFacilToSale(json.data);
+    } catch (e) {
+      setVfReadError(e instanceof Error ? e.message : "Não consegui ler o pedido.");
+    } finally {
+      setVfReading(false);
+    }
+  }
+
+  function applyVoarFacilToSale(o: VoarFacilOrderLite) {
+    const d = o.data;
+    const totals = voarFacilLegTotals(d);
+    setProgram("LATAM");
+    setTripKind(d.trip === "IDA_VOLTA" ? "IDA_VOLTA" : "IDA");
+    setPointsMode("TOTAL");
+    setIdaStr(totals.ida ? totals.ida.toLocaleString("pt-BR") : "");
+    setVoltaStr(totals.volta ? totals.volta.toLocaleString("pt-BR") : "");
+    setAdultPassengers(Math.max(1, Math.min(9, d.counts.adt || 1)));
+    setChildPassengers(Math.max(0, Math.min(9, d.counts.chd || 0)));
+    setInfantPassengers(Math.max(0, Math.min(9, d.counts.inf || 0)));
+    const ida = d.legs.find((l) => l.direction === "IDA");
+    const volta = d.legs.find((l) => l.direction === "VOLTA");
+    if (ida?.date) setDepartureDate(ida.date);
+    if (volta?.date) setReturnDate(volta.date);
+    const first = d.passengers[0];
+    if (first?.lastName) setFirstPassengerLastName(first.lastName.toUpperCase());
+    setVoarFacilOrder(o);
+  }
+
+  async function fillVoarFacil() {
+    if (!voarFacilOrder || !savedSaleId || voarFacilFilling) return;
+    setVoarFacilFilling(true);
+    setVoarFacilMsg("");
+    try {
+      const res = await fetch(`/api/voarfacil/orders/${voarFacilOrder.id}/fill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saleId: savedSaleId, pdfUrl: latamPdfUrl.trim() || null }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao preparar o Voar Fácil.");
+      setVoarFacilMsg(
+        [
+          json.data.overLimit ? "Atenção: a taxa da venda passa do limite do pedido." : "",
+          json.data.eticketNote || (latamPdfUrl.trim() ? "" : "Sem link do comprovante: e-tickets ficam para preencher."),
+          "Abri o Voar Fácil — clique em Preencher no painel da extensão, confira e Envie.",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+      window.open(json.data.url, "_blank");
+    } catch (e) {
+      setVoarFacilMsg(e instanceof Error ? e.message : "Falha ao preparar o Voar Fácil.");
+    } finally {
+      setVoarFacilFilling(false);
+    }
+  }
   const [postSaveMsg, setPostSaveMsg] = useState("");
   const [finalizeSuggest, setFinalizeSuggest] = useState<{
     purchaseId: string;
@@ -1522,6 +1609,7 @@ export default function NovaVendaClient({
         pdfUrl: toShortLatamDocumentPdfUrl(latamPdfUrl),
       });
 
+      setSavedSaleId(created.sale.id);
       setFinalizeSuggest(created.finalizeSuggest ?? null);
       setFinalizeSuggestOpen(false);
       setPostSaveMsg(msg);
@@ -1932,12 +2020,65 @@ export default function NovaVendaClient({
     { id: 3 as const, label: "Emissão" },
   ];
 
+  if (saleFlow === null) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Nova venda</h1>
+          <p className="mt-1 text-sm text-slate-500">Escolha o fluxo desta venda.</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setSaleFlow("NORMAL")}
+            className="tm-row-in group rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md"
+          >
+            <div className="text-3xl">🧾</div>
+            <div className="mt-3 text-lg font-bold text-slate-900">Fluxo normal</div>
+            <p className="mt-1 text-sm text-slate-500">
+              Venda para cliente: Telegram, cedente, biometria, extensão LATAM e cobrança — como sempre.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSaleFlow("PARCEIRO")}
+            style={{ animationDelay: "60ms" }}
+            className="tm-row-in group rounded-2xl border border-sky-200 bg-sky-50/50 p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md"
+          >
+            <div className="text-3xl">✈️</div>
+            <div className="mt-3 text-lg font-bold text-sky-950">Fluxo parceiro · Voar Fácil</div>
+            <p className="mt-1 text-sm text-sky-900/70">
+              Cole o link do pedido: voos e passageiros entram sozinhos. No fim, preenche o formulário do Voar
+              Fácil com localizador, taxas, e-tickets e o titular do cedente.
+            </p>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1800px] space-y-5 pb-8 sm:p-6 sm:pb-10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Nova venda</h1>
+            <button
+              type="button"
+              onClick={() => {
+                if (saleFlow === "PARCEIRO") setVoarFacilOrder(null);
+                setSaleFlow(null);
+              }}
+              title="Trocar fluxo"
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
+                saleFlow === "PARCEIRO"
+                  ? "border-sky-200 bg-sky-50 text-sky-800"
+                  : "border-slate-200 bg-white text-slate-600"
+              )}
+            >
+              {saleFlow === "PARCEIRO" ? "✈ Parceiro Voar Fácil" : "Fluxo normal"} · trocar
+            </button>
             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-500">
               {program} · {fmtInt(pointsTotal)} pts · {fmtInt(passengers)} PAX
             </span>
@@ -2020,6 +2161,90 @@ export default function NovaVendaClient({
         }
       >
         <div className="space-y-6">
+          {saleFlow === "PARCEIRO" ? (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-sky-950">✈ Pedido do parceiro · Voar Fácil</div>
+                  <p className="mt-0.5 text-xs text-sky-900/70">
+                    Cole o link do pedido: lê voos, milhas e passageiros (adulto, criança, bebê). No fim, a extensão
+                    preenche o formulário com a venda e o titular do cedente que emitiu.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowVoarFacilPicker(true)}
+                  className="text-[11px] font-semibold text-sky-800 underline"
+                >
+                  Pedidos recentes
+                </button>
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  className={cn(CONTROL_INPUT, "flex-1")}
+                  value={vfLink}
+                  onChange={(e) => setVfLink(e.target.value)}
+                  onPaste={(e) => {
+                    const t = e.clipboardData.getData("text").trim();
+                    if (/^https:\/\/emissao-externa\.voarfacil\.net\//.test(t)) {
+                      e.preventDefault();
+                      setVfLink(t);
+                      setTimeout(() => void readVoarFacilLinkFrom(t), 0);
+                    }
+                  }}
+                  placeholder="https://emissao-externa.voarfacil.net/…"
+                />
+                <button
+                  type="button"
+                  disabled={vfReading || !vfLink.trim()}
+                  onClick={() => void readVoarFacilLink()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {vfReading ? "Lendo…" : "Ler pedido"}
+                </button>
+              </div>
+              {vfReadError ? <p className="mt-2 text-xs font-medium text-rose-700">{vfReadError}</p> : null}
+              {voarFacilOrder ? (
+                (() => {
+                  const d = voarFacilOrder.data;
+                  const ida = d.legs.find((l) => l.direction === "IDA");
+                  const volta = d.legs.find((l) => l.direction === "VOLTA");
+                  const br = (iso?: string) => (iso ? iso.split("-").reverse().join("/") : "—");
+                  return (
+                    <div className="mt-3 grid gap-3 rounded-xl border border-sky-200 bg-white p-3 text-xs text-slate-700 sm:grid-cols-[1fr_1fr]">
+                      <div>
+                        <div className="font-semibold text-slate-900">
+                          Pedido {voarFacilOrder.pedido || ""} · {ida ? `${ida.from} → ${ida.to}` : "—"}
+                        </div>
+                        <div className="mt-1">
+                          Ida {br(ida?.date)} ({ida?.segments.map((g) => g.flight).join(" + ")})
+                          {volta ? ` · Volta ${br(volta.date)} (${volta.segments.map((g) => g.flight).join(" + ")})` : ""}
+                        </div>
+                        <div className="mt-1">
+                          {d.counts.adt} adulto(s) · {d.counts.chd} criança(s) · {d.counts.inf} bebê(s)
+                        </div>
+                        <div className="mt-1 text-slate-500">
+                          Até {fmtInt(d.limitMiles)} milhas · taxas até{" "}
+                          {(d.limitTaxCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </div>
+                      </div>
+                      <ul className="space-y-0.5">
+                        {d.passengers.map((p, i) => (
+                          <li key={i} className="truncate">
+                            <span className="font-medium text-slate-900">
+                              {p.firstName} {p.lastName}
+                            </span>{" "}
+                            · {p.faixa} · {p.birth}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Programa + trecho */}
           <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_1fr]">
             <div className="space-y-1.5">
@@ -3692,6 +3917,8 @@ export default function NovaVendaClient({
               alert(e?.message || "Não foi possível trocar o cedente.");
             }
           }}
+          voarFacilOrder={saleFlow === "PARCEIRO" ? voarFacilOrder : null}
+          onVoarFacilOrder={saleFlow === "PARCEIRO" ? (o) => applyVoarFacilToSale(o) : undefined}
           onClose={() => setBiometriaModalOpen(false)}
           onComplete={completeBiometriaWizard}
         />
@@ -4090,6 +4317,16 @@ export default function NovaVendaClient({
         </div>
       ) : null}
 
+      {showVoarFacilPicker ? (
+        <VoarFacilOrderPicker
+          onClose={() => setShowVoarFacilPicker(false)}
+          onPick={(o) => {
+            applyVoarFacilToSale(o);
+            setShowVoarFacilPicker(false);
+          }}
+        />
+      ) : null}
+
       {postSaveOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
           <div className="w-full max-w-2xl rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl shadow-slate-900/20 sm:p-6">
@@ -4127,6 +4364,25 @@ export default function NovaVendaClient({
                 ainda fica legível.
               </div>
             </div>
+
+            {saleFlow === "PARCEIRO" && voarFacilOrder && savedSaleId ? (
+              <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-sky-900">
+                    Parceiro Voar Fácil · pedido {voarFacilOrder.pedido || ""}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={voarFacilFilling}
+                    onClick={() => void fillVoarFacil()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                  >
+                    ✈ {voarFacilFilling ? "Preparando…" : "Preencher Voar Fácil"}
+                  </button>
+                </div>
+                {voarFacilMsg ? <div className="mt-1.5 text-[11px] text-sky-800">{voarFacilMsg}</div> : null}
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button

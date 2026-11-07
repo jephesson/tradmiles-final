@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
   "name": "TradeMiles LATAM Fill",
-  "version": "0.2.61",
-  "description": "Preenche passageiros e pagamento LATAM (REDEMPTION) com dados do TradeMiles.",
-  "permissions": ["storage", "activeTab", "tabs"],
+  "version": "0.2.62",
+  "description": "Preenche passageiros e pagamento LATAM (REDEMPTION) e a emissão do parceiro Voar Fácil com dados do TradeMiles.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
   "host_permissions": [
     "https://www.latamairlines.com/*",
     "https://latamairlines.com/*",
+    "https://emissao-externa.voarfacil.net/*",
     "https://www.trademiles.com.br/*",
     "https://trademiles.com.br/*",
     "http://localhost:3000/*"
@@ -22,7 +27,9 @@
         "https://latamairlines.com/*/pagamentos/passageiros*",
         "https://latamairlines.com/*/v2/passageiros*"
       ],
-      "js": ["content/page-hooks.js"],
+      "js": [
+        "content/page-hooks.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
@@ -34,7 +41,9 @@
         "https://latamairlines.com/*/pagamentos/passageiros*",
         "https://latamairlines.com/*/v2/passageiros*"
       ],
-      "js": ["content/passengers.js"],
+      "js": [
+        "content/passengers.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
@@ -43,7 +52,18 @@
         "https://www.latamairlines.com/*/v2/pagamentos*",
         "https://latamairlines.com/*/v2/pagamentos*"
       ],
-      "js": ["content/payment.js"],
+      "js": [
+        "content/payment.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://emissao-externa.voarfacil.net/*"
+      ],
+      "js": [
+        "content/voarfacil.js"
+      ],
       "run_at": "document_idle"
     }
   ],
