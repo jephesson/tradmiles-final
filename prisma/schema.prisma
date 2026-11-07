@@ -140,6 +140,9 @@ model User {
   pixTipo  PixTipo?
   chavePix String?
 
+  /** Cartão que abre por padrão para pagar a taxa de embarque (pode ser o da empresa). */
+  defaultFeeCardId String?
+
   /** Telas liberadas para role socio. Ex.: ["dividas-cartoes"] */
   allowedPages String[] @default([])
 

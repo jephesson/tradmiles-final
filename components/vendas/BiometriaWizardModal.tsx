@@ -337,7 +337,7 @@ type Props = {
 };
 
 
-type LatamCardPref = { ownerId: string; cardId: string; pinned: boolean };
+type LatamCardPref = { ownerId: string; cardId: string; pinned?: boolean };
 const LATAM_CARD_PREF_KEY = "tm:latam-card-pref:";
 
 function readLatamCardPref(userId: string): LatamCardPref | null {
@@ -428,8 +428,6 @@ export default function BiometriaWizardModal({
   >([]);
   const [latamPaymentCardId, setLatamPaymentCardId] = useState("");
   const [latamCardOwnerId, setLatamCardOwnerId] = useState("");
-  /** Cartão fixado como padrão (não é trocado pelo "último usado"). */
-  const [latamCardPinned, setLatamCardPinned] = useState(false);
   const [latamEmployees, setLatamEmployees] = useState<
     Array<{ id: string; name: string; login: string }>
   >([]);
@@ -831,14 +829,30 @@ export default function BiometriaWizardModal({
     else finish({ purchaseCode: null, skippedOrder: true });
   }
 
-  /** Carrega cartões começando pelo fixado ou pelo último usado (por usuário, neste navegador). */
-  function loadLatamPaymentCardsWithPref() {
+  /**
+   * Carrega cartões começando pelo "Padrão da taxa" (Dados de pagamento);
+   * sem padrão, usa o último cartão usado neste navegador.
+   */
+  async function loadLatamPaymentCardsWithPref() {
     const me = getSession()?.id || "";
-    const pref = readLatamCardPref(me);
-    setLatamCardPinned(Boolean(pref?.pinned));
-    if (pref && !latamPaymentCardId) {
-      setLatamCardOwnerId(pref.ownerId);
-      return loadLatamPaymentCards(pref.ownerId, pref.cardId);
+    if (!latamPaymentCardId) {
+      try {
+        const res = await fetch("/api/funcionarios/payment-cards/default", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        const def = json?.ok ? json.data : null;
+        if (def?.id) {
+          const ownerId = def.isCompany ? VIAS_OWNER_ID : def.userId || me;
+          setLatamCardOwnerId(ownerId);
+          return loadLatamPaymentCards(ownerId, def.id);
+        }
+      } catch {
+        /* segue para o último usado */
+      }
+      const pref = readLatamCardPref(me);
+      if (pref) {
+        setLatamCardOwnerId(pref.ownerId);
+        return loadLatamPaymentCards(pref.ownerId, pref.cardId);
+      }
     }
     return loadLatamPaymentCards();
   }
@@ -1139,14 +1153,14 @@ export default function BiometriaWizardModal({
 
   // Guarda o último cartão usado (a menos que haja um fixado)
   useEffect(() => {
-    if (!open || step !== "extension" || !latamPaymentCardId || latamCardPinned) return;
+    if (!open || step !== "extension" || !latamPaymentCardId) return;
     const me = getSession()?.id || "";
     writeLatamCardPref(me, {
       ownerId: latamCardOwnerId || me,
       cardId: latamPaymentCardId,
       pinned: false,
     });
-  }, [open, step, latamPaymentCardId, latamCardOwnerId, latamCardPinned]);
+  }, [open, step, latamPaymentCardId, latamCardOwnerId]);
 
   // Cartão empresa → titular Vias Aéreas (taxa da empresa, não do funcionário)
   useEffect(() => {
@@ -2288,27 +2302,17 @@ export default function BiometriaWizardModal({
                           </option>
                         ))}
                       </select>
-                      {latamPaymentCardId ? (
-                        <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={latamCardPinned}
-                            onChange={(e) => {
-                              const on = e.target.checked;
-                              const me = getSession()?.id || "";
-                              setLatamCardPinned(on);
-                              writeLatamCardPref(me, {
-                                ownerId: latamCardOwnerId || me,
-                                cardId: latamPaymentCardId,
-                                pinned: on,
-                              });
-                            }}
-                          />
-                          {latamCardPinned
-                            ? "Cartão fixado como padrão (desmarque para voltar a usar o último)"
-                            : "Fixar este cartão como padrão (senão abre com o último usado)"}
-                        </label>
-                      ) : null}
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Abre com o cartão marcado como{" "}
+                        <Link
+                          href="/dashboard/funcionarios/dados-pagamento"
+                          className="font-semibold text-sky-700 underline"
+                          target="_blank"
+                        >
+                          padrão da taxa
+                        </Link>{" "}
+                        (ou o último usado).
+                      </p>
                       {latamCardOwnerId === VIAS_OWNER_ID ||
                       latamPaymentCards.find((c) => c.id === latamPaymentCardId)
                         ?.isCompany ? (

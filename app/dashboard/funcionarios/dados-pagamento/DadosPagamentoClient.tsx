@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CreditCard, Loader2, Pencil, Plus, Trash2, UserRound } from "lucide-react";
+import { CreditCard, Loader2, Pencil, Plus, Star, Trash2, UserRound } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { BR_STATES } from "@/lib/payments/brStates";
@@ -88,6 +88,37 @@ export default function DadosPagamentoClient() {
   const [pixTipo, setPixTipo] = useState<"CPF" | "CNPJ" | "EMAIL" | "TELEFONE" | "ALEATORIA">("CPF");
   const [chavePix, setChavePix] = useState("");
   const [pixSaving, setPixSaving] = useState(false);
+  const [defaultFeeCardId, setDefaultFeeCardId] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
+
+  const loadDefaultFeeCard = useCallback(async () => {
+    try {
+      const res = await fetch("/api/funcionarios/payment-cards/default", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok) setDefaultFeeCardId(json.data?.id || null);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  async function setDefaultFeeCard(cardId: string | null) {
+    setSavingDefault(true);
+    try {
+      const res = await fetch("/api/funcionarios/payment-cards/default", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Falha ao salvar o padrão.");
+      setDefaultFeeCardId(json.data?.id || null);
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Falha ao salvar o padrão.");
+    } finally {
+      setSavingDefault(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +171,8 @@ export default function DadosPagamentoClient() {
     void load();
     void loadTitularHint();
     void loadPix();
-  }, [load, loadTitularHint, loadPix]);
+    void loadDefaultFeeCard();
+  }, [load, loadTitularHint, loadPix, loadDefaultFeeCard]);
 
   async function savePix() {
     setPixSaving(true);
@@ -601,7 +633,7 @@ export default function DadosPagamentoClient() {
                       EMPRESA
                     </span>
                   ) : null}
-                  {c.isDefaultBoarding ? (
+                  {(defaultFeeCardId ? defaultFeeCardId === c.id : c.isDefaultBoarding) ? (
                     <span className="ml-2 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
                       PADRÃO TAXA
                     </span>
@@ -615,6 +647,26 @@ export default function DadosPagamentoClient() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {(() => {
+                  const isDef = defaultFeeCardId ? defaultFeeCardId === c.id : c.isDefaultBoarding;
+                  return (
+                    <button
+                      type="button"
+                      disabled={savingDefault}
+                      onClick={() => void setDefaultFeeCard(isDef ? null : c.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium disabled:opacity-50",
+                        isDef
+                          ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      )}
+                      title={isDef ? "Tirar como padrão da taxa" : "Usar este cartão por padrão para pagar a taxa de embarque"}
+                    >
+                      <Star className={cn("h-4 w-4", isDef && "fill-current")} aria-hidden />
+                      {isDef ? "Padrão da taxa" : "Tornar padrão"}
+                    </button>
+                  );
+                })()}
                 <button
                   type="button"
                   onClick={() => openEdit(c)}
