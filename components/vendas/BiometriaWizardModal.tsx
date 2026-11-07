@@ -842,8 +842,11 @@ export default function BiometriaWizardModal({
       inf?: number;
     } | null;
     passengerText: string;
+    /** false = só preenche (não abre a aba da pesquisa). */
+    openSearch?: boolean;
   }) {
     const f = payload.flight;
+    const openSearch = payload.openSearch !== false;
     if (f) {
       if (f.origin) setSearchOrigin(f.origin);
       if (f.destination) setSearchDestination(f.destination);
@@ -866,7 +869,7 @@ export default function BiometriaWizardModal({
           chd: f.chd,
           inf: f.inf,
         });
-        if (link) window.open(link, "_blank");
+        if (link && openSearch) window.open(link, "_blank");
       } else if (f.origin && f.destination && f.outbound) {
         const url = buildSmilesSearchUrl(
           f.origin,
@@ -876,7 +879,7 @@ export default function BiometriaWizardModal({
           f.trip === "IDA_VOLTA" ? f.inbound || null : null,
           { children: f.chd, infants: f.inf }
         );
-        if (url) window.open(url, "_blank");
+        if (url && openSearch) window.open(url, "_blank");
       }
     }
     if (payload.passengerText.trim()) {
@@ -886,7 +889,7 @@ export default function BiometriaWizardModal({
     }
   }
 
-  function applyVoarFacil(order: VoarFacilOrderLite) {
+  function applyVoarFacil(order: VoarFacilOrderLite, opts?: { openSearch?: boolean }) {
     const d = order.data;
     const ida = d.legs.find((l) => l.direction === "IDA") || d.legs[0];
     const volta = d.legs.find((l) => l.direction === "VOLTA");
@@ -904,11 +907,26 @@ export default function BiometriaWizardModal({
           }
         : null,
       passengerText: voarFacilPassengerText(d),
+      openSearch: opts?.openSearch,
     });
   }
 
+  // Fluxo parceiro: trecho, datas, PAX e passageiros já entram do pedido ao abrir
+  const vfAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      vfAppliedRef.current = null;
+      return;
+    }
+    if (!voarFacilOrder) return;
+    if (vfAppliedRef.current === voarFacilOrder.id) return;
+    vfAppliedRef.current = voarFacilOrder.id;
+    applyVoarFacil(voarFacilOrder, { openSearch: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, voarFacilOrder?.id]);
+
   function openVoarFacil() {
-    if (voarFacilOrder) applyVoarFacil(voarFacilOrder);
+    if (voarFacilOrder) applyVoarFacil(voarFacilOrder, { openSearch: false });
     else setShowVoarFacil(true);
   }
 
@@ -1889,25 +1907,21 @@ export default function BiometriaWizardModal({
                 >
                   Ida e volta
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowTelegram(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  Ler no Telegram
-                </button>
                 {voarFacilOrder ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800">
+                    <Plane className="h-3.5 w-3.5" />
+                    Preenchido do pedido Voar Fácil {voarFacilOrder.pedido || ""}
+                  </span>
+                ) : (
                   <button
                     type="button"
-                    onClick={openVoarFacil}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100"
-                    title={voarFacilOrder ? `Pedido ${voarFacilOrder.pedido || ""}: voo e passageiros` : "Escolher pedido do Voar Fácil"}
+                    onClick={() => setShowTelegram(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    <Plane className="h-3.5 w-3.5" />
-                    Voar Fácil
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    Ler no Telegram
                   </button>
-                ) : null}
+                )}
               </div>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -2135,6 +2149,7 @@ export default function BiometriaWizardModal({
                           Passageiros (colar, foto ou tela do Telegram)
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
+                          {!voarFacilOrder ? (
                           <button
                             type="button"
                             disabled={docExtracting}
@@ -2144,6 +2159,7 @@ export default function BiometriaWizardModal({
                             <MessageCircle className="h-3.5 w-3.5" />
                             Telegram
                           </button>
+                          ) : null}
                           {voarFacilOrder ? (
                             <button
                               type="button"
@@ -2152,7 +2168,7 @@ export default function BiometriaWizardModal({
                               className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-800 shadow-sm hover:bg-sky-100 disabled:opacity-60"
                             >
                               <Plane className="h-3.5 w-3.5" />
-                              Voar Fácil
+                              Recarregar do pedido
                             </button>
                           ) : null}
                           <button
