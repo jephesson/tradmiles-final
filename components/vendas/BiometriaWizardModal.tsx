@@ -336,6 +336,33 @@ type Props = {
   }) => void;
 };
 
+
+type LatamCardPref = { ownerId: string; cardId: string; pinned: boolean };
+const LATAM_CARD_PREF_KEY = "tm:latam-card-pref:";
+
+function readLatamCardPref(userId: string): LatamCardPref | null {
+  if (!userId) return null;
+  try {
+    const raw = window.localStorage.getItem(LATAM_CARD_PREF_KEY + userId);
+    const j = raw ? JSON.parse(raw) : null;
+    if (j && typeof j.cardId === "string" && typeof j.ownerId === "string") {
+      return { ownerId: j.ownerId, cardId: j.cardId, pinned: Boolean(j.pinned) };
+    }
+  } catch {
+    /* sem storage */
+  }
+  return null;
+}
+
+function writeLatamCardPref(userId: string, pref: LatamCardPref) {
+  if (!userId) return;
+  try {
+    window.localStorage.setItem(LATAM_CARD_PREF_KEY + userId, JSON.stringify(pref));
+  } catch {
+    /* sem storage */
+  }
+}
+
 export default function BiometriaWizardModal({
   open,
   program,
@@ -401,6 +428,8 @@ export default function BiometriaWizardModal({
   >([]);
   const [latamPaymentCardId, setLatamPaymentCardId] = useState("");
   const [latamCardOwnerId, setLatamCardOwnerId] = useState("");
+  /** Cartão fixado como padrão (não é trocado pelo "último usado"). */
+  const [latamCardPinned, setLatamCardPinned] = useState(false);
   const [latamEmployees, setLatamEmployees] = useState<
     Array<{ id: string; name: string; login: string }>
   >([]);
@@ -802,7 +831,19 @@ export default function BiometriaWizardModal({
     else finish({ purchaseCode: null, skippedOrder: true });
   }
 
-  async function loadLatamPaymentCards(ownerId?: string) {
+  /** Carrega cartões começando pelo fixado ou pelo último usado (por usuário, neste navegador). */
+  function loadLatamPaymentCardsWithPref() {
+    const me = getSession()?.id || "";
+    const pref = readLatamCardPref(me);
+    setLatamCardPinned(Boolean(pref?.pinned));
+    if (pref && !latamPaymentCardId) {
+      setLatamCardOwnerId(pref.ownerId);
+      return loadLatamPaymentCards(pref.ownerId, pref.cardId);
+    }
+    return loadLatamPaymentCards();
+  }
+
+  async function loadLatamPaymentCards(ownerId?: string, preferCardId?: string) {
     try {
       const me = getSession()?.id || "";
       const rawOwner = ownerId || latamCardOwnerId || me;
@@ -819,6 +860,9 @@ export default function BiometriaWizardModal({
       const list = Array.isArray(json.data) ? json.data : [];
       setLatamPaymentCards(list);
       setLatamPaymentCardId((prev) => {
+        if (!prev && preferCardId && list.some((c: { id: string }) => c.id === preferCardId)) {
+          return preferCardId;
+        }
         if (prev && list.some((c: { id: string }) => c.id === prev)) {
           // Se mudou para Vias, força cartão empresa se o atual não for
           if (viasMode) {
@@ -1090,8 +1134,19 @@ export default function BiometriaWizardModal({
   useEffect(() => {
     if (!open || step !== "extension") return;
     void loadLatamEmployeesForCards();
-    void loadLatamPaymentCards();
+    void loadLatamPaymentCardsWithPref();
   }, [open, step]);
+
+  // Guarda o último cartão usado (a menos que haja um fixado)
+  useEffect(() => {
+    if (!open || step !== "extension" || !latamPaymentCardId || latamCardPinned) return;
+    const me = getSession()?.id || "";
+    writeLatamCardPref(me, {
+      ownerId: latamCardOwnerId || me,
+      cardId: latamPaymentCardId,
+      pinned: false,
+    });
+  }, [open, step, latamPaymentCardId, latamCardOwnerId, latamCardPinned]);
 
   // Cartão empresa → titular Vias Aéreas (taxa da empresa, não do funcionário)
   useEffect(() => {
@@ -1948,7 +2003,7 @@ export default function BiometriaWizardModal({
                       setUseLatamExtension(on);
                       if (on) {
                         void loadLatamEmployeesForCards();
-                        void loadLatamPaymentCards();
+                        void loadLatamPaymentCardsWithPref();
                       } else void syncLatamExtensionSession(false);
                     }}
                   />
@@ -2233,6 +2288,27 @@ export default function BiometriaWizardModal({
                           </option>
                         ))}
                       </select>
+                      {latamPaymentCardId ? (
+                        <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={latamCardPinned}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              const me = getSession()?.id || "";
+                              setLatamCardPinned(on);
+                              writeLatamCardPref(me, {
+                                ownerId: latamCardOwnerId || me,
+                                cardId: latamPaymentCardId,
+                                pinned: on,
+                              });
+                            }}
+                          />
+                          {latamCardPinned
+                            ? "Cartão fixado como padrão (desmarque para voltar a usar o último)"
+                            : "Fixar este cartão como padrão (senão abre com o último usado)"}
+                        </label>
+                      ) : null}
                       {latamCardOwnerId === VIAS_OWNER_ID ||
                       latamPaymentCards.find((c) => c.id === latamPaymentCardId)
                         ?.isCompany ? (

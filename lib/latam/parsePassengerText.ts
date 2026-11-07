@@ -634,6 +634,12 @@ function preprocessPassengerText(raw: string): string {
     "Nascimento"
   );
 
+  // "Número do CPF" / "Nº do CPF" / "Numero de telefone" → só o rótulo (evita "Número do" virar linha solta)
+  t = t.replace(
+    /(?:\bn[uú]mero|\bn\.?\s*[º°o]\.?|\bnro\.?)\s+(?:d[oae]s?\s+)?(cpf|rg|passaporte|documento|telefone|celular|whats(?:app)?)\b/gi,
+    "$1"
+  );
+
   // E-mail digitado no Zap: "fulano@gmail. Com" → "fulano@gmail.com"
   t = t.replace(
     /(@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*)[^\S\n]*\.[^\S\n]*(com|br|net|org)\b/gi,
