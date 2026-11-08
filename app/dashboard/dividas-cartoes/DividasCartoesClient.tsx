@@ -696,8 +696,19 @@ export default function DividasCartoesClient() {
                     </button>
                   ) : null}
                 </div>
-                {g.items.map((r) => (
-                  <div key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 pl-11 text-sm">
+                {g.items.map((r) => {
+                  const total = Number(r.installmentCount || 0);
+                  const isFirst = r.n === 1;
+                  const isLast = total > 1 && r.n === total;
+                  return (
+                  <div
+                    key={r.id}
+                    className={cn(
+                      "flex flex-wrap items-center gap-3 px-4 py-2.5 pl-11 text-sm",
+                      isLast && "border-l-4 border-violet-400 bg-violet-50/60",
+                      isFirst && !isLast && "border-l-4 border-sky-400 bg-sky-50/60"
+                    )}
+                  >
                     {r.status === "OPEN" && !viewOnly ? (
                       <input
                         type="checkbox"
@@ -707,9 +718,23 @@ export default function DividasCartoesClient() {
                     ) : (
                       <span className="w-4" />
                     )}
-                    <div className="w-16 tabular-nums text-slate-500">{r.n}ª</div>
+                    <div className="w-16 tabular-nums text-slate-500">
+                      {r.n}ª{total > 0 ? <span className="text-slate-400"> /{total}</span> : null}
+                    </div>
                     <div className="w-28 tabular-nums text-slate-600">{dateBR(r.dueDate)}</div>
-                    <div className="flex-1 font-medium tabular-nums text-slate-900">{money(r.amountCents)}</div>
+                    <div className="flex flex-1 items-center gap-2 font-medium tabular-nums text-slate-900">
+                      {money(r.amountCents)}
+                      {isFirst ? (
+                        <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          {total === 1 ? "Parcela única" : "Primeira parcela"}
+                        </span>
+                      ) : null}
+                      {isLast ? (
+                        <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Última parcela
+                        </span>
+                      ) : null}
+                    </div>
                     {r.status === "PAID" ? (
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Pago</span>
                     ) : viewOnly ? (
@@ -726,7 +751,8 @@ export default function DividasCartoesClient() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}
