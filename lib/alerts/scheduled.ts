@@ -7,6 +7,8 @@ export type ScheduledAlertDTO = {
   date: string; // YYYY-MM-DD
   time: string | null; // HH:MM
   durationMinutes: number | null;
+  cedente: { id: string; nomeCompleto: string; identificador: string } | null;
+  linkedUser: { id: string; name: string; login: string } | null;
 };
 
 export const DURATION_OPTIONS: { value: number; label: string }[] = [

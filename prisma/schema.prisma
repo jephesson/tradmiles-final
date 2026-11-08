@@ -304,7 +304,8 @@ model User {
   despesasRecorrentesCreated DespesaRecorrente[] @relation("DespesaRecorrenteCreatedBy")
   prejuizosManuaisCreated    PrejuizoManual[]    @relation("PrejuizoManualCreatedBy")
   cotacaoPassagemJobs        CotacaoPassagemJob[]
-  scheduledAlerts            ScheduledAlert[]
+  scheduledAlerts            ScheduledAlert[] @relation("ScheduledAlertOwner")
+  scheduledAlertsLinked      ScheduledAlert[] @relation("ScheduledAlertLinkedUser")
 
   @@index([team])
   @@index([role])
@@ -687,6 +688,8 @@ model Cedente {
   updatedAt DateTime @updatedAt
 
   filaAssinaturas FilaAssinatura[]
+
+  scheduledAlerts ScheduledAlert[]
 
   @@index([status])
   @@index([ownerId])
@@ -3062,10 +3065,14 @@ model ScheduledAlert {
   date            String
   time            String?
   durationMinutes Int?
+  cedenteId       String?
+  linkedUserId    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation("ScheduledAlertOwner", fields: [userId], references: [id], onDelete: Cascade)
+  cedente    Cedente? @relation(fields: [cedenteId], references: [id], onDelete: SetNull)
+  linkedUser User?    @relation("ScheduledAlertLinkedUser", fields: [linkedUserId], references: [id], onDelete: SetNull)
 
   @@index([userId, date])
   @@map("scheduled_alerts")

@@ -554,6 +554,13 @@ export default function EmailAlertasNav() {
                           {a.durationMinutes ? ` · ${fmtDuration(a.durationMinutes)}` : ""}
                         </div>
                         <div className="mt-0.5 text-sm font-semibold text-slate-900">{a.title}</div>
+                        {a.cedente || a.linkedUser ? (
+                          <div className="mt-0.5 truncate text-[11px] font-semibold text-sky-800">
+                            {a.cedente
+                              ? `Cedente: ${a.cedente.nomeCompleto} · ${a.cedente.identificador}`
+                              : `Funcionário: ${a.linkedUser!.name}`}
+                          </div>
+                        ) : null}
                         {a.notes ? <div className="mt-0.5 text-xs text-slate-600">{a.notes}</div> : null}
                       </div>
                       <button

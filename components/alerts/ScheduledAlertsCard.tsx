@@ -127,6 +127,20 @@ export default function ScheduledAlertsCard() {
                     {whenLabel(a)}
                   </div>
                   <div className={cn("mt-0.5 text-sm font-semibold", isToday ? "text-white" : "text-slate-900")}>{a.title}</div>
+                  {a.cedente || a.linkedUser ? (
+                    <div
+                      className={cn(
+                        "mt-1 inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+                        isToday ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700"
+                      )}
+                    >
+                      <span className="truncate">
+                        {a.cedente
+                          ? `Cedente: ${a.cedente.nomeCompleto} · ${a.cedente.identificador}`
+                          : `Funcionário: ${a.linkedUser!.name}`}
+                      </span>
+                    </div>
+                  ) : null}
                   {a.notes ? (
                     <div className={cn("mt-0.5 text-xs", isToday ? "text-sky-50" : "text-slate-500")}>{a.notes}</div>
                   ) : null}

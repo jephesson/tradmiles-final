@@ -9,7 +9,16 @@ export const dynamic = "force-dynamic";
 const H = { "Cache-Control": "no-store" };
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status, headers: H });
 
-const SELECT = { id: true, title: true, notes: true, date: true, time: true, durationMinutes: true } as const;
+const SELECT = {
+  id: true,
+  title: true,
+  notes: true,
+  date: true,
+  time: true,
+  durationMinutes: true,
+  cedente: { select: { id: true, nomeCompleto: true, identificador: true } },
+  linkedUser: { select: { id: true, name: true, login: true } },
+} as const;
 
 /** Alertas do próprio usuário que ainda não terminaram (em andamento + próximos). */
 export async function GET() {
@@ -50,6 +59,17 @@ export async function POST(req: NextRequest) {
   if (timeRaw && !/^\d{2}:\d{2}$/.test(timeRaw)) return bad("Hora inválida.");
   if (dur != null && (!Number.isFinite(dur) || dur <= 0 || dur > 60 * 24 * 60)) return bad("Duração inválida.");
 
+  const cedenteId = String(body?.cedenteId || "").trim() || null;
+  const linkedUserId = String(body?.linkedUserId || "").trim() || null;
+  if (cedenteId) {
+    const ok = await prisma.cedente.findUnique({ where: { id: cedenteId }, select: { id: true } });
+    if (!ok) return bad("Cedente não encontrado.");
+  }
+  if (linkedUserId) {
+    const ok = await prisma.user.findFirst({ where: { id: linkedUserId, team: session.team }, select: { id: true } });
+    if (!ok) return bad("Funcionário não encontrado.");
+  }
+
   const item = await prisma.scheduledAlert.create({
     data: {
       team: session.team,
@@ -59,6 +79,8 @@ export async function POST(req: NextRequest) {
       date,
       time: timeRaw || null,
       durationMinutes: dur == null ? null : Math.round(dur),
+      cedenteId,
+      linkedUserId,
     },
     select: SELECT,
   });

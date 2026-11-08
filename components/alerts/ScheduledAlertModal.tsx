@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, Loader2, X } from "lucide-react";
+import { CalendarClock, Loader2, User, UserRound, X } from "lucide-react";
+import { cn } from "@/lib/cn";
 import { DURATION_OPTIONS, todayRecifeISO } from "@/lib/alerts/scheduled";
 
 export const SCHEDULED_ALERTS_EVENT = "tm:scheduled-alerts-changed";
@@ -16,11 +17,58 @@ export default function ScheduledAlertModal({ onClose }: { onClose: () => void }
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [linkType, setLinkType] = useState<"" | "cedente" | "user">("");
+  const [linkId, setLinkId] = useState("");
+  const [linkQ, setLinkQ] = useState("");
+  const [opts, setOpts] = useState<{
+    cedentes: { id: string; nomeCompleto: string; identificador: string }[];
+    users: { id: string; name: string; login: string }[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!linkType || opts) return;
+    let alive = true;
+    fetch("/api/alertas-agendados/opcoes", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (alive && j?.ok) setOpts({ cedentes: j.cedentes || [], users: j.users || [] });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [linkType, opts]);
+
+  const linkList = useMemo(() => {
+    if (!opts || !linkType) return [];
+    const q = linkQ
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    const all =
+      linkType === "cedente"
+        ? opts.cedentes.map((c) => ({ id: c.id, label: c.nomeCompleto, sub: c.identificador }))
+        : opts.users.map((u) => ({ id: u.id, label: u.name, sub: `@${u.login}` }));
+    const fold = (v: string) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return (q ? all.filter((o) => fold(`${o.label} ${o.sub}`).includes(q)) : all).slice(0, 8);
+  }, [opts, linkType, linkQ]);
+
+  const linked = useMemo(() => {
+    if (!opts || !linkId) return null;
+    if (linkType === "cedente") {
+      const c = opts.cedentes.find((x) => x.id === linkId);
+      return c ? { label: c.nomeCompleto, sub: c.identificador } : null;
+    }
+    const u = opts.users.find((x) => x.id === linkId);
+    return u ? { label: u.name, sub: `@${u.login}` } : null;
+  }, [opts, linkId, linkType]);
 
   async function save() {
     setError("");
     if (!title.trim()) return setError("Escreva o que vai fazer.");
     if (!date) return setError("Escolha o dia.");
+    if (linkType && !linkId) return setError(linkType === "cedente" ? "Escolha o cedente." : "Escolha o funcionário.");
     setSaving(true);
     try {
       const res = await fetch("/api/alertas-agendados", {
@@ -32,6 +80,8 @@ export default function ScheduledAlertModal({ onClose }: { onClose: () => void }
           time: time || null,
           durationMinutes: duration ? Number(duration) : null,
           notes,
+          cedenteId: linkType === "cedente" ? linkId || null : null,
+          linkedUserId: linkType === "user" ? linkId || null : null,
         }),
       });
       const json = await res.json().catch(() => null);
@@ -101,6 +151,84 @@ export default function ScheduledAlertModal({ onClose }: { onClose: () => void }
               ))}
             </select>
           </label>
+          <div>
+            <span className="mb-1 block text-xs font-semibold text-slate-600">Vincular a (opcional)</span>
+            <div className="mb-2 inline-flex rounded-xl border border-slate-200 p-0.5">
+              {(
+                [
+                  { id: "", label: "Nenhum" },
+                  { id: "cedente", label: "Cedente" },
+                  { id: "user", label: "Funcionário" },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.id || "none"}
+                  type="button"
+                  onClick={() => {
+                    setLinkType(o.id);
+                    setLinkId("");
+                    setLinkQ("");
+                  }}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                    linkType === o.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {linkType ? (
+              linked ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">{linked.label}</div>
+                    <div className="truncate text-[11px] text-slate-500">{linked.sub}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLinkId("")}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                  >
+                    Trocar
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    value={linkQ}
+                    onChange={(e) => setLinkQ(e.target.value)}
+                    placeholder={linkType === "cedente" ? "Buscar cedente pelo nome ou identificador" : "Buscar funcionário"}
+                    className={input}
+                  />
+                  <div className="mt-1 max-h-44 overflow-y-auto rounded-xl border border-slate-200">
+                    {!opts ? (
+                      <div className="px-3 py-2 text-xs text-slate-400">Carregando…</div>
+                    ) : linkList.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-slate-400">Nada encontrado.</div>
+                    ) : (
+                      linkList.map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          onClick={() => setLinkId(o.id)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-50"
+                        >
+                          {linkType === "cedente" ? (
+                            <UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                          ) : (
+                            <User className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                          )}
+                          <span className="truncate text-sm text-slate-800">{o.label}</span>
+                          <span className="ml-auto shrink-0 text-[11px] text-slate-400">{o.sub}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )
+            ) : null}
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-600">Observação (opcional)</span>
             <textarea
