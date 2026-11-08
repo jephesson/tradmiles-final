@@ -1,5 +1,6 @@
 "use client";
 
+import ScheduledAlertsCard from "@/components/alerts/ScheduledAlertsCard";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
@@ -242,7 +243,10 @@ export default function DashboardInicialClient() {
           <IndividualGoalCard bonus={bonus} loading={!data && !error} />
         </div>
 
-        <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
+        <div className="space-y-4">
+          <ScheduledAlertsCard />
+          <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
+        </div>
       </div>
 
       <AgendaWeekCard data={data} takingGap={takingGap} onTakeGap={takeGap} />

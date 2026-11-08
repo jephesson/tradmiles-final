@@ -6,6 +6,9 @@ import Link from "next/link";
 import {
   BellRing,
   Banknote,
+  CalendarClock,
+  CalendarPlus,
+  Check,
   ExternalLink,
   History,
   Loader2,
@@ -18,6 +21,9 @@ import {
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
 import PixAlertModal from "@/components/PixAlertModal";
+import ScheduledAlertModal from "@/components/alerts/ScheduledAlertModal";
+import { deleteScheduledAlert, useScheduledAlerts } from "@/components/alerts/ScheduledAlertsCard";
+import { fmtDuration, isAlertToday } from "@/lib/alerts/scheduled";
 import type { PixMatchResult, ParsedPixEmail } from "@/lib/pix/types";
 import {
   ALERT_ACTION_LABEL,
@@ -113,6 +119,12 @@ export default function EmailAlertasNav() {
     null
   );
   const [pixMessageId, setPixMessageId] = useState<string | null>(null);
+  const [creatingScheduled, setCreatingScheduled] = useState(false);
+  const scheduled = useScheduledAlerts();
+  const todayScheduled = useMemo(
+    () => (scheduled.items || []).filter((a) => isAlertToday(a, scheduled.today || undefined)),
+    [scheduled.items, scheduled.today]
+  );
   const lastRefreshAt = useRef(0);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -128,7 +140,7 @@ export default function EmailAlertasNav() {
     return { visibleRows: active, historyRows: history };
   }, [rows, userId, dismissTick]);
 
-  const count = visibleRows.length;
+  const count = visibleRows.length + todayScheduled.length;
   const hasAlerts = count > 0;
   const listRows = tab === "active" ? visibleRows : historyRows;
 
@@ -467,6 +479,18 @@ export default function EmailAlertasNav() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    setCreatingScheduled(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700"
+                  title="Criar alerta agendado (só você vê)"
+                >
+                  <CalendarPlus className="h-3.5 w-3.5" aria-hidden />
+                  Criar alerta
+                </button>
                 <Link
                   href="/dashboard/configuracoes"
                   onClick={() => setOpen(false)}
@@ -518,6 +542,34 @@ export default function EmailAlertasNav() {
             ) : null}
 
             <div className="max-h-[min(70vh,28rem)] overflow-y-auto">
+              {todayScheduled.length ? (
+                <ul className="divide-y divide-sky-100 border-b border-sky-100 bg-sky-50">
+                  {todayScheduled.map((a) => (
+                    <li key={a.id} className="flex items-start justify-between gap-2 px-3.5 py-2.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-sky-700">
+                          <CalendarClock className="h-3.5 w-3.5" aria-hidden />
+                          Agendado hoje
+                          {a.time ? ` · ${a.time}` : ""}
+                          {a.durationMinutes ? ` · ${fmtDuration(a.durationMinutes)}` : ""}
+                        </div>
+                        <div className="mt-0.5 text-sm font-semibold text-slate-900">{a.title}</div>
+                        {a.notes ? <div className="mt-0.5 text-xs text-slate-600">{a.notes}</div> : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void deleteScheduledAlert(a.id).catch((e) => alert(e?.message || "Falha ao concluir."))
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                        title="Concluir e remover"
+                      >
+                        <Check className="h-3.5 w-3.5" aria-hidden /> Feito
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {loading && !listRows.length ? (
                 <div className="flex items-center gap-2 px-4 py-8 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -789,6 +841,7 @@ export default function EmailAlertasNav() {
 
       {panel}
       {detailModal}
+      {creatingScheduled ? <ScheduledAlertModal onClose={() => setCreatingScheduled(false)} /> : null}
       <PixAlertModal
         messageId={pixMessageId}
         onClose={() => setPixMessageId(null)}
