@@ -1558,6 +1558,23 @@ export default function NovaCompraClient({ purchaseId }: { purchaseId?: string }
     updateDraft({ items });
   }
 
+  // Auto: CIA base segue o destino dos itens (LATAM/Smiles/Iberia) — não precisa escolher duas vezes
+  useEffect(() => {
+    if (!draft || isReleased || itemsLocked) return;
+    const airlines: LoyaltyProgram[] = ["LATAM", "SMILES", "IBERIA"] as LoyaltyProgram[];
+    const byCia = new Map<LoyaltyProgram, number>();
+    for (const it of draft.items ?? []) {
+      const to = it.programTo as LoyaltyProgram | null | undefined;
+      if (!to || !airlines.includes(to)) continue;
+      byCia.set(to, (byCia.get(to) || 0) + Math.max(1, it.pointsFinal || 0));
+    }
+    if (!byCia.size) return;
+    if (draft.ciaProgram && byCia.has(draft.ciaProgram)) return;
+    const top = [...byCia.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    if (top !== draft.ciaProgram) updateDraft({ ciaProgram: top });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.items, draft?.ciaProgram, isReleased, itemsLocked]);
+
   // Auto: ciaPointsTotal = soma itens programTo=CIA
   useEffect(() => {
     if (!draft || !draft.ciaProgram || itemsLocked) return;
