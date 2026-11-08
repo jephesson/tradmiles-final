@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   CalendarDays,
   ChevronRight,
-  Circle,
+  Eye,
+  EyeOff,
   Landmark,
   RefreshCw,
   Sparkles,
@@ -15,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { getSession } from "@/lib/auth";
 import MobileHomeShortcuts from "@/components/MobileHomeShortcuts";
 import InterExtratoModal from "@/app/dashboard/InterExtratoModal";
 
@@ -185,73 +187,245 @@ export default function DashboardInicialClient() {
   const showCelebration = Boolean(
     bonus?.revenueGoalMet || (bonus?.isRenewalDay && bonus.previousMonth?.revenueGoalMet)
   );
+  const loadingData = !data && !error;
 
   return (
     <div className="relative isolate flex min-h-full flex-1 flex-col">
-      <div
-        className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
-        aria-hidden
-      >
-        <Image
-          src="/vias-aereas-mark.png"
-          alt=""
-          width={1009}
-          height={1024}
-          priority
-          unoptimized
-          className="h-[min(92%,52rem)] w-[min(92%,52rem)] object-contain opacity-[0.15]"
-        />
-      </div>
-      <div className="relative z-10 space-y-6">
-      <div className="min-w-0">
-        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-          Página inicial
-        </h1>
-        <p className="mt-0.5 text-sm text-slate-600">
-          {data ? (
-            <span className="capitalize">
-              {data.todayLabel} · {data.nowHHMM} (Recife)
-            </span>
-          ) : (
-            "Saldo do banco, ritmo do dia e equipe."
-          )}
-        </p>
-      </div>
+      <div className="relative z-10 space-y-5">
+        <HomeHero data={data} />
 
-      <MobileHomeShortcuts />
+        <MobileHomeShortcuts />
 
-      {error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
-      ) : null}
+        {error ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+        ) : null}
 
-      {showCelebration && bonus ? (
-        <BonusProgressCard
-          bonus={bonus}
-          todayLabel={data?.todayLabel || ""}
-          people={data?.teamPresence || []}
-          compact
-        />
-      ) : null}
+        {showCelebration && bonus ? (
+          <BonusProgressCard
+            bonus={bonus}
+            todayLabel={data?.todayLabel || ""}
+            people={data?.teamPresence || []}
+            compact
+          />
+        ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        <div className="space-y-4">
-          <BankBalanceCard />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <TodayPaceCard bonus={bonus} todayLabel={data?.todayLabel || ""} loading={!data && !error} />
-            <MonthGoalCard bonus={bonus} loading={!data && !error} />
-          </div>
-          <IndividualGoalCard bonus={bonus} loading={!data && !error} />
-          <ScheduledAlertsCard />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <TodayPaceCard bonus={bonus} loading={loadingData} delay={0.05} />
+          <MonthGoalCard bonus={bonus} loading={loadingData} delay={0.1} />
+          <IndividualGoalCard bonus={bonus} loading={loadingData} delay={0.15} data={data} />
         </div>
 
-        <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
-      </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:items-start">
+          <div className="lg:col-span-2">
+            <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
+          </div>
+          <div className="tm-rise" style={{ "--rise-delay": "0.25s" } as CSSProperties}>
+            <ScheduledAlertsCard />
+          </div>
+        </div>
 
-      <AgendaWeekCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
+        <AgendaWeekCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
       </div>
     </div>
   );
 }
+
+/* ---------- visual helpers ---------- */
+
+const CARD =
+  "rounded-3xl border border-slate-200/70 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-16px_rgba(15,23,42,0.18)] backdrop-blur";
+
+const AVATAR_PALETTE = [
+  "from-sky-400 to-blue-600",
+  "from-violet-400 to-purple-600",
+  "from-emerald-400 to-teal-600",
+  "from-amber-400 to-orange-600",
+  "from-pink-400 to-rose-600",
+  "from-cyan-400 to-sky-600",
+  "from-lime-400 to-green-600",
+  "from-fuchsia-400 to-pink-600",
+];
+const PILL_PALETTE = [
+  "bg-sky-50 text-sky-800 ring-sky-200",
+  "bg-violet-50 text-violet-800 ring-violet-200",
+  "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  "bg-amber-50 text-amber-900 ring-amber-200",
+  "bg-pink-50 text-pink-800 ring-pink-200",
+  "bg-cyan-50 text-cyan-800 ring-cyan-200",
+  "bg-lime-50 text-lime-800 ring-lime-200",
+  "bg-fuchsia-50 text-fuchsia-800 ring-fuchsia-200",
+];
+
+function colorIdx(key: string) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % AVATAR_PALETTE.length;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return ((parts[0]?.[0] || "") + (parts.length > 1 ? parts[parts.length - 1]![0] : "")).toUpperCase();
+}
+
+function Avatar({
+  id,
+  name,
+  size = "md",
+  online,
+}: {
+  id: string;
+  name: string;
+  size?: "sm" | "md";
+  online?: boolean;
+}) {
+  return (
+    <span className="relative inline-flex shrink-0">
+      <span
+        className={cn(
+          "inline-flex items-center justify-center rounded-full bg-gradient-to-br font-bold text-white shadow-sm ring-2 ring-white",
+          AVATAR_PALETTE[colorIdx(id)],
+          size === "sm" ? "h-7 w-7 text-[10px]" : "h-9 w-9 text-xs"
+        )}
+        title={name}
+      >
+        {initials(name)}
+      </span>
+      {online ? (
+        <span className="tm-live-dot absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white" />
+      ) : null}
+    </span>
+  );
+}
+
+function hhmmToMin(v: string) {
+  const [h, m] = v.split(":").map(Number);
+  const t = (h || 0) * 60 + (m || 0);
+  return t;
+}
+
+function evRange(startHHMM: string, endHHMM: string) {
+  const s = hhmmToMin(startHHMM);
+  let e = hhmmToMin(endHHMM);
+  if (e <= s) e += 1440;
+  return [s, e] as const;
+}
+
+const SLOTS = [
+  { key: "manha", label: "Manhã", range: "08–13", start: 480, end: 780 },
+  { key: "tarde", label: "Tarde", range: "13–18", start: 780, end: 1080 },
+  { key: "noite", label: "Noite", range: "18–00", start: 1080, end: 1440 },
+] as const;
+
+function greeting(hhmm: string) {
+  const h = Number(hhmm.split(":")[0]);
+  if (!Number.isFinite(h)) return "Olá";
+  if (h < 12) return "Bom dia";
+  if (h < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+function useRecifeClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    const first = window.setTimeout(() => setNow(new Date()), 0);
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(t);
+    };
+  }, []);
+  if (!now) return null;
+  return now.toLocaleTimeString("pt-BR", {
+    timeZone: "America/Recife",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function useMyName() {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const s = getSession();
+      setName(String(s?.name || s?.login || "").trim().split(/\s+/)[0] || "");
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+  return name;
+}
+
+/* ---------- hero ---------- */
+
+function HomeHero({ data }: { data: InicialData | null }) {
+  const clock = useRecifeClock();
+  const name = useMyName();
+  const hhmm = clock?.slice(0, 5) || data?.nowHHMM || "";
+  const online = (data?.teamPresence || []).filter((m) => m.online);
+  const shiftsToday = (data?.agendaToday || []).filter((e) => e.type === "SHIFT").length;
+  const gapsToday = (data?.agendaGaps || []).filter((g) => g.dateISO === data?.todayISO).length;
+
+  return (
+    <section className="tm-rise relative overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950 p-5 text-white shadow-xl shadow-slate-900/20 sm:p-7">
+      <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-sky-500/25 blur-3xl" aria-hidden />
+      <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-violet-500/20 blur-3xl" aria-hidden />
+      <div className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 opacity-[0.07] lg:block" aria-hidden>
+        <Image src="/vias-aereas-mark.png" alt="" width={1009} height={1024} unoptimized className="h-56 w-56 object-contain" />
+      </div>
+
+      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Página inicial</div>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+            {greeting(hhmm)}
+            {name ? `, ${name}` : ""}
+          </h1>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-slate-300">
+            <span className="capitalize">{data?.todayLabel || "Carregando…"}</span>
+            {clock ? (
+              <span className="font-mono text-base font-semibold tabular-nums text-white">
+                {clock}
+                <span className="ml-1 text-[11px] font-normal text-slate-400">Recife</span>
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold ring-1 ring-white/15">
+              <span className="tm-live-dot h-2 w-2 rounded-full bg-emerald-400" />
+              {online.length} online agora
+              {online.length ? (
+                <span className="ml-1 flex -space-x-2">
+                  {online.slice(0, 5).map((m) => (
+                    <Avatar key={m.id} id={m.id} name={m.name} size="sm" />
+                  ))}
+                </span>
+              ) : null}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold ring-1 ring-white/15">
+              <CalendarDays className="h-3.5 w-3.5 text-sky-300" aria-hidden />
+              {shiftsToday} turno{shiftsToday === 1 ? "" : "s"} hoje
+            </span>
+            {gapsToday ? (
+              <a
+                href="#agenda-do-dia"
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/90 px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-300"
+              >
+                {gapsToday} horário{gapsToday === 1 ? "" : "s"} vago{gapsToday === 1 ? "" : "s"} hoje
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            ) : null}
+          </div>
+        </div>
+
+        <BankBalanceCard />
+      </div>
+    </section>
+  );
+}
+
+/* ---------- agenda do dia ---------- */
 
 function AgendaPresenceCard({
   data,
@@ -267,136 +441,179 @@ function AgendaPresenceCard({
   const extrasOnline = (data?.teamPresence || []).filter(
     (m) => m.online && !agendaUserIds.has(m.id)
   );
+  const shifts = (data?.agendaToday || []).filter((e) => e.type === "SHIFT");
+  const absences = (data?.agendaToday || []).filter((e) => e.type !== "SHIFT");
+  const gapsToday = (data?.agendaGaps || []).filter((g) => g.dateISO === data?.todayISO);
+  const nowMin = data ? hhmmToMin(data.nowHHMM) : -1;
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
-          <h2 className="text-sm font-semibold text-slate-900">Agenda do dia</h2>
+    <section
+      id="agenda-do-dia"
+      className={cn(CARD, "tm-rise p-5")}
+      style={{ "--rise-delay": "0.2s" } as CSSProperties}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+            <CalendarDays className="h-4 w-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Agenda do dia</h2>
+            <p className="text-[11px] text-slate-500">Ponto verde = na agenda e com o sistema aberto agora.</p>
+          </div>
         </div>
         <Link
           href="/dashboard/agenda"
-          className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline"
+          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
         >
-          Agenda completa
+          Agenda completa <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         </Link>
       </div>
 
-      <p className="mt-2 text-[11px] leading-snug text-slate-500">
-        Ativo = está na agenda de hoje e com o sistema aberto agora.
-      </p>
-
       {!data ? (
-        <p className="mt-3 text-sm text-slate-500">Carregando…</p>
-      ) : data.agendaToday.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Nenhum turno ou ausência cadastrado para hoje.</p>
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {SLOTS.map((s) => (
+            <div key={s.key} className="h-32 animate-pulse rounded-2xl bg-slate-100" />
+          ))}
+        </div>
       ) : (
-        <ul className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
-          {data.agendaToday.map((e) => {
-            const online = Boolean(presenceById.get(e.user.id)?.online);
-            const noTurno =
-              e.type === "SHIFT" && (data.expectedShiftEventIds || []).includes(e.id);
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {SLOTS.map((slot) => {
+            const isNow = nowMin >= slot.start && nowMin < slot.end;
+            const isPast = nowMin >= slot.end;
+            const people = shifts.filter((e) => {
+              const [s, en] = evRange(e.startHHMM, e.endHHMM);
+              return s < slot.end && en > slot.start;
+            });
+            const slotGaps = gapsToday.filter((g) => {
+              const [s, en] = evRange(g.startHHMM, g.endHHMM);
+              return s < slot.end && en > slot.start;
+            });
             return (
-              <li
-                key={e.id}
+              <div
+                key={slot.key}
                 className={cn(
-                  "rounded-lg border px-3 py-2 text-sm shadow-sm",
-                  online
-                    ? "border-emerald-200/90 bg-emerald-50/95 ring-1 ring-emerald-200/60"
-                    : noTurno
-                      ? "border-amber-200/80 bg-amber-50/70"
-                      : "border-slate-100 bg-white"
+                  "relative rounded-2xl border p-3 transition",
+                  isNow
+                    ? "border-sky-300 bg-gradient-to-b from-sky-50 to-white shadow-md shadow-sky-500/10"
+                    : isPast
+                      ? "border-slate-100 bg-slate-50/60 opacity-70"
+                      : "border-slate-200/80 bg-white"
                 )}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-slate-900">{e.user.name}</span>
-                  <div className="flex items-center gap-2">
-                    {online ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
-                        <Circle className="h-2 w-2 fill-current" aria-hidden />
-                        Ativo
-                      </span>
-                    ) : noTurno ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                        No turno
-                      </span>
-                    ) : null}
-                    <span className="tabular-nums text-xs text-slate-600">
-                      {e.startHHMM}–{e.endHHMM}
-                    </span>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">{slot.label}</div>
+                    <div className="text-[11px] tabular-nums text-slate-500">{slot.range}</div>
                   </div>
+                  {isNow ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white" /> agora
+                    </span>
+                  ) : isPast ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">encerrado</span>
+                  ) : null}
                 </div>
-                <div className="mt-0.5 text-xs text-slate-500">
-                  {e.type === "SHIFT" ? (
-                    <span className="text-emerald-700">Turno</span>
-                  ) : (
-                    <span className="text-amber-700">Ausência</span>
-                  )}
-                  {e.note ? ` · ${e.note}` : ""}
-                </div>
-              </li>
+
+                <ul className="mt-3 space-y-2">
+                  {people.map((e) => {
+                    const online = Boolean(presenceById.get(e.user.id)?.online);
+                    return (
+                      <li
+                        key={e.id}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl px-2 py-1.5",
+                          online ? "bg-emerald-50 ring-1 ring-emerald-200/80" : "bg-slate-50"
+                        )}
+                      >
+                        <Avatar id={e.user.id} name={e.user.name} online={online} />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-slate-900">
+                            {e.user.name.split(" ")[0]}
+                          </div>
+                          <div className="text-[11px] tabular-nums text-slate-500">
+                            {e.startHHMM}–{e.endHHMM}
+                            {e.note ? ` · ${e.note}` : ""}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {slotGaps.map((g, i) => {
+                    const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
+                    return (
+                      <li key={`${key}-${i}`}>
+                        <button
+                          type="button"
+                          disabled={!!takingGap}
+                          onClick={() => onTakeGap(g)}
+                          className="flex w-full items-center justify-between gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/70 px-3 py-2 text-left text-xs font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:opacity-60"
+                        >
+                          <span>
+                            Vago {g.startHHMM}–{g.endHHMM}
+                          </span>
+                          <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] text-white">
+                            {takingGap === key ? "Pegando…" : "Pegar"}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {people.length === 0 && slotGaps.length === 0 ? (
+                    <li className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-center text-xs text-slate-400">
+                      Ninguém neste turno
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
             );
           })}
-        </ul>
+        </div>
       )}
 
-      {(data?.agendaGaps || []).filter((g) => g.dateISO === data?.todayISO).length > 0 ? (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
-          <div className="font-semibold">Alerta: intervalo de horário vago hoje</div>
-          <ul className="mt-1 space-y-0.5 text-xs text-amber-900">
-            {(data?.agendaGaps || [])
-              .filter((g) => g.dateISO === data?.todayISO)
-              .map((g, i) => {
-                const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
-                return (
-                <li key={`${g.kind}-${g.startHHMM}-${i}`}>
-                  <button
-                    type="button"
-                    disabled={!!takingGap}
-                    title="Clique para pegar este horário"
-                    onClick={() => onTakeGap(g)}
-                    className="text-left font-medium underline-offset-2 hover:underline disabled:opacity-60"
+      {data && (absences.length > 0 || extrasOnline.length > 0) ? (
+        <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:flex-wrap sm:gap-6">
+          {extrasOnline.length > 0 ? (
+            <div>
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <Users className="h-3.5 w-3.5" aria-hidden /> Online fora da agenda
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {extrasOnline.map((m) => (
+                  <span
+                    key={m.id}
+                    className="inline-flex items-center gap-2 rounded-full bg-emerald-50 py-1 pl-1 pr-3 text-xs font-medium text-emerald-900 ring-1 ring-emerald-200"
                   >
-                    {takingGap === key ? "Pegando…" : `${g.label}: ${g.startHHMM}–${g.endHHMM} · pegar`}
-                  </button>
-                </li>
-                );
-              })}
-          </ul>
-        </div>
-      ) : null}
-
-      {data && extrasOnline.length > 0 ? (
-        <div className="mt-4 border-t border-slate-100 pt-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Ativos agora · fora da agenda
-            </h3>
-          </div>
-          <ul className="mt-2 space-y-1.5">
-            {extrasOnline.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
-                  <div className="truncate text-[11px] text-slate-500">{m.login}</div>
-                </div>
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
-                  <Circle className="h-2 w-2 fill-current" aria-hidden />
-                  Ativo
-                </span>
-              </li>
-            ))}
-          </ul>
+                    <Avatar id={m.id} name={m.name} size="sm" online />
+                    {m.name.split(" ")[0]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {absences.length > 0 ? (
+            <div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Ausências hoje</div>
+              <div className="flex flex-wrap gap-2">
+                {absences.map((e) => (
+                  <span
+                    key={e.id}
+                    className="inline-flex items-center gap-2 rounded-full bg-rose-50 py-1 pl-1 pr-3 text-xs font-medium text-rose-900 ring-1 ring-rose-200"
+                  >
+                    <Avatar id={e.user.id} name={e.user.name} size="sm" />
+                    {e.user.name.split(" ")[0]} · {e.startHHMM}–{e.endHHMM}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>
   );
 }
+
+/* ---------- agenda da semana ---------- */
 
 function AgendaWeekCard({
   data,
@@ -413,76 +630,110 @@ function AgendaWeekCard({
   const gaps = data?.agendaGaps || [];
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden />
-          <h2 className="text-sm font-semibold text-slate-900">Agenda da semana</h2>
+    <section className={cn(CARD, "tm-rise p-5")} style={{ "--rise-delay": "0.3s" } as CSSProperties}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+            <CalendarDays className="h-4 w-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Agenda da semana</h2>
+            <p className="text-[11px] text-slate-500">Turnos 08–13 · 13–18 · 18–00. Clique num vago para pegar.</p>
+          </div>
         </div>
-        <p className="text-[11px] text-slate-500">Turnos 08–13 · 13–18 · 18–00</p>
       </div>
 
       {!data ? (
-        <p className="mt-3 text-sm text-slate-500">Carregando…</p>
+        <div className="mt-4 h-40 animate-pulse rounded-2xl bg-slate-100" />
       ) : (
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
-          {days.map((iso) => {
-            const list = week.filter((e) => e.dateISO === iso);
-            const dayGaps = gaps.filter((g) => g.dateISO === iso);
-            const weekend = (() => {
-              const d = new Date(`${iso}T12:00:00.000Z`).getUTCDay();
-              return d === 0 || d === 6;
-            })();
-            return (
-              <div
-                key={iso}
-                className={cn(
-                  "rounded-xl border p-2.5 text-xs",
-                  weekend ? "border-violet-200 bg-violet-50/70" : "border-slate-100 bg-white",
-                  iso === data.todayISO && "ring-1 ring-teal-400"
-                )}
-              >
-                <div className="font-semibold capitalize text-slate-800">
-                  {weekdayShort(iso)} {brFromISO(iso).slice(0, 5)}
+        <div className="-mx-1 mt-4 overflow-x-auto px-1 pb-1">
+          <div className="grid min-w-[760px] grid-cols-7 gap-2">
+            {days.map((iso) => {
+              const list = week
+                .filter((e) => e.dateISO === iso)
+                .sort((a, b) => a.startHHMM.localeCompare(b.startHHMM));
+              const dayGaps = gaps.filter((g) => g.dateISO === iso);
+              const isToday = iso === data.todayISO;
+              const isPast = iso < data.todayISO;
+              const dow = new Date(`${iso}T12:00:00.000Z`).getUTCDay();
+              const weekend = dow === 0 || dow === 6;
+              return (
+                <div
+                  key={iso}
+                  className={cn(
+                    "flex flex-col overflow-hidden rounded-2xl border",
+                    isToday
+                      ? "border-sky-300 shadow-md shadow-sky-500/10"
+                      : weekend
+                        ? "border-violet-100 bg-violet-50/40"
+                        : "border-slate-100 bg-white",
+                    isPast && "opacity-60"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex items-baseline justify-between px-2.5 py-2",
+                      isToday ? "bg-gradient-to-r from-sky-600 to-blue-600 text-white" : "bg-slate-50/80 text-slate-700"
+                    )}
+                  >
+                    <span className="text-[11px] font-bold uppercase tracking-wide">
+                      {weekdayShort(iso).replace(".", "")}
+                    </span>
+                    <span className={cn("text-lg font-bold tabular-nums leading-none", isToday ? "text-white" : "text-slate-900")}>
+                      {iso.slice(8, 10)}
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-1.5 p-2">
+                    {list.length === 0 && dayGaps.length === 0 ? (
+                      <div className="py-2 text-center text-[11px] text-slate-400">Sem registros</div>
+                    ) : null}
+                    {list.map((e) => (
+                      <div
+                        key={e.id}
+                        className={cn(
+                          "rounded-lg px-2 py-1 text-[11px] leading-tight ring-1",
+                          e.type === "SHIFT" ? PILL_PALETTE[colorIdx(e.user.id)] : "bg-rose-50 text-rose-800 ring-rose-200"
+                        )}
+                      >
+                        <div className="truncate font-semibold">
+                          {e.user.name.split(" ")[0]}
+                          {e.type !== "SHIFT" ? " · ausente" : ""}
+                        </div>
+                        <div className="tabular-nums opacity-80">
+                          {e.startHHMM}–{e.endHHMM}
+                        </div>
+                      </div>
+                    ))}
+                    {dayGaps.map((g, i) => {
+                      const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
+                      return (
+                        <button
+                          key={`${g.kind}-${i}`}
+                          type="button"
+                          disabled={!!takingGap}
+                          title="Clique para pegar este horário"
+                          onClick={() => onTakeGap(g)}
+                          className="w-full rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2 py-1 text-left text-[11px] leading-tight text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:opacity-60"
+                        >
+                          <div className="font-semibold">{takingGap === key ? "Pegando…" : `Vago ${g.label}`}</div>
+                          <div className="tabular-nums opacity-80">
+                            {g.startHHMM}–{g.endHHMM}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="mt-1.5 space-y-1">
-                  {list.length === 0 && dayGaps.length === 0 ? (
-                    <div className="text-slate-400">Sem registros</div>
-                  ) : null}
-                  {list.map((e) => (
-                    <div key={e.id} className="rounded-md bg-white/80 px-1.5 py-1 leading-tight">
-                      <span className="font-medium text-slate-800">{e.user.name.split(" ")[0]}</span>
-                      <span className="ml-1 tabular-nums text-slate-600">
-                        {e.startHHMM}–{e.endHHMM}
-                      </span>
-                    </div>
-                  ))}
-                  {dayGaps.map((g, i) => {
-                    const key = `${g.dateISO}-${g.kind}-${g.startHHMM}-${g.endHHMM}`;
-                    return (
-                    <button
-                      key={`${g.kind}-${i}`}
-                      type="button"
-                      disabled={!!takingGap}
-                      title="Clique para pegar este horário"
-                      onClick={() => onTakeGap(g)}
-                      className="w-full rounded-md border border-amber-200 bg-amber-50 px-1.5 py-1 text-left text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:opacity-60"
-                    >
-                      {takingGap === key
-                        ? "Pegando…"
-                        : `Vago ${g.label} ${g.startHHMM}–${g.endHHMM}`}
-                    </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </section>
   );
 }
+
+/* ---------- saldo (dentro do topo) ---------- */
 
 function BankBalanceCard() {
   const [visible, setVisible] = useState(true);
@@ -492,6 +743,7 @@ function BankBalanceCard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [extratoOpen, setExtratoOpen] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -535,302 +787,411 @@ function BankBalanceCard() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [load]);
 
+  const shown = useCountUp(availableCents || 0, 900);
+
   if (!visible) return null;
 
   const canOpenExtrato = configured === true && !error;
 
   return (
     <>
-    <section
-      className={cn(
-        "rounded-2xl border border-sky-200/90 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm",
-        canOpenExtrato && "cursor-pointer transition hover:border-sky-300 hover:shadow-md"
-      )}
-      role={canOpenExtrato ? "button" : undefined}
-      tabIndex={canOpenExtrato ? 0 : undefined}
-      onClick={() => {
-        if (canOpenExtrato) setExtratoOpen(true);
-      }}
-      onKeyDown={(e) => {
-        if (!canOpenExtrato) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setExtratoOpen(true);
-        }
-      }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Landmark className="h-4 w-4 text-sky-700" aria-hidden />
-          <h2 className="text-sm font-semibold text-slate-900">Saldo da conta</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {canOpenExtrato ? (
-            <span className="hidden text-[11px] font-semibold text-sky-700 sm:inline">Ver extrato</span>
-          ) : null}
-          {canOpenExtrato ? <ChevronRight className="h-4 w-4 text-sky-600" aria-hidden /> : null}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLoading(true);
-              void load();
-            }}
-            className="rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700"
-            title="Atualizar saldo"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden />
-          </button>
-        </div>
-      </div>
-      <p className="mt-0.5 text-xs text-slate-500">Banco Inter · disponível para PIX</p>
-      {loading && availableCents == null && !error && configured !== false ? (
-        <p className="mt-4 text-sm text-slate-500">Consultando…</p>
-      ) : configured === false ? (
-        <p className="mt-4 text-sm text-slate-600">PIX Inter ainda não está configurado neste ambiente.</p>
-      ) : error ? (
-        <p className="mt-4 text-sm text-rose-700">{error}</p>
-      ) : (
-        <>
-          <div className="mt-4 text-2xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-3xl">
-            {fmtMoney(availableCents || 0)}
+      <div
+        className={cn(
+          "relative w-full shrink-0 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-md sm:p-5 lg:w-[22rem]",
+          canOpenExtrato && "cursor-pointer transition hover:bg-white/15 hover:ring-white/30"
+        )}
+        role={canOpenExtrato ? "button" : undefined}
+        tabIndex={canOpenExtrato ? 0 : undefined}
+        onClick={() => {
+          if (canOpenExtrato) setExtratoOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (!canOpenExtrato) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExtratoOpen(true);
+          }
+        }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-sky-100">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-white/15">
+              <Landmark className="h-3.5 w-3.5" aria-hidden />
+            </span>
+            Saldo Banco Inter
           </div>
-          {blockedCents > 0 ? (
-            <p className="mt-2 text-xs text-amber-800">
-              Bloqueado: {fmtMoney(blockedCents)}
-            </p>
-          ) : (
-            <p className="mt-2 text-xs text-slate-500">Clique para abrir o extrato. Atualiza ao voltar para a aba ou no ícone.</p>
-          )}
-        </>
-      )}
-    </section>
-    <InterExtratoModal open={extratoOpen} onClose={() => setExtratoOpen(false)} />
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setHidden((v) => !v);
+              }}
+              className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+              title={hidden ? "Mostrar saldo" : "Esconder saldo"}
+            >
+              {hidden ? <Eye className="h-3.5 w-3.5" aria-hidden /> : <EyeOff className="h-3.5 w-3.5" aria-hidden />}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLoading(true);
+                void load();
+              }}
+              className="rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+              title="Atualizar saldo"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden />
+            </button>
+          </div>
+        </div>
+        {loading && availableCents == null && !error && configured !== false ? (
+          <div className="mt-4 h-9 w-44 animate-pulse rounded-lg bg-white/15" />
+        ) : configured === false ? (
+          <p className="mt-4 text-sm text-slate-300">PIX Inter ainda não está configurado.</p>
+        ) : error ? (
+          <p className="mt-4 text-sm text-rose-300">{error}</p>
+        ) : (
+          <>
+            <div className="mt-3 text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+              {hidden ? "R$ ••••••" : fmtMoney(Math.round(shown))}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+              {blockedCents > 0 ? (
+                <span className="text-amber-300">Bloqueado: {fmtMoney(blockedCents)}</span>
+              ) : (
+                <span className="text-slate-400">Disponível para PIX</span>
+              )}
+              {canOpenExtrato ? (
+                <span className="inline-flex items-center gap-0.5 font-semibold text-sky-300">
+                  Ver extrato <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                </span>
+              ) : null}
+            </div>
+          </>
+        )}
+      </div>
+      <InterExtratoModal open={extratoOpen} onClose={() => setExtratoOpen(false)} />
     </>
   );
 }
 
+/* ---------- metas (anéis) ---------- */
+
+function Ring({
+  pct,
+  tone,
+  children,
+}: {
+  pct: number;
+  tone: "ok" | "warn" | "done" | "violet";
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setMounted(true), 60);
+    return () => window.clearTimeout(t);
+  }, []);
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  const p = Math.min(100, Math.max(0, pct));
+  const stroke =
+    tone === "done" ? "#10b981" : tone === "ok" ? "#0ea5e9" : tone === "violet" ? "#8b5cf6" : "#f59e0b";
+  return (
+    <div className="relative h-[88px] w-[88px] shrink-0">
+      <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
+        <circle cx="40" cy="40" r={r} fill="none" stroke="#f1f5f9" strokeWidth="8" />
+        <circle
+          cx="40"
+          cy="40"
+          r={r}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={mounted ? c * (1 - p / 100) : c}
+          style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(0.2, 0.8, 0.2, 1)" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">{children}</div>
+    </div>
+  );
+}
+
+function GoalShell({
+  label,
+  accent,
+  link,
+  delay,
+  children,
+}: {
+  label: string;
+  accent: string;
+  link?: { href: string; text: string };
+  delay: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={cn(CARD, "tm-rise p-5")} style={{ "--rise-delay": `${delay}s` } as CSSProperties}>
+      <div className="flex items-center justify-between gap-2">
+        <div className={cn("text-[11px] font-bold uppercase tracking-[0.14em]", accent)}>{label}</div>
+        {link ? (
+          <Link href={link.href} className="text-[11px] font-semibold text-slate-400 hover:text-sky-700">
+            {link.text}
+          </Link>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function GoalSkeleton() {
+  return (
+    <div className="mt-4 flex items-center gap-4">
+      <div className="h-[88px] w-[88px] animate-pulse rounded-full bg-slate-100" />
+      <div className="flex-1 space-y-2">
+        <div className="h-6 w-32 animate-pulse rounded bg-slate-100" />
+        <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
+      </div>
+    </div>
+  );
+}
+
+function MoneyUp({ cents, className }: { cents: number; className?: string }) {
+  const v = useCountUp(cents, 1000);
+  return <span className={cn("tabular-nums", className)}>{fmtMoney(Math.round(v))}</span>;
+}
+
 function TodayPaceCard({
   bonus,
-  todayLabel,
   loading,
+  delay,
 }: {
   bonus: BonusProgress | null;
-  todayLabel: string;
   loading: boolean;
+  delay: number;
 }) {
   if (loading || !bonus) {
     return (
-      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
-        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
-      </section>
+      <GoalShell label="Hoje" accent="text-amber-600" delay={delay}>
+        <GoalSkeleton />
+      </GoalShell>
     );
   }
   const todayMet = bonus.dailyTargetCents > 0 && bonus.todayRevenueCents >= bonus.dailyTargetCents;
   const todayGapCents = Math.max(0, bonus.dailyTargetCents - bonus.todayRevenueCents);
-  const salesLabel = `${bonus.todaySalesCount} venda${bonus.todaySalesCount === 1 ? "" : "s"}`;
-  const balcao =
-    bonus.todayBalcaoCount > 0 ? ` · ${bonus.todayBalcaoCount} no balcão` : "";
-
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hoje</div>
-      <p className="mt-2 text-[15px] leading-snug text-slate-800">
-        <b className="tabular-nums">{fmtMoney(bonus.todayRevenueCents)}</b>
-        {bonus.dailyTargetCents > 0 ? (
-          <>
-            {" "}
-            de <span className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</span>
-          </>
-        ) : null}
-      </p>
-      {bonus.dailyTargetCents > 0 ? (
-        <div className="mt-3 space-y-2">
-          <ProgressBar pct={bonus.todayVsDailyPct} tone={todayMet ? "done" : "warn"} />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="tabular-nums text-slate-500">{bonus.todayVsDailyPct}%</span>
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 font-semibold",
-                todayMet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
-              )}
-            >
-              {todayMet ? "Ritmo ok" : `Faltam ${fmtMoney(todayGapCents)}`}
+    <GoalShell label="Hoje" accent="text-amber-600" delay={delay}>
+      <div className="mt-3 flex items-center gap-4">
+        <Ring pct={bonus.todayVsDailyPct} tone={todayMet ? "done" : "warn"}>
+          <span className="text-lg font-bold tabular-nums text-slate-900">{bonus.todayVsDailyPct}%</span>
+        </Ring>
+        <div className="min-w-0">
+          <MoneyUp cents={bonus.todayRevenueCents} className="block text-2xl font-bold tracking-tight text-slate-900" />
+          {bonus.dailyTargetCents > 0 ? (
+            <div className="text-xs text-slate-500">
+              de <span className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</span>
+            </div>
+          ) : null}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+              {bonus.todaySalesCount} venda{bonus.todaySalesCount === 1 ? "" : "s"}
+              {bonus.todayBalcaoCount > 0 ? ` · ${bonus.todayBalcaoCount} balcão` : ""}
             </span>
+            {bonus.dailyTargetCents > 0 ? (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                  todayMet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
+                )}
+              >
+                {todayMet ? "Ritmo ok" : `Faltam ${fmtMoney(todayGapCents)}`}
+              </span>
+            ) : null}
           </div>
         </div>
-      ) : (
-        <p className="mt-3 text-xs capitalize text-slate-500">{todayLabel}</p>
-      )}
-      <p className="mt-3 text-xs text-slate-500">
-        {salesLabel}
-        {balcao}
-      </p>
-    </section>
+      </div>
+    </GoalShell>
   );
 }
 
 function MonthGoalCard({
   bonus,
   loading,
+  delay,
 }: {
   bonus: BonusProgress | null;
   loading: boolean;
+  delay: number;
 }) {
   if (loading || !bonus) {
     return (
-      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mês</div>
-        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
-      </section>
+      <GoalShell label="Mês" accent="text-sky-600" delay={delay}>
+        <GoalSkeleton />
+      </GoalShell>
     );
   }
   if (bonus.revenueGoalCents <= 0) {
     return (
-      <section className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-5 shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Mês</div>
-        <p className="mt-2 text-sm text-slate-700">Ainda não tem meta de faturamento neste mês.</p>
-        <Link href="/dashboard/bonus" className="mt-3 inline-block text-xs font-medium text-sky-700 hover:underline">
+      <GoalShell label="Mês" accent="text-sky-600" delay={delay}>
+        <p className="mt-3 text-sm text-slate-600">Ainda não tem meta de faturamento neste mês.</p>
+        <Link href="/dashboard/bonus" className="mt-3 inline-block text-xs font-semibold text-sky-700 hover:underline">
           Configurar meta
         </Link>
-      </section>
+      </GoalShell>
     );
   }
   const remainingCents = Math.max(0, bonus.revenueGoalCents - bonus.revenueCents);
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Mês · {bonus.monthLabel}
-        </div>
-        <Link href="/dashboard/bonus" className="text-[11px] font-medium text-sky-700 hover:underline">
-          Regras
-        </Link>
-      </div>
-      <p className="mt-2 text-[15px] leading-snug text-slate-800">
-        <b className="tabular-nums">{fmtMoney(bonus.revenueCents)}</b>
-        {" "}
-        de <span className="tabular-nums">{fmtMoney(bonus.revenueGoalCents)}</span>
-      </p>
-      <div className="mt-3 space-y-2">
-        <ProgressBar
+    <GoalShell
+      label={`Mês · ${bonus.monthLabel}`}
+      accent="text-sky-600"
+      delay={delay}
+      link={{ href: "/dashboard/bonus", text: "Regras" }}
+    >
+      <div className="mt-3 flex items-center gap-4">
+        <Ring
           pct={bonus.monthRevenuePct}
-          tone={bonus.revenueGoalMet || bonus.monthRevenuePct >= 80 ? "ok" : "warn"}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <span className="tabular-nums">{bonus.monthRevenuePct}% concluído</span>
-          <span>
-            {bonus.daysRemaining <= 1
-              ? "último dia"
-              : `${bonus.daysRemaining} dias`}
-          </span>
+          tone={bonus.revenueGoalMet ? "done" : bonus.monthRevenuePct >= 80 ? "ok" : "ok"}
+        >
+          <span className="text-lg font-bold tabular-nums text-slate-900">{bonus.monthRevenuePct}%</span>
+        </Ring>
+        <div className="min-w-0">
+          <MoneyUp cents={bonus.revenueCents} className="block text-2xl font-bold tracking-tight text-slate-900" />
+          <div className="text-xs text-slate-500">
+            de <span className="tabular-nums">{fmtMoney(bonus.revenueGoalCents)}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+              {bonus.daysRemaining <= 1 ? "último dia" : `${bonus.daysRemaining} dias`}
+            </span>
+            {bonus.revenueGoalMet ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                Meta batida
+              </span>
+            ) : bonus.dailyTargetCents > 0 && bonus.daysRemaining > 1 ? (
+              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                ~{fmtMoney(bonus.dailyTargetCents)}/dia
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
-      <p className="mt-3 text-xs text-slate-600">
-        {bonus.revenueGoalMet ? (
-          "Meta batida."
-        ) : (
-          <>
-            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b>
-            {bonus.daysRemaining <= 1
-              ? " hoje"
-              : bonus.dailyTargetCents > 0
-                ? (
-                  <>
-                    {" "}
-                    · ~<b className="tabular-nums">{fmtMoney(bonus.dailyTargetCents)}</b>/dia
-                  </>
-                )
-                : null}
-          </>
-        )}
-      </p>
-    </section>
+      {!bonus.revenueGoalMet ? (
+        <p className="mt-3 text-xs text-slate-500">
+          Faltam <b className="tabular-nums text-slate-700">{fmtMoney(remainingCents)}</b>
+          {bonus.daysRemaining <= 1 ? " hoje" : " no mês"}
+        </p>
+      ) : null}
+    </GoalShell>
   );
 }
 
 function IndividualGoalCard({
   bonus,
   loading,
+  delay,
+  data,
 }: {
   bonus: BonusProgress | null;
   loading: boolean;
+  delay: number;
+  data: InicialData | null;
 }) {
   const mine = bonus?.individual;
   if (loading) {
     return (
-      <section className="rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-[2px]">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Sua meta
-        </div>
-        <p className="mt-4 text-sm text-slate-500">Carregando…</p>
-      </section>
+      <GoalShell label="Sua meta" accent="text-violet-600" delay={delay}>
+        <GoalSkeleton />
+      </GoalShell>
     );
   }
-  if (!mine) return null;
+  if (!mine) {
+    // Sem meta individual: mostra a equipe online no lugar.
+    const online = (data?.teamPresence || []).filter((m) => m.online);
+    const total = (data?.teamPresence || []).length;
+    return (
+      <GoalShell label="Equipe agora" accent="text-emerald-600" delay={delay}>
+        <div className="mt-3 flex items-center gap-4">
+          <Ring pct={total ? (online.length / total) * 100 : 0} tone="done">
+            <span className="text-lg font-bold tabular-nums text-slate-900">
+              {online.length}
+              <span className="text-xs font-semibold text-slate-400">/{total}</span>
+            </span>
+          </Ring>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-900">
+              {online.length ? `${online.length} com o sistema aberto` : "Ninguém online agora"}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {online.slice(0, 6).map((m) => (
+                <span
+                  key={m.id}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 py-0.5 pl-0.5 pr-2 text-[11px] font-medium text-emerald-900 ring-1 ring-emerald-200"
+                >
+                  <Avatar id={m.id} name={m.name} size="sm" />
+                  {m.name.split(" ")[0]}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </GoalShell>
+    );
+  }
   const remainingCents = Math.max(0, mine.salesGoalCents - mine.salesVolumeCents);
-  const todayMet =
-    mine.dailyTargetCents > 0 && mine.todayRevenueCents >= mine.dailyTargetCents;
+  const todayMet = mine.dailyTargetCents > 0 && mine.todayRevenueCents >= mine.dailyTargetCents;
   const todayGap = Math.max(0, mine.dailyTargetCents - mine.todayRevenueCents);
   return (
-    <section className="rounded-2xl border border-violet-200/80 bg-white/90 p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-          Sua meta
+    <GoalShell
+      label="Sua meta"
+      accent="text-violet-600"
+      delay={delay}
+      link={{ href: "/dashboard/bonus", text: "Ver bônus" }}
+    >
+      <div className="mt-3 flex items-center gap-4">
+        <Ring pct={mine.monthPct} tone={mine.monthPct >= 100 ? "done" : "violet"}>
+          <span className="text-lg font-bold tabular-nums text-slate-900">{mine.monthPct}%</span>
+        </Ring>
+        <div className="min-w-0">
+          <MoneyUp cents={mine.salesVolumeCents} className="block text-2xl font-bold tracking-tight text-slate-900" />
+          <div className="text-xs text-slate-500">
+            de <span className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-800">
+              Bônus {fmtMoney(mine.earnedGrossCents)}
+            </span>
+            {mine.dailyTargetCents > 0 ? (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                  todayMet ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
+                )}
+              >
+                Hoje {todayMet ? "ok" : `faltam ${fmtMoney(todayGap)}`}
+              </span>
+            ) : null}
+          </div>
         </div>
-        <Link href="/dashboard/bonus" className="text-[11px] font-medium text-sky-700 hover:underline">
-          Ver bônus
-        </Link>
       </div>
-      <p className="mt-2 text-[15px] leading-snug text-slate-800">
-        <b className="tabular-nums">{fmtMoney(mine.salesVolumeCents)}</b>
-        {" "}
-        de <span className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</span>
-      </p>
-      <div className="mt-3 space-y-2">
-        <ProgressBar
-          pct={mine.monthPct}
-          tone={mine.monthPct >= 100 ? "done" : mine.monthPct >= 80 ? "ok" : "warn"}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <span className="tabular-nums">{mine.monthPct}% da meta</span>
-          <span>
-            Bônus agora{" "}
-            <b className="tabular-nums text-slate-700">{fmtMoney(mine.earnedGrossCents)}</b>
-          </span>
-        </div>
-      </div>
-      <p className="mt-3 text-xs text-slate-600">
-        Cota de <b className="tabular-nums">{fmtMoney(mine.salesGoalCents)}</b> para
-        liberar <b className="tabular-nums">{fmtMoney(mine.bonusCents)}</b> no dia 1.
-        Abaixo, zero; acima, proporcional.
+      <p className="mt-3 text-xs text-slate-500">
         {remainingCents > 0 ? (
           <>
-            {" "}
-            Faltam <b className="tabular-nums">{fmtMoney(remainingCents)}</b> para
-            liberar
+            Faltam <b className="tabular-nums text-slate-700">{fmtMoney(remainingCents)}</b> para liberar{" "}
+            <b className="tabular-nums text-slate-700">{fmtMoney(mine.bonusCents)}</b>
             {mine.dailyTargetCents > 0 && bonus && bonus.daysRemaining > 1
               ? ` · ~${fmtMoney(mine.dailyTargetCents)}/dia`
-              : bonus && bonus.daysRemaining <= 1
-                ? " hoje"
-                : ""}
-            .
+              : ""}
           </>
         ) : (
-          " Cota batida — o extra continua somando."
+          "Cota batida — o extra continua somando."
         )}
       </p>
-      <p className="mt-2 text-xs text-slate-500">
-        Hoje <b className="tabular-nums">{fmtMoney(mine.todayRevenueCents)}</b>
-        {mine.dailyTargetCents > 0 ? (
-          <>
-            {" "}
-            {todayMet ? "· ritmo ok" : `· faltam ${fmtMoney(todayGap)}`}
-          </>
-        ) : null}
-      </p>
-    </section>
+    </GoalShell>
   );
 }
 
