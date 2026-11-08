@@ -12,8 +12,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <div
-          className="flex min-h-[60vh] items-center justify-center bg-cover bg-center bg-no-repeat font-sans text-sm text-slate-500"
-          style={{ backgroundImage: "url(/login-background.png)" }}
+          className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950 font-sans text-sm text-slate-400"
         >
           Carregando…
         </div>
