@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
   Coins,
+  KeyRound,
   Lock,
   Plus,
   RefreshCw,
@@ -12,6 +13,10 @@ import {
   Unlock,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  CedenteCredentialsModal,
+  type CredentialsCedente,
+} from "@/components/cedentes/CedenteCredentialsModal";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dates/brazilCalendar";
 import {
   UNLOCK_BUFFER_DAYS,
@@ -144,6 +149,7 @@ export default function BloqueiosClient() {
   const [loading, setLoading] = useState(false);
   const [cedentes, setCedentes] = useState<CedenteOpt[]>([]);
   const [rows, setRows] = useState<BlockRow[]>([]);
+  const [credCedente, setCredCedente] = useState<CredentialsCedente | null>(null);
 
   const [cedenteId, setCedenteId] = useState("");
   const [program, setProgram] = useState<BlockRow["program"]>("LATAM");
@@ -663,6 +669,15 @@ export default function BloqueiosClient() {
                       <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", badge.cls)}>
                         {badge.label}
                       </span>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        title="Credenciais e código de verificação"
+                        onClick={() => setCredCedente(b.cedente)}
+                      >
+                        <KeyRound size={15} aria-hidden />
+                        <span className="sr-only">Credenciais</span>
+                      </button>
                       {thisMonth ? (
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
                           Libera em {currentMonthLabel.split(" ")[0]}
@@ -804,6 +819,10 @@ export default function BloqueiosClient() {
           })}
         </div>
       )}
+
+      {credCedente ? (
+        <CedenteCredentialsModal cedente={credCedente} onClose={() => setCredCedente(null)} />
+      ) : null}
     </div>
   );
 }
