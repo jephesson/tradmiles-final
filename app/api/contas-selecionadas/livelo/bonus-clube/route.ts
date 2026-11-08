@@ -138,7 +138,13 @@ export async function PATCH(req: NextRequest) {
       monthlyBonusPoints?: number;
       renewedThisCycle?: boolean;
       lastRenewedAt?: Date | null;
+      status?: "CANCELED";
     } = {};
+
+    if (body?.status !== undefined) {
+      if (body.status !== "CANCELED") return bad("Status inválido.");
+      data.status = "CANCELED";
+    }
 
     if (body?.renewalDay !== undefined) {
       const renewalDayRaw = toInt(body.renewalDay);
@@ -166,7 +172,8 @@ export async function PATCH(req: NextRequest) {
     if (
       data.renewalDay == null &&
       data.monthlyBonusPoints == null &&
-      data.renewedThisCycle === undefined
+      data.renewedThisCycle === undefined &&
+      data.status === undefined
     ) {
       return bad("Nenhuma alteração informada.");
     }

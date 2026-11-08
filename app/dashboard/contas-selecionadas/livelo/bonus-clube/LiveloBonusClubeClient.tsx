@@ -159,6 +159,7 @@ export default function LiveloBonusClubeClient() {
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [renewSavingId, setRenewSavingId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | Status>("");
   const [clubFilter, setClubFilter] = useState<number | "">("");
@@ -247,7 +248,7 @@ export default function LiveloBonusClubeClient() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return items.filter((r) => {
-      if (statusFilter && r.status !== statusFilter) return false;
+      if (statusFilter ? r.status !== statusFilter : r.status === "CANCELED") return false;
       if (clubFilter !== "" && Number(r.tierK) !== clubFilter) return false;
       if (!qq) return true;
       const hay =
@@ -291,6 +292,27 @@ export default function LiveloBonusClubeClient() {
       alert(e?.message || "Erro ao marcar renovação.");
     } finally {
       setRenewSavingId(null);
+    }
+  }
+
+  async function cancelClub(r: Item) {
+    if (!confirm(`Cancelar o clube Livelo de ${r.cedente.nomeCompleto}? Ele sai da lista e vai para Cancelados.`)) return;
+    setCancelingId(r.id);
+    try {
+      const res = await fetch("/api/contas-selecionadas/livelo/bonus-clube", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: r.id, status: "CANCELED" }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Falha ao cancelar o clube.");
+      }
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao cancelar o clube.");
+    } finally {
+      setCancelingId(null);
     }
   }
 
@@ -594,7 +616,7 @@ export default function LiveloBonusClubeClient() {
                     </td>
                     <td className="px-4 py-3.5 tabular-nums text-slate-600">{fmtDateBR(r.subscribedAt)}</td>
                     <td className="px-4 py-3.5 tabular-nums text-slate-600">{fmtDateBR(r.updatedAt)}</td>
-                    <td className="px-4 py-3.5 text-right">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right">
                       <button
                         type="button"
                         onClick={() => saveRow(r.id)}
@@ -608,6 +630,16 @@ export default function LiveloBonusClubeClient() {
                       >
                         {savingId === r.id ? "Salvando..." : "Salvar"}
                       </button>
+                      {r.status !== "CANCELED" ? (
+                        <button
+                          type="button"
+                          onClick={() => cancelClub(r)}
+                          disabled={cancelingId === r.id}
+                          className="ml-2 h-9 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                        >
+                          {cancelingId === r.id ? "Cancelando..." : "Cancelar clube"}
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 );
