@@ -241,12 +241,10 @@ export default function DashboardInicialClient() {
             <MonthGoalCard bonus={bonus} loading={!data && !error} />
           </div>
           <IndividualGoalCard bonus={bonus} loading={!data && !error} />
+          <ScheduledAlertsCard />
         </div>
 
-        <div className="space-y-4">
-          <ScheduledAlertsCard />
-          <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
-        </div>
+        <AgendaPresenceCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
       </div>
 
       <AgendaWeekCard data={data} takingGap={takingGap} onTakeGap={takeGap} />
