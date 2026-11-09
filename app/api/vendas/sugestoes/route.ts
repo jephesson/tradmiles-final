@@ -179,5 +179,42 @@ export async function GET(req: Request) {
     return a.leftoverPoints - b.leftoverPoints;
   });
 
-  return NextResponse.json({ ok: true, suggestions: eligibleRows.slice(0, 60) });
+  const top = eligibleRows.slice(0, 60);
+
+  // Milheiro de compra: compra CLOSED ainda não finalizada (a mesma que a venda usa), mais recente.
+  const compras = top.length
+    ? await prisma.purchase.findMany({
+        where: {
+          cedenteId: { in: top.map((r) => r.cedente.id) },
+          status: "CLOSED",
+          finalizedAt: null,
+          ciaAerea: program,
+        },
+        orderBy: [{ liberadoEm: "desc" }, { id: "desc" }],
+        select: { cedenteId: true, numero: true, custoMilheiroCents: true },
+      })
+    : [];
+  const compraByCedente = new Map<string, { numero: string; custoMilheiroCents: number; count: number }>();
+  for (const c of compras) {
+    const cur = compraByCedente.get(c.cedenteId);
+    if (cur) cur.count += 1;
+    else
+      compraByCedente.set(c.cedenteId, {
+        numero: c.numero,
+        custoMilheiroCents: clampInt(c.custoMilheiroCents),
+        count: 1,
+      });
+  }
+
+  const suggestions = top.map((r) => {
+    const c = compraByCedente.get(r.cedente.id);
+    return {
+      ...r,
+      compraMilheiroCents: c?.custoMilheiroCents ?? null,
+      compraNumero: c?.numero ?? null,
+      comprasAbertas: c?.count ?? 0,
+    };
+  });
+
+  return NextResponse.json({ ok: true, suggestions });
 }

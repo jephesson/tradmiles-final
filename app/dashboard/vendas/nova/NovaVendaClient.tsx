@@ -80,6 +80,9 @@ type Suggestion = {
   leftoverPoints: number;
   /** Média sugerida pts/CPF = pts / max(1, paxLivre - 1). Não altera ranking. */
   suggestedPtsPerPax?: number;
+  compraMilheiroCents?: number | null;
+  compraNumero?: string | null;
+  comprasAbertas?: number;
   eligible: boolean;
   priorityLabel: "MAX" | "OK" | "MEIO" | "BAIXA" | "INELIGIVEL";
   alerts: string[];
@@ -2955,6 +2958,7 @@ export default function NovaVendaClient({
                     <th className="px-4 py-3 w-[200px]">Responsável</th>
                     <th className="px-4 py-3 text-right w-[160px]">Pts usados</th>
                     <th className="px-4 py-3 text-right w-[120px]">Pts</th>
+                    <th className="px-4 py-3 text-right w-[130px]">Milheiro</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
                     <th className="px-4 py-3 w-[120px]">Prior.</th>
@@ -2964,7 +2968,7 @@ export default function NovaVendaClient({
                 <tbody>
                   {!loadingSug && suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                         Informe pontos e passageiros para ver sugestões.
                       </td>
                     </tr>
@@ -2974,7 +2978,7 @@ export default function NovaVendaClient({
                   suggestions.length > 0 &&
                   visibleSuggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                         Nenhum cedente encontrado para essa busca.
                       </td>
                     </tr>
@@ -3078,6 +3082,30 @@ export default function NovaVendaClient({
                         <td className="px-4 py-3 text-right tabular-nums font-medium">
                           {fmtInt(s.pts)}
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          {s.compraMilheiroCents && s.compraMilheiroCents > 0 ? (
+                            <div
+                              className="leading-tight"
+                              title={`Custo do milheiro da compra ${s.compraNumero || ""}${
+                                (s.comprasAbertas || 0) > 1
+                                  ? ` (mais recente de ${s.comprasAbertas} compras liberadas)`
+                                  : ""
+                              }`}
+                            >
+                              <span className="tabular-nums text-sm font-bold text-slate-900">
+                                {fmtMoneyBR(s.compraMilheiroCents)}
+                              </span>
+                              <div className="text-[11px] text-slate-500">
+                                {s.compraNumero}
+                                {(s.comprasAbertas || 0) > 1 ? ` +${(s.comprasAbertas || 0) - 1}` : ""}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400" title="Sem compra liberada para este programa">
+                              sem compra
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           <span
                             className={cn(
@@ -3122,7 +3150,7 @@ export default function NovaVendaClient({
 
                   {loadingSug ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                         <span className="inline-flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                           Carregando sugestões…
