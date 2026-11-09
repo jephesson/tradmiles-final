@@ -41,6 +41,15 @@ export type ProblemReportDTO = {
   updatedAt: string;
   cedente: { id: string; nomeCompleto: string; identificador: string; cpf: string };
   createdBy: { id: string; name: string; login: string } | null;
+  updates: ProblemUpdateDTO[];
+};
+
+export type ProblemUpdateDTO = {
+  id: string;
+  text: string;
+  statusTo: ProblemStatus | null;
+  createdAt: string;
+  createdBy: { id: string; name: string; login: string } | null;
 };
 
 export const PROBLEM_SELECT = {
@@ -55,4 +64,14 @@ export const PROBLEM_SELECT = {
   updatedAt: true,
   cedente: { select: { id: true, nomeCompleto: true, identificador: true, cpf: true } },
   createdBy: { select: { id: true, name: true, login: true } },
+  updates: {
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      text: true,
+      statusTo: true,
+      createdAt: true,
+      createdBy: { select: { id: true, name: true, login: true } },
+    },
+  },
 } as const;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
-import { PROBLEM_PROGRAMS, PROBLEM_SELECT, cleanProtocols, isProblemStatus } from "@/lib/problemReports";
+import { PROBLEM_PROGRAMS, PROBLEM_SELECT, cleanProtocols, isProblemStatus, problemStatusLabel } from "@/lib/problemReports";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +57,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const ced = c ? await prisma.cedente.findUnique({ where: { id: c }, select: { id: true } }) : null;
     if (!ced) return bad("Conta não encontrada.");
     data.cedenteId = c;
+  }
+
+  if (data.status && data.status !== cur.status) {
+    await prisma.problemReportUpdate.create({
+      data: {
+        reportId: id,
+        text: `Status alterado para ${problemStatusLabel(String(data.status))}.`,
+        statusTo: String(data.status),
+        createdById: session.id,
+      },
+    });
   }
 
   const row = await prisma.problemReport.update({ where: { id }, data, select: PROBLEM_SELECT });

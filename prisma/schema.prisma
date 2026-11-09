@@ -307,6 +307,7 @@ model User {
   scheduledAlerts            ScheduledAlert[] @relation("ScheduledAlertOwner")
   scheduledAlertsLinked      ScheduledAlert[] @relation("ScheduledAlertLinkedUser")
   problemReportsCreated      ProblemReport[]  @relation("ProblemReportCreatedBy")
+  problemReportUpdates       ProblemReportUpdate[]
 
   @@index([team])
   @@index([role])
@@ -3097,8 +3098,25 @@ model ProblemReport {
 
   cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
   createdBy User?   @relation("ProblemReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updates   ProblemReportUpdate[]
 
   @@index([team, status])
   @@index([cedenteId])
   @@map("problem_reports")
+}
+
+/// Atualizações (linha do tempo) de um relato de problema.
+model ProblemReportUpdate {
+  id          String   @id @default(uuid())
+  reportId    String
+  text        String
+  statusTo    String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  report    ProblemReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdBy User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([reportId, createdAt])
+  @@map("problem_report_updates")
 }

@@ -8,6 +8,7 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  MessageSquarePlus,
   Pencil,
   Plus,
   Search,
@@ -24,6 +25,7 @@ import {
 import {
   PROBLEM_PROGRAMS,
   PROBLEM_STATUSES,
+  problemStatusLabel,
   type ProblemReportDTO,
   type ProblemStatus,
 } from "@/lib/problemReports";
@@ -112,7 +114,7 @@ export default function RelatosProblemasClient() {
       if (filter !== "PENDENTES" && filter !== "TODOS" && r.status !== filter) return false;
       if (!qq) return true;
       return fold(
-        `${r.cedente.nomeCompleto} ${r.cedente.identificador} ${r.protocols.join(" ")} ${r.description} ${r.program || ""}`
+        `${r.cedente.nomeCompleto} ${r.cedente.identificador} ${r.protocols.join(" ")} ${r.description} ${r.program || ""} ${r.updates.map((u) => u.text).join(" ")}`
       ).includes(qq);
     });
   }, [rows, filter, q]);
@@ -332,6 +334,11 @@ export default function RelatosProblemasClient() {
                     <span className="text-xs text-slate-400">nenhum</span>
                   )}
                 </div>
+
+                <UpdatesSection
+                  report={r}
+                  onChange={(row) => setRows((prev) => prev.map((x) => (x.id === row.id ? row : x)))}
+                />
               </div>
             );
           })}
@@ -385,6 +392,200 @@ function IconBtn({
     >
       {children}
     </button>
+  );
+}
+
+function UpdatesSection({
+  report,
+  onChange,
+}: {
+  report: ProblemReportDTO;
+  onChange: (row: ProblemReportDTO) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<string>("");
+  const [proto, setProto] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const updates = report.updates || [];
+  const shown = showAll ? updates : updates.slice(-3);
+  const hidden = updates.length - shown.length;
+
+  async function send() {
+    setError("");
+    if (!text.trim()) return setError("Escreva a atualização.");
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/relatos-problemas/${report.id}/atualizacoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, status: status || null, protocols: proto }),
+      });
+      const j = await res.json();
+      if (!j?.ok) throw new Error(j?.error || "Falha ao salvar.");
+      onChange(j.data);
+      setText("");
+      setStatus("");
+      setProto("");
+      setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeUpdate(updateId: string) {
+    if (!confirm("Excluir esta atualização?")) return;
+    try {
+      const res = await fetch(`/api/relatos-problemas/${report.id}/atualizacoes/${updateId}`, { method: "DELETE" });
+      const j = await res.json();
+      if (!j?.ok) throw new Error(j?.error || "Falha ao excluir.");
+      onChange(j.data);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Falha ao excluir.");
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          Atualizações {updates.length ? <span className="tabular-nums">({updates.length})</span> : null}
+        </span>
+        {!open ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" /> Inserir atualização
+          </button>
+        ) : null}
+      </div>
+
+      {updates.length ? (
+        <ol className="mt-2 space-y-0">
+          {hidden > 0 ? (
+            <li>
+              <button
+                type="button"
+                onClick={() => setShowAll(true)}
+                className="mb-1 ml-5 text-xs font-semibold text-sky-700 hover:underline"
+              >
+                Ver {hidden} {hidden === 1 ? "atualização anterior" : "atualizações anteriores"}
+              </button>
+            </li>
+          ) : null}
+          {shown.map((u, i) => {
+            const last = i === shown.length - 1;
+            return (
+              <li key={u.id} className="group relative flex gap-3 pb-3 last:pb-0">
+                {!last ? <span className="absolute left-[5px] top-3 h-full w-px bg-slate-200" aria-hidden /> : null}
+                <span
+                  className={cn(
+                    "relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white",
+                    u.statusTo ? STATUS_DOT[u.statusTo] : "bg-slate-300"
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
+                    <span className="font-semibold text-slate-700">{u.createdBy?.name || "—"}</span>
+                    <span>{formatDateTimeBR(u.createdAt)}</span>
+                    {u.statusTo ? (
+                      <span
+                        className={cn(
+                          "rounded-md px-1.5 py-px text-[10px] font-semibold ring-1",
+                          STATUS_STYLE[u.statusTo]
+                        )}
+                      >
+                        → {problemStatusLabel(u.statusTo)}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => removeUpdate(u.id)}
+                      className="ml-auto rounded p-0.5 text-slate-300 opacity-0 transition hover:text-rose-600 group-hover:opacity-100"
+                      title="Excluir atualização"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm text-slate-700">{u.text}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : !open ? (
+        <div className="mt-1 text-xs text-slate-400">Nenhuma atualização ainda.</div>
+      ) : null}
+
+      {open ? (
+        <div className="mt-3 space-y-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            rows={3}
+            placeholder="O que aconteceu agora? Ex.: liguei de novo, a cia pediu mais 5 dias…"
+            className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-slate-400"
+              title="Mudar status junto"
+            >
+              <option value="">Manter status ({problemStatusLabel(report.status)})</option>
+              {PROBLEM_STATUSES.filter((s) => s.value !== report.status).map((s) => (
+                <option key={s.value} value={s.value}>
+                  Mudar para {s.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={proto}
+              onChange={(e) => setProto(e.target.value)}
+              placeholder="Novo protocolo (opcional)"
+              className="w-48 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-xs outline-none focus:border-slate-400"
+            />
+            <div className="ml-auto flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setError("");
+                }}
+                className="rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200/60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={send}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                Salvar atualização
+              </button>
+            </div>
+          </div>
+          {error ? <div className="text-xs text-rose-600">{error}</div> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
