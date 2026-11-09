@@ -2448,24 +2448,54 @@ export default function NovaVendaClient({
             </div>
           </div>
 
-          {/* Milheiro de venda */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">Milheiro de venda</div>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Preço por mil pontos (sem taxa). Na lista de cedentes marca quem fica abaixo do milheiro residual e dá prejuízo.
-                </p>
+          {/* Milheiro de venda (destaque) */}
+          <div
+            className={cn(
+              "relative overflow-hidden rounded-2xl p-4 sm:p-5 ring-1 transition",
+              milheiroCents > 0
+                ? "bg-gradient-to-br from-emerald-600 to-teal-700 text-white ring-emerald-500 shadow-lg shadow-emerald-600/20"
+                : "bg-gradient-to-br from-amber-50 to-orange-50 ring-amber-300"
+            )}
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div
+                  className={cn(
+                    "text-[11px] font-bold uppercase tracking-[0.14em]",
+                    milheiroCents > 0 ? "text-emerald-100" : "text-amber-700"
+                  )}
+                >
+                  Milheiro de venda
+                </div>
+                <div className={cn("mt-1 text-sm", milheiroCents > 0 ? "text-emerald-50" : "text-amber-900")}>
+                  {milheiroCents > 0 ? (
+                    <>
+                      {fmtInt(pointsTotal)} pts × {fmtMoneyBR(milheiroCents)} ={" "}
+                      <b className="text-base text-white">{fmtMoneyBR(pointsValueCents)}</b> sem taxa
+                    </>
+                  ) : (
+                    "Preço por mil pontos, sem taxa. Já vai preenchido na emissão e marca os cedentes que dariam prejuízo."
+                  )}
+                </div>
               </div>
-              <div className="relative w-full sm:w-44">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+              <div className="relative w-full shrink-0 sm:w-56">
+                <span
+                  className={cn(
+                    "pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold",
+                    milheiroCents > 0 ? "text-emerald-600" : "text-amber-500"
+                  )}
+                >
                   R$
                 </span>
                 <input
-                  className={cn(CONTROL_INPUT_MONO, "bg-white pl-10 text-base")}
+                  className="h-14 w-full rounded-xl border-0 bg-white pl-12 pr-4 font-mono text-2xl font-bold tabular-nums text-slate-900 shadow-sm outline-none ring-2 ring-transparent placeholder:text-slate-300 focus:ring-emerald-300"
                   value={milheiroStr === "0,00" ? "" : milheiroStr}
                   onChange={(e) => setMilheiroStr(e.target.value)}
-                  placeholder="Ex.: 25,50"
+                  onBlur={() => {
+                    const c = moneyToCentsBR(milheiroStr);
+                    if (c > 0) setMilheiroStr(centsToMoneyInputBR(c));
+                  }}
+                  placeholder="25,50"
                   inputMode="decimal"
                 />
               </div>
@@ -3679,11 +3709,23 @@ export default function NovaVendaClient({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className={FIELD_LABEL}>Milheiro (R$)</label>
+                  <label className={FIELD_LABEL}>
+                    Milheiro (R$){" "}
+                    {milheiroCents > 0 ? (
+                      <span className="font-normal normal-case tracking-normal text-emerald-700">· de Dados da venda</span>
+                    ) : null}
+                  </label>
                   <input
-                    className={CONTROL_INPUT_MONO}
+                    className={cn(
+                      CONTROL_INPUT_MONO,
+                      milheiroCents > 0 && "border-emerald-300 bg-emerald-50/60 font-bold text-emerald-900"
+                    )}
                     value={milheiroStr}
                     onChange={(e) => setMilheiroStr(e.target.value)}
+                    onBlur={() => {
+                      const c = moneyToCentsBR(milheiroStr);
+                      if (c > 0) setMilheiroStr(centsToMoneyInputBR(c));
+                    }}
                     placeholder="Ex.: 25,50"
                   />
                 </div>
