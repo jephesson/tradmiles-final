@@ -306,6 +306,7 @@ model User {
   cotacaoPassagemJobs        CotacaoPassagemJob[]
   scheduledAlerts            ScheduledAlert[] @relation("ScheduledAlertOwner")
   scheduledAlertsLinked      ScheduledAlert[] @relation("ScheduledAlertLinkedUser")
+  problemReportsCreated      ProblemReport[]  @relation("ProblemReportCreatedBy")
 
   @@index([team])
   @@index([role])
@@ -690,6 +691,7 @@ model Cedente {
   filaAssinaturas FilaAssinatura[]
 
   scheduledAlerts ScheduledAlert[]
+  problemReports  ProblemReport[]
 
   @@index([status])
   @@index([ownerId])
@@ -3076,4 +3078,27 @@ model ScheduledAlert {
 
   @@index([userId, date])
   @@map("scheduled_alerts")
+}
+
+/// Relato de problemas em contas de cedentes (protocolos abertos na cia, status).
+model ProblemReport {
+  id          String          @id @default(uuid())
+  team        String
+  cedenteId   String
+  program     LoyaltyProgram?
+  problemDate String
+  protocols   String[]        @default([])
+  description String
+  status      String          @default("ABERTO")
+  resolvedAt  DateTime?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  cedente   Cedente @relation(fields: [cedenteId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("ProblemReportCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([team, status])
+  @@index([cedenteId])
+  @@map("problem_reports")
 }

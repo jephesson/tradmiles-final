@@ -1141,6 +1141,12 @@ export default function Sidebar() {
           accent="sky"
         />
 
+        <TopLink
+          href="/dashboard/relatos-problemas"
+          title="Relato de problemas"
+          accent="rose"
+        />
+
         {/* ================= OUTROS ================= */}
         <Accordion
           title="Outros"
