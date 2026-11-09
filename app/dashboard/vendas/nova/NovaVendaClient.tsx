@@ -3085,11 +3085,21 @@ export default function NovaVendaClient({
                       suggestedPtsPerPaxFrom(s.pts, s.availablePassengersYear);
                     const usedPerPax = salePtsPerPax(s.pointsNeeded, s.passengersNeeded);
                     const belowAvg = isBelowSuggestedAvg(s);
+                    const rowLoss =
+                      milheiroCents > 0 &&
+                      s.residualMilheiroCents != null &&
+                      milheiroCents < s.residualMilheiroCents;
 
                     return (
                       <tr
                         key={`${sugAnimKey}:${s.cedente.id}`}
-                        className="tm-row-in border-b border-slate-100 transition hover:bg-slate-50/80 last:border-b-0"
+                        className={cn(
+                          "tm-row-in border-b transition last:border-b-0",
+                          rowLoss
+                            ? "border-rose-200 bg-rose-50 shadow-[inset_4px_0_0_0_#e11d48] hover:bg-rose-100/70"
+                            : "border-slate-100 hover:bg-slate-50/80"
+                        )}
+                        title={rowLoss ? "Vendendo abaixo do milheiro residual: dá prejuízo nesta conta" : undefined}
                         style={{ animationDelay: `${Math.min(idx, 40) * 35}ms` }}
                       >
                         <td className="px-4 py-3">
