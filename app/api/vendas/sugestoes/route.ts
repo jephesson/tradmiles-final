@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clampInt, endOfYearExclusive, passengerLimit, pointsField, startOfYear } from "../../_helpers/sales";
 import { saleMeetsCedenteMinPts } from "@/lib/vendas/cedenteMinPts";
+import { purchaseNumeroVariants, pvSemTaxaFromSaleFields } from "@/lib/payouts/purchaseFinalizeMetrics";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
 
@@ -181,7 +182,8 @@ export async function GET(req: Request) {
 
   const top = eligibleRows.slice(0, 60);
 
-  // Milheiro de compra: compra CLOSED ainda não finalizada (a mesma que a venda usa), mais recente.
+  // Milheiro de compra (original) e milheiro residual (dinâmico pelo que já foi vendido).
+  // Residual = (custo das compras liberadas − valor já vendido delas, sem taxa) ÷ pontos que restam na conta.
   const compras = top.length
     ? await prisma.purchase.findMany({
         where: {
@@ -191,28 +193,75 @@ export async function GET(req: Request) {
           ciaAerea: program,
         },
         orderBy: [{ liberadoEm: "desc" }, { id: "desc" }],
-        select: { cedenteId: true, numero: true, custoMilheiroCents: true },
+        select: { id: true, cedenteId: true, numero: true, custoMilheiroCents: true, totalCents: true },
       })
     : [];
-  const compraByCedente = new Map<string, { numero: string; custoMilheiroCents: number; count: number }>();
+
+  const keyToCedente = new Map<string, string>();
+  for (const c of compras) {
+    keyToCedente.set(c.id, c.cedenteId);
+    for (const v of purchaseNumeroVariants(c.numero)) keyToCedente.set(v, c.cedenteId);
+  }
+  const sales = keyToCedente.size
+    ? await prisma.sale.findMany({
+        where: { paymentStatus: { not: "CANCELED" }, purchaseId: { in: Array.from(keyToCedente.keys()) } },
+        select: {
+          purchaseId: true,
+          points: true,
+          totalCents: true,
+          pointsValueCents: true,
+          embarqueFeeCents: true,
+          milheiroCents: true,
+        },
+      })
+    : [];
+  const soldByCedente = new Map<string, { pv: number; points: number }>();
+  for (const sl of sales) {
+    const ced = keyToCedente.get(String(sl.purchaseId || ""));
+    if (!ced) continue;
+    const cur = soldByCedente.get(ced) || { pv: 0, points: 0 };
+    cur.pv += pvSemTaxaFromSaleFields(sl);
+    cur.points += clampInt(sl.points);
+    soldByCedente.set(ced, cur);
+  }
+
+  const compraByCedente = new Map<
+    string,
+    { numero: string; custoMilheiroCents: number; count: number; costCents: number }
+  >();
   for (const c of compras) {
     const cur = compraByCedente.get(c.cedenteId);
-    if (cur) cur.count += 1;
-    else
+    if (cur) {
+      cur.count += 1;
+      cur.costCents += clampInt(c.totalCents);
+    } else
       compraByCedente.set(c.cedenteId, {
         numero: c.numero,
         custoMilheiroCents: clampInt(c.custoMilheiroCents),
         count: 1,
+        costCents: clampInt(c.totalCents),
       });
   }
 
   const suggestions = top.map((r) => {
     const c = compraByCedente.get(r.cedente.id);
+    const sold = soldByCedente.get(r.cedente.id) || { pv: 0, points: 0 };
+    let residualMilheiroCents: number | null = null;
+    let residualCostCents: number | null = null;
+    if (c) {
+      residualCostCents = Math.max(0, c.costCents - sold.pv);
+      if (sold.pv <= 0) residualMilheiroCents = c.custoMilheiroCents;
+      else residualMilheiroCents = r.pts > 0 ? Math.round((residualCostCents * 1000) / r.pts) : 0;
+    }
     return {
       ...r,
       compraMilheiroCents: c?.custoMilheiroCents ?? null,
       compraNumero: c?.numero ?? null,
       comprasAbertas: c?.count ?? 0,
+      residualMilheiroCents,
+      residualCostCents,
+      soldPointsFromCompra: sold.points,
+      soldValueFromCompraCents: sold.pv,
     };
   });
 

@@ -83,6 +83,11 @@ type Suggestion = {
   compraMilheiroCents?: number | null;
   compraNumero?: string | null;
   comprasAbertas?: number;
+  /** (custo das compras liberadas − já vendido) ÷ pontos que restam. Sem venda = milheiro original. */
+  residualMilheiroCents?: number | null;
+  residualCostCents?: number | null;
+  soldPointsFromCompra?: number;
+  soldValueFromCompraCents?: number;
   eligible: boolean;
   priorityLabel: "MAX" | "OK" | "MEIO" | "BAIXA" | "INELIGIVEL";
   alerts: string[];
@@ -2443,6 +2448,30 @@ export default function NovaVendaClient({
             </div>
           </div>
 
+          {/* Milheiro de venda */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Milheiro de venda</div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Preço por mil pontos (sem taxa). Na lista de cedentes marca quem fica abaixo do milheiro residual e dá prejuízo.
+                </p>
+              </div>
+              <div className="relative w-full sm:w-44">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+                  R$
+                </span>
+                <input
+                  className={cn(CONTROL_INPUT_MONO, "bg-white pl-10 text-base")}
+                  value={milheiroStr === "0,00" ? "" : milheiroStr}
+                  onChange={(e) => setMilheiroStr(e.target.value)}
+                  placeholder="Ex.: 25,50"
+                  inputMode="decimal"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Passageiros */}
           <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -2948,6 +2977,32 @@ export default function NovaVendaClient({
                 Mostrando <span className="font-semibold text-slate-700">todos os elegíveis</span>. Use a
                 busca para filtrar.
               </p>
+              {milheiroCents > 0 ? (
+                (() => {
+                  const loss = visibleSuggestions.filter(
+                    (x) => x.residualMilheiroCents != null && milheiroCents < x.residualMilheiroCents
+                  ).length;
+                  return (
+                    <div
+                      className={cn(
+                        "mt-3 rounded-xl px-3 py-2 text-xs",
+                        loss
+                          ? "bg-rose-50 text-rose-800 ring-1 ring-rose-200"
+                          : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
+                      )}
+                    >
+                      Vendendo a <b>{fmtMoneyBR(milheiroCents)}</b>/mil:{" "}
+                      {loss
+                        ? `${loss} conta${loss === 1 ? "" : "s"} ficaria${loss === 1 ? "" : "m"} abaixo do milheiro residual (prejuízo).`
+                        : "nenhuma conta fica abaixo do milheiro residual."}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">
+                  Informe o <b>milheiro de venda</b> em Dados da venda para marcar as contas que dariam prejuízo.
+                </div>
+              )}
             </div>
 
             <div className="overflow-x-auto bg-white">
@@ -2958,7 +3013,7 @@ export default function NovaVendaClient({
                     <th className="px-4 py-3 w-[200px]">Responsável</th>
                     <th className="px-4 py-3 text-right w-[160px]">Pts usados</th>
                     <th className="px-4 py-3 text-right w-[120px]">Pts</th>
-                    <th className="px-4 py-3 text-right w-[130px]">Milheiro</th>
+                    <th className="px-4 py-3 text-right w-[150px]" title="Milheiro residual: custo que falta cobrir ÷ pontos que restam">Milheiro resid.</th>
                     <th className="px-4 py-3 text-right w-[260px]">PAX disp. (após)</th>
                     <th className="px-4 py-3 text-right w-[120px]">Sobra</th>
                     <th className="px-4 py-3 w-[120px]">Prior.</th>
@@ -3083,23 +3138,63 @@ export default function NovaVendaClient({
                           {fmtInt(s.pts)}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {s.compraMilheiroCents && s.compraMilheiroCents > 0 ? (
-                            <div
-                              className="leading-tight"
-                              title={`Custo do milheiro da compra ${s.compraNumero || ""}${
-                                (s.comprasAbertas || 0) > 1
-                                  ? ` (mais recente de ${s.comprasAbertas} compras liberadas)`
-                                  : ""
-                              }`}
-                            >
-                              <span className="tabular-nums text-sm font-bold text-slate-900">
-                                {fmtMoneyBR(s.compraMilheiroCents)}
-                              </span>
-                              <div className="text-[11px] text-slate-500">
-                                {s.compraNumero}
-                                {(s.comprasAbertas || 0) > 1 ? ` +${(s.comprasAbertas || 0) - 1}` : ""}
-                              </div>
-                            </div>
+                          {s.residualMilheiroCents != null ? (
+                            (() => {
+                              const resid = s.residualMilheiroCents;
+                              const orig = s.compraMilheiroCents || 0;
+                              const hasSale = milheiroCents > 0;
+                              const loss = hasSale && milheiroCents < resid;
+                              const marginCents = hasSale ? milheiroCents - resid : 0;
+                              return (
+                                <div
+                                  className="leading-tight"
+                                  title={[
+                                    `Compra ${s.compraNumero || ""}${
+                                      (s.comprasAbertas || 0) > 1 ? ` (+${(s.comprasAbertas || 0) - 1} liberada)` : ""
+                                    }: milheiro original ${fmtMoneyBR(orig)}.`,
+                                    (s.soldPointsFromCompra || 0) > 0
+                                      ? `Já vendido: ${fmtInt(s.soldPointsFromCompra || 0)} pts por ${fmtMoneyBR(
+                                          s.soldValueFromCompraCents || 0
+                                        )}. Falta cobrir ${fmtMoneyBR(s.residualCostCents || 0)} com ${fmtInt(
+                                          s.pts
+                                        )} pts → residual ${fmtMoneyBR(resid)}/mil.`
+                                      : "Nada vendido ainda desta compra: residual = milheiro original.",
+                                  ].join(" ")}
+                                >
+                                  <span
+                                    className={cn(
+                                      "tabular-nums text-sm font-bold",
+                                      loss ? "text-rose-700" : "text-slate-900"
+                                    )}
+                                  >
+                                    {fmtMoneyBR(resid)}
+                                  </span>
+                                  <div className="text-[11px] text-slate-500">
+                                    {(s.soldPointsFromCompra || 0) > 0 ? (
+                                      <>
+                                        compra <span className="line-through">{fmtMoneyBR(orig)}</span>
+                                      </>
+                                    ) : (
+                                      s.compraNumero
+                                    )}
+                                  </div>
+                                  {hasSale ? (
+                                    <span
+                                      className={cn(
+                                        "mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                                        loss
+                                          ? "bg-rose-600 text-white"
+                                          : "bg-emerald-100 text-emerald-800"
+                                      )}
+                                    >
+                                      {loss
+                                        ? `Prejuízo ${fmtMoneyBR(-marginCents)}/mil`
+                                        : `+${fmtMoneyBR(marginCents)}/mil`}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })()
                           ) : (
                             <span className="text-xs text-slate-400" title="Sem compra liberada para este programa">
                               sem compra
