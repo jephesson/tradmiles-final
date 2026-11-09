@@ -1283,9 +1283,23 @@ function splitIntoBlocks(text: string): string[] {
   // Une blocos que são só e-mail/telefone ao bloco anterior
   const raw = normalized.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
   const merged: string[] = [];
+  const NAME_LABEL_RE = /^\s*(?:nome|pax|passageir[oa]|beb[eê]|primeiro\s*nome|sobrenome)\b/im;
+  const hasDate = (b: string) => DATE_RE.test(b) || DATE_COMPACT_RE.test(b);
   for (const block of raw) {
     if (merged.length && isContactOnlyBlock(block)) {
       merged[merged.length - 1] = `${merged[merged.length - 1]}\n${block}`;
+      continue;
+    }
+    // "Nome completo: X" + linha em branco + "Data de nascimento / CPF..." → mesmo passageiro
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      NAME_LABEL_RE.test(prev) &&
+      !hasDate(prev) &&
+      !NAME_LABEL_RE.test(block) &&
+      hasDate(block)
+    ) {
+      merged[merged.length - 1] = `${prev}\n${block}`;
       continue;
     }
     merged.push(block);
