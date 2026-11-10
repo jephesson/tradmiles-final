@@ -317,6 +317,58 @@ function regexFlight(text: string) {
   return { origin, destination, outbound, inbound };
 }
 
+type TableLeg = { volta: boolean; from: string; to: string; date: string };
+
+/** Monta ida/volta a partir das linhas da tabela (colunas Origem, Destino, Embarque). */
+export function legsFromTableRows(raw: unknown): { ida: TableLeg[]; volta: TableLeg[] } | null {
+  if (!Array.isArray(raw)) return null;
+  const rows = raw
+    .map((r: Record<string, unknown>) => {
+      const emb = String(r?.embarque || r?.date || "").trim();
+      const m = emb.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\D+(\d{1,2}):(\d{2}))?/);
+      let date = "";
+      let ts = NaN;
+      if (m) {
+        const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+        date = `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+        ts = Date.parse(`${date}T${(m[4] || "0").padStart(2, "0")}:${m[5] || "00"}:00Z`);
+      } else {
+        date = parseFlightDate(emb) || "";
+        ts = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
+      }
+      return {
+        volta: false,
+        from: toIata(String(r?.origem || r?.origin || "")),
+        to: toIata(String(r?.destino || r?.destination || "")),
+        date,
+        ts,
+      };
+    })
+    .filter((r) => r.from && r.to && r.from !== r.to);
+  if (!rows.length) return null;
+  const strip = (r: (typeof rows)[number]): TableLeg => ({ volta: r.volta, from: r.from, to: r.to, date: r.date });
+  const origin = rows[0].from;
+  // Termina onde começou com mais de um trecho → ida e volta; corta no maior intervalo entre embarques.
+  if (rows.length > 1 && rows[rows.length - 1].to === origin) {
+    let cut = -1;
+    let gap = -1;
+    for (let i = 1; i < rows.length; i++) {
+      const g = rows[i].ts - rows[i - 1].ts;
+      if (Number.isFinite(g) && g > gap) {
+        gap = g;
+        cut = i;
+      }
+    }
+    if (cut < 0) cut = rows.findIndex((r, i) => i > 0 && r.from !== rows[i - 1].to);
+    if (cut < 0) cut = Math.ceil(rows.length / 2);
+    return {
+      ida: rows.slice(0, cut).map(strip),
+      volta: rows.slice(cut).map((r) => ({ ...strip(r), volta: true })),
+    };
+  }
+  return { ida: rows.map(strip), volta: [] };
+}
+
 function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight | null) {
   const passengers: TelegramParsedPax[] = [];
   let origin =
@@ -338,8 +390,14 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
       date: parseFlightDate(String(l?.date || "")) || "",
     }))
     .filter((l) => l.from && l.to);
-  const idaLegs = legs.filter((l) => !l.volta);
-  const voltaLegs = legs.filter((l) => l.volta);
+  let idaLegs = legs.filter((l) => !l.volta);
+  let voltaLegs = legs.filter((l) => l.volta);
+  // Tabela transcrita coluna a coluna (Origem/Destino/Embarque) é mais confiável que a rota resumida.
+  const fromTable = legsFromTableRows(data.tableRows);
+  if (fromTable) {
+    idaLegs = fromTable.ida;
+    voltaLegs = fromTable.volta;
+  }
   if (idaLegs.length) {
     origin = idaLegs[0].from;
     destination = idaLegs[idaLegs.length - 1].to;
@@ -551,6 +609,7 @@ export async function parseTelegramEmissionFromImages(
 Tipos comuns:
 1) CARD DE BUSCA LATAM PASS (amarelo/branco, ou print do site "Combine suas milhas + dinheiro"): origem e destino, horários (11:50 MOC → 13:20 GRU), datas tipo "seg., 26 out", milhas por passageiro (ex. 8.924 milhas + BRL 35,39), Light/Plus. NÃO é ficha de passageiro.
 2) TABELA DE SISTEMA DE AGÊNCIA: cabeçalho "IDA | GYN - MCZ | 1 conexão" (ou VOLTA) e colunas Cia / # Voo / Paradas / Classe / Data / Origem / Destino / Milhas. A data vem completa (DD/MM/AAAA). Use o CABEÇALHO: em "IDA | JDO - GRU | direto", origin=JDO e destination=GRU. Com conexão, destination = destino do último trecho DA IDA (a conexão, ex. BSB, NÃO é destino). A tabela VOLTA (GRU - JDO) é a volta: dá só o inbound, NUNCA o destination. Em ida e volta, origin e destination são sempre diferentes.
+2b) TABELA DE RESERVA/ORÇAMENTO com colunas Cia | #VOO | Conexões | Embarque | Desembarque | Origem | Destino | Duração | Classe | Família tarifária | Bag. Inclusa. Cada linha é um voo. A coluna "Origem" é de onde SAI e a coluna "Destino" é para onde VAI — copie exatamente, não inverta. A data do voo é a do "Embarque" (não a do "Desembarque"). Ex.: linha "LA3134 | 30/11/2026, 20:50 | 01/12/2026, 00:20 | GRU | BVB" → origin=GRU, destination=BVB, outbound=2026-11-30.
 3) FICHA DE PASSAGEIRO: nome, CPF, nascimento, às vezes e-mail e telefone.
 4) COMPROVANTE DE PIX / pagamento / recibo (Inter, Mercado Pago, "Pix enviado", "Pagamento Pix incluído", valor, CNPJ, chave Pix): IGNORE por completo — nomes, CPF e CNPJ dali NÃO são passageiros e não dizem nada do voo.
 
@@ -562,6 +621,7 @@ JSON:
   "inbound": "YYYY-MM-DD ou null",
   "trip": "IDA ou IDA_VOLTA",
   "legs": [{ "direction": "IDA ou VOLTA", "from": "IATA", "to": "IATA", "date": "YYYY-MM-DD" }],
+  "tableRows": [{ "voo": "LA3134", "embarque": "DD/MM/AAAA HH:MM", "origem": "IATA da coluna Origem", "destino": "IATA da coluna Destino" }],
   "adt": 1,
   "chd": 0,
   "inf": 0,
@@ -572,6 +632,7 @@ No card de voo: leia o IATA visível (SSA, CWB, GRU, CGH…). Se só aparecer ci
 Datas do VOO: "seg., 26 out" / "ter., 27 out" → YYYY-MM-DD do próximo dia válido a partir de hoje. NÃO use data de nascimento.
 Se houver ida e volta no mesmo print, preencha outbound E inbound e trip=IDA_VOLTA.
 legs: um item por trecho/voo, na ordem, marcando se é da IDA ou da VOLTA.
+tableRows: só se houver tabela com colunas Origem e Destino — transcreva cada linha na ordem, copiando o texto de cada coluna como está escrito (vazio [] se não houver tabela).
 Passageiros: só se houver ficha/nome+CPF. Do card de voo NÃO invente passageiro. E-mail e telefone se aparecerem.`,
     },
     ...images.map((img) => ({
