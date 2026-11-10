@@ -11,6 +11,7 @@ import {
   EyeOff,
   Landmark,
   RefreshCw,
+  Wallet,
   Sparkles,
   Trophy,
   Users,
@@ -374,7 +375,7 @@ function HomeHero({ data }: { data: InicialData | null }) {
         <Image src="/vias-aereas-mark.png" alt="" width={1009} height={1024} unoptimized className="h-56 w-56 object-contain" />
       </div>
 
-      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+      <div className="relative flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Página inicial</div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
@@ -419,7 +420,10 @@ function HomeHero({ data }: { data: InicialData | null }) {
           </div>
         </div>
 
-        <BankBalanceCard />
+        <div className="flex w-full shrink-0 flex-col gap-3 sm:flex-row xl:w-auto">
+          <ReceivableCard />
+          <BankBalanceCard />
+        </div>
       </div>
     </section>
   );
@@ -735,6 +739,82 @@ function AgendaWeekCard({
 
 /* ---------- saldo (dentro do topo) ---------- */
 
+/** Total pendente a receber do Painel de vendas (mesma regra da tela). */
+function ReceivableCard() {
+  const [pendingCents, setPendingCents] = useState<number | null>(null);
+  const [count, setCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [hide, setHide] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/vendas/pending-count", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (json?.ok) {
+        setPendingCents(Number(json.pendingCents) || 0);
+        setCount(Number(json.count) || 0);
+      }
+    } catch {
+      /* mantém o último valor */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      if (getSession()?.role === "socio") {
+        setHide(true);
+        setLoading(false);
+        return;
+      }
+      void load();
+    }, 0);
+    function onVisible() {
+      if (document.visibilityState === "visible") void load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load]);
+
+  const shown = useCountUp(pendingCents || 0, 900);
+  if (hide) return null;
+
+  return (
+    <Link
+      href="/dashboard/vendas"
+      className="relative w-full shrink-0 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-white/15 hover:ring-white/30 sm:flex-1 sm:p-5 xl:w-[18rem] xl:flex-none"
+    >
+      <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-amber-400/20 text-amber-300">
+          <Wallet className="h-3.5 w-3.5" aria-hidden />
+        </span>
+        A receber
+      </div>
+      {loading && pendingCents == null ? (
+        <div className="mt-4 h-9 w-40 animate-pulse rounded-lg bg-white/15" />
+      ) : (
+        <>
+          <div className="mt-3 text-3xl font-bold tabular-nums tracking-tight text-amber-200 sm:text-4xl">
+            {fmtMoney(Math.round(shown))}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+            <span className="text-slate-400">
+              {count} venda{count === 1 ? "" : "s"} pendente{count === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center gap-0.5 font-semibold text-amber-300">
+              Painel de vendas <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          </div>
+        </>
+      )}
+    </Link>
+  );
+}
+
 function BankBalanceCard() {
   const [visible, setVisible] = useState(true);
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -797,7 +877,7 @@ function BankBalanceCard() {
     <>
       <div
         className={cn(
-          "relative w-full shrink-0 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-md sm:p-5 lg:w-[22rem]",
+          "relative w-full shrink-0 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-md sm:flex-1 sm:p-5 xl:w-[20rem] xl:flex-none",
           canOpenExtrato && "cursor-pointer transition hover:bg-white/15 hover:ring-white/30"
         )}
         role={canOpenExtrato ? "button" : undefined}
