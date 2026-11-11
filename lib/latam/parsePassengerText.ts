@@ -302,6 +302,8 @@ function classifyDigits(
 function toISODate(d: string, m: string, y: string) {
   let year = Number(y);
   if (year < 100) year += year >= 30 ? 1900 : 2000;
+  // Erro de digitação comum no Zap: "1068" = 1968 (o 9 virou 0)
+  if (year >= 1000 && year < 1100) year += 900;
   const month = String(Number(m)).padStart(2, "0");
   const day = String(Number(d)).padStart(2, "0");
   if (year < 1900 || year > 2100) return null;
