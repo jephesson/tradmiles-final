@@ -1,5 +1,6 @@
 import {
   type TravelDocType,
+  bareNationalityIso,
   extractTravelDocument,
   formatTravelDocumentLines,
   isForeignPassenger,
@@ -627,6 +628,24 @@ function preprocessPassengerText(raw: string): string {
   // Normaliza “Pax do bebê:” antes do rótulo curto “Pax:” engolir o resto
   t = t.replace(/\bpax\s+do\s+beb[eê]\s*[:\-–.=]\s*/gi, "Pax bebe: ");
   t = t.replace(/^\s*beb[eê]\s*[:\-–.=]\s*/gim, "Pax bebe: ");
+
+  // Rótulos em espanhol / com espaço: "Nombre", "Apellido", "Sobre nome", "Fecha de nacimiento"
+  t = t.replace(/\bnombres?\b(?=\s*[:\-–.=])/gi, "Nome");
+  t = t.replace(/\bapellidos?\b(?=\s*[:\-–.=])/gi, "Sobrenome");
+  t = t.replace(/\bsobre\s+nome\b/gi, "Sobrenome");
+  t = t.replace(/\b(?:(?:fecha|data)\s+(?:de\s+)?)?nacimiento\b/gi, "Nascimento");
+
+  // Validade/emissão do documento não é dado de pax (e a data virava "passageiro" novo)
+  t = t.replace(
+    /^[^\S\n]*(?:validade|validez|vencimento|vence|expira(?:ç|c)?(?:ão|ao)?|data\s+de\s+(?:validade|expira(?:ç|c)(?:ão|ao)|emiss(?:ã|a)o|vencimento)|emiss(?:ã|a)o|expedi(?:ç|c)(?:ão|ao)|fecha\s+de\s+(?:vencimiento|expiraci[oó]n|emisi[oó]n))\b[^\n]*(?:\n|$)/gim,
+    ""
+  );
+
+  // Linha só com a nacionalidade ("COLOMBIANA") → "Nacionalidade: COLOMBIANA"
+  t = t
+    .split("\n")
+    .map((ln) => (bareNationalityIso(ln) ? `Nacionalidade: ${ln.trim()}` : ln))
+    .join("\n");
 
   // Unifica variações de data de nascimento num rótulo só (evita split em "Data"+"Nascimento")
   t = t.replace(

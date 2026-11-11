@@ -111,6 +111,13 @@ export function resolveNationality(raw: string | null | undefined): {
   return { iso: null, label: s.slice(0, 40) };
 }
 
+/** Linha que é só o país/gentílico ("COLOMBIANA", "Argentina") → ISO; senão null. */
+export function bareNationalityIso(line: string | null | undefined): string | null {
+  const n = norm(String(line || ""));
+  if (!n || n.split(" ").length > 3) return null;
+  return BY_ALIAS.get(n)?.[0] ?? null;
+}
+
 const NATIONALITY_LINE_RE =
   /^\s*(?:nacionalidade|nationality|nacionalidad)\s*[:\-–=.]?\s*(.+?)\s*$/im;
 /** "Estrangeiro (argentino)", "estrangeira - alemã" */
