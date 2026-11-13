@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 import { getSession } from "@/lib/auth";
 
 /** Marca feita no login: a abertura só aparece logo depois de entrar. */
@@ -25,7 +26,6 @@ const PHRASES: { title: string; sub: string }[] = [
   },
 ];
 
-const TOTAL_MS = 3600;
 
 function firstName(name?: string | null) {
   const n = String(name || "").trim().split(/\s+/)[0] || "";
@@ -56,12 +56,8 @@ export default function WelcomeIntro() {
       setName(firstName(getSession()?.name));
       setShow(true);
     }, 0);
-    const t1 = window.setTimeout(() => setLeaving(true), TOTAL_MS);
-    const t2 = window.setTimeout(() => setShow(false), TOTAL_MS + 600);
     return () => {
       window.clearTimeout(t0);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
     };
   }, []);
 
@@ -83,10 +79,9 @@ export default function WelcomeIntro() {
 
   return (
     <div
-      className={`tm-intro fixed inset-0 z-[1000] flex cursor-pointer items-center justify-center overflow-hidden bg-[#050b1a] text-white ${
+      className={`tm-intro fixed inset-0 z-[1000] flex items-center justify-center overflow-hidden bg-[#050b1a] text-white ${
         leaving ? "tm-intro-leave" : ""
       }`}
-      onClick={skip}
       role="dialog"
       aria-label="Boas-vindas"
     >
@@ -144,10 +139,21 @@ export default function WelcomeIntro() {
           TradeMiles · Vias Aéreas
           <span className="h-px w-8 bg-slate-600" />
         </div>
+        <div className="tm-intro-l5 mt-10">
+          <button
+            type="button"
+            autoFocus
+            onClick={skip}
+            className="tm-intro-go group inline-flex items-center gap-2 rounded-full bg-white px-7 py-3.5 text-sm font-bold text-slate-900 shadow-[0_10px_40px_-10px_rgba(56,189,248,0.8)] transition hover:scale-[1.03] hover:bg-sky-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/50"
+          >
+            Seguir para o dashboard
+            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden />
+          </button>
+          <div className="mt-3 text-[11px] text-slate-500">ou aperte Enter</div>
+        </div>
       </div>
 
-      <div className="tm-intro-bar pointer-events-none absolute bottom-0 left-0 h-[3px] bg-gradient-to-r from-sky-400 via-violet-400 to-pink-400" />
-      <div className="absolute bottom-5 right-6 text-[11px] text-slate-500">clique para pular</div>
+      <div className="tm-intro-bar pointer-events-none absolute bottom-0 left-0 h-[3px] w-full bg-gradient-to-r from-sky-400 via-violet-400 to-pink-400" />
     </div>
   );
 }
@@ -186,11 +192,16 @@ const CSS = `
 .tm-intro-l4 { animation-delay: 1.5s }
 @keyframes tmUp { from { opacity: 0; transform: translateY(14px); filter: blur(6px) } to { opacity: 1; transform: none; filter: none } }
 
-.tm-intro-bar { animation: tmBar ${TOTAL_MS}ms linear forwards; width: 0 }
-@keyframes tmBar { to { width: 100% } }
+.tm-intro-bar { animation: tmBar 2.4s cubic-bezier(.45,0,.25,1) forwards; transform-origin: left; transform: scaleX(0) }
+@keyframes tmBar { to { transform: scaleX(1) } }
+
+.tm-intro-l5 { opacity: 0; animation: tmUp .7s cubic-bezier(.2,.8,.2,1) 2s forwards; }
+.tm-intro-go { position: relative; overflow: hidden; }
+.tm-intro-go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%); transform: translateX(-120%); animation: tmShine 2.8s 2.8s ease-in-out infinite; }
+@keyframes tmShine { 0% { transform: translateX(-120%) } 45%, 100% { transform: translateX(120%) } }
 
 @media (prefers-reduced-motion: reduce) {
-  .tm-intro-route, .tm-intro-stars, .tm-intro-l1, .tm-intro-l2, .tm-intro-l3, .tm-intro-l4 { animation: none; opacity: 1; clip-path: none }
+  .tm-intro-route, .tm-intro-stars, .tm-intro-l1, .tm-intro-l2, .tm-intro-l3, .tm-intro-l4, .tm-intro-l5 { animation: none; opacity: 1; clip-path: none }
   .tm-intro-plane { display: none }
 }
 `;
