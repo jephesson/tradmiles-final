@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-server";
 import { compactAnalyticsForAi } from "@/lib/analytics-feedback-compact";
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,13 +55,13 @@ export async function POST(req: NextRequest) {
     const model =
       process.env.OPENAI_ANALYTICS_MODEL ||
       process.env.OPENAI_DOCUMENT_MODEL ||
-      "gpt-4o-mini";
+      AI_MODEL_FAST;
     const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(
       /\/$/,
       ""
     );
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

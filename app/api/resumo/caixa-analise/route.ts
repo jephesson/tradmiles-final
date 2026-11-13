@@ -9,6 +9,7 @@ import {
   type CaixaSnapshotPoint,
   type ManualExclusion,
 } from "@/lib/caixa-snapshot-analysis";
+import { AI_MODEL_VISION, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -127,12 +128,12 @@ export async function POST(req: NextRequest) {
     const model =
       process.env.OPENAI_CAIXA_MODEL ||
       process.env.OPENAI_ANALYTICS_MODEL ||
-      "gpt-4o";
+      AI_MODEL_VISION;
     const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 
     const extra = note ? `\nPedido extra do usuário:\n${note}\n` : "";
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

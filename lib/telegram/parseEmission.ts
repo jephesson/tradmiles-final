@@ -1,4 +1,5 @@
 import type { TelegramEmission } from "@/lib/telegram/emission";
+import { AI_MODEL_FAST, AI_MODEL_VISION, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 export type TelegramPaxType = "ADT" | "CHD" | "INF";
 
@@ -534,9 +535,9 @@ export async function parseTelegramEmission(
     const model =
       process.env.OPENAI_PASSENGER_MODEL ||
       process.env.OPENAI_DOCUMENT_MODEL ||
-      "gpt-4o-mini";
+      AI_MODEL_FAST;
     const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -599,7 +600,7 @@ export async function parseTelegramEmissionFromImages(
   const model =
     process.env.DOCUMENT_AI_MODEL ||
     process.env.OPENAI_DOCUMENT_MODEL ||
-    "gpt-4o";
+    AI_MODEL_VISION;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const content: unknown[] = [
     {
@@ -643,7 +644,7 @@ Passageiros: só se houver ficha/nome+CPF. Do card de voo NÃO invente passageir
       },
     })),
   ];
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

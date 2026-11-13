@@ -1,3 +1,4 @@
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 export async function adviseMixPrice(input: {
   cashCents: number;
   targetCents: number;
@@ -11,9 +12,9 @@ export async function adviseMixPrice(input: {
 }): Promise<string | null> {
   const apiKey = process.env.OPENAI_API_KEY || process.env.DOCUMENT_AI_API_KEY || "";
   if (!apiKey) return null;
-  const model = process.env.OPENAI_COTACAO_MODEL || process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_COTACAO_MODEL || process.env.OPENAI_DOCUMENT_MODEL || AI_MODEL_FAST;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

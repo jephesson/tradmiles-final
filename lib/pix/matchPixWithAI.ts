@@ -1,6 +1,7 @@
 import type { PendingSaleLite } from "./matchPixToPendingSales";
 import { groupAmountTolerance } from "./matchPixToPendingSales";
 import type { ParsedPixEmail, PixMatchResult, PixMatchSale } from "./types";
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 type EmployeeLite = { id: string; name: string };
 
@@ -64,7 +65,7 @@ export async function classifyPixWithAI(args: {
   if (!apiKey) return null;
 
   const { parsed, pendingSales, employees } = args;
-  const model = process.env.OPENAI_PIX_MODEL || process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_PIX_MODEL || process.env.OPENAI_DOCUMENT_MODEL || AI_MODEL_FAST;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 
   // Inclui mais vendas e ordena por cliente para a IA enxergar agrupamentos
@@ -110,7 +111,7 @@ export async function classifyPixWithAI(args: {
     funcionarios: employees.map((e) => e.name),
   });
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

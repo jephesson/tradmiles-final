@@ -1,3 +1,4 @@
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 /**
  * E-tickets por passageiro a partir do texto do comprovante LATAM.
  * OpenAI lê o texto (o PDF não é guardado); sem chave, tenta por regex na ordem dos passageiros.
@@ -26,9 +27,9 @@ const TICKET_RE = /\b(957[\s-]?\d{10})\b/g;
 async function viaOpenAI(text: string, names: string[]) {
   const apiKey = process.env.OPENAI_API_KEY || process.env.DOCUMENT_AI_API_KEY || "";
   if (!apiKey) return null;
-  const model = process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_DOCUMENT_MODEL || AI_MODEL_FAST;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

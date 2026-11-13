@@ -10,6 +10,7 @@ import {
   passengerParseNeedsAi,
   sortPassengersAdultChildInfant,
 } from "@/lib/latam/parsePassengerText";
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 const SYSTEM = `Você extrai passageiros de textos de reserva / WhatsApp / Telegram / documentos BR.
 Responda SOMENTE JSON válido:
@@ -197,7 +198,7 @@ export async function interpretPassengersWithAI(
   const model =
     process.env.OPENAI_PASSENGER_MODEL ||
     process.env.OPENAI_DOCUMENT_MODEL ||
-    "gpt-4o-mini";
+    AI_MODEL_FAST;
   const baseUrl = (
     process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"
   ).replace(/\/$/, "");
@@ -212,7 +213,7 @@ export async function interpretPassengersWithAI(
     .filter(Boolean)
     .join("\n");
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

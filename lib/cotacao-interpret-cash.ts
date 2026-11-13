@@ -1,3 +1,4 @@
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 const SYSTEM = `Você lê um recorte de página de busca de passagens à vista em reais no Brasil (LATAM, Azul ou GOL).
 Extraia SOMENTE o voo que o usuário destacou.
 Responda SOMENTE JSON válido:
@@ -76,9 +77,9 @@ function fromText(text: string): InterpretedCash | null {
 async function fromAi(text: string): Promise<Partial<InterpretedCash> | null> {
   const apiKey = process.env.OPENAI_API_KEY || process.env.DOCUMENT_AI_API_KEY || "";
   if (!apiKey) return null;
-  const model = process.env.OPENAI_COTACAO_MODEL || process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_COTACAO_MODEL || process.env.OPENAI_DOCUMENT_MODEL || AI_MODEL_FAST;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

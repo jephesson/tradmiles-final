@@ -1,4 +1,5 @@
 import type { ParsedPixEmail } from "./types";
+import { AI_MODEL_FAST, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 const SYSTEM = `Você extrai dados de e-mails de notificação bancária de Pix no Brasil.
 Responda SOMENTE JSON válido:
@@ -18,10 +19,10 @@ export async function interpretPixEmailWithAI(
   const apiKey = process.env.OPENAI_API_KEY || process.env.DOCUMENT_AI_API_KEY || "";
   if (!apiKey) return null;
 
-  const model = process.env.OPENAI_PIX_MODEL || process.env.OPENAI_DOCUMENT_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_PIX_MODEL || process.env.OPENAI_DOCUMENT_MODEL || AI_MODEL_FAST;
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

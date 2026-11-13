@@ -1,5 +1,6 @@
 import type { DocumentExtractResult, ExtractedPassenger } from "./types";
 import { normalizeCpfInput } from "@/lib/latam/parsePassengerText";
+import { AI_MODEL_VISION, openaiChatFetch } from "@/lib/ai/openaiChat";
 
 export const DOCUMENT_EXTRACT_SYSTEM = `Você lê documentos de identidade brasileiros (RG antigo/novo, CIN, CNH física/digital, comprovante CPF, certidão de nascimento) em fotos — e também prints de WhatsApp/Telegram com ficha de passageiro.
 
@@ -141,7 +142,7 @@ export type VisionImage = {
 };
 
 /**
- * Chama OpenAI-compatible Vision (gpt-4o / gpt-4o-mini).
+ * Chama OpenAI-compatible Vision (padrão: AI_MODEL_VISION).
  * Requer OPENAI_API_KEY (ou DOCUMENT_AI_API_KEY) no ambiente.
  */
 export async function extractPassengersFromImages(
@@ -165,7 +166,7 @@ export async function extractPassengersFromImages(
   const model =
     process.env.DOCUMENT_AI_MODEL ||
     process.env.OPENAI_DOCUMENT_MODEL ||
-    "gpt-4o";
+    AI_MODEL_VISION;
 
   const baseUrl = (
     process.env.DOCUMENT_AI_BASE_URL ||
@@ -184,7 +185,7 @@ export async function extractPassengersFromImages(
     })),
   ];
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await openaiChatFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
