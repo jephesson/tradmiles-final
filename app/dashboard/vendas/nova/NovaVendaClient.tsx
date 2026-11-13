@@ -4112,6 +4112,7 @@ export default function NovaVendaClient({
           program={program}
           cedenteId={sel.cedente.id}
           cedenteNome={sel.cedente.nomeCompleto || ""}
+          clienteNome={selectedCliente?.nome || ""}
           accountPoints={sel.pts}
           salePoints={pointsTotal}
           creds={creds}

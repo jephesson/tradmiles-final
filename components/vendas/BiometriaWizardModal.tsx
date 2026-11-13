@@ -301,6 +301,8 @@ type Props = {
   program: Program;
   cedenteId: string;
   cedenteNome: string;
+  /** Cliente da venda (mostrado na conferência da extensão). */
+  clienteNome?: string;
   /** Saldo cadastrado no momento da sugestão. */
   accountPoints?: number;
   /** Pontos desta emissão (ida + volta). */
@@ -374,6 +376,7 @@ export default function BiometriaWizardModal({
   program,
   cedenteId,
   cedenteNome,
+  clienteNome = "",
   accountPoints = 0,
   salePoints = 0,
   creds,
@@ -442,6 +445,23 @@ export default function BiometriaWizardModal({
   >([]);
   const [latamExtSyncing, setLatamExtSyncing] = useState(false);
   const [latamExtMsg, setLatamExtMsg] = useState<string | null>(null);
+  /** Identifica esta emissão (cada abertura do assistente) na sessão da extensão. */
+  const saleKeyRef = useRef("");
+  /** O que a extensão recebeu desta venda (para conferir). */
+  const [extPrepared, setExtPrepared] = useState<{
+    at: string;
+    names: string[];
+    clienteNome: string | null;
+    route: string;
+  } | null>(null);
+  /** A extensão ainda está com dados de outra emissão. */
+  const [staleExt, setStaleExt] = useState<{
+    at: string | null;
+    names: string[];
+    clienteNome: string | null;
+    cedenteNome: string | null;
+    route: string;
+  } | null>(null);
   /** Contato do titular (cartão/funcionário) — fallback se o texto não tiver e-mail/tel. */
   const [latamTitularContact, setLatamTitularContact] = useState<{
     email: string | null;
@@ -697,6 +717,10 @@ export default function BiometriaWizardModal({
       setDocExtractWarnings([]);
       setLatamPaymentCardId("");
       setLatamExtMsg(null);
+      setExtPrepared(null);
+      setStaleExt(null);
+      lastLatamPrepKey.current = "";
+      saleKeyRef.current = `${cedenteId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setPickingCedente(false);
       setCedentePickQ("");
       lastCedenteId.current = cedenteId;
@@ -886,6 +910,8 @@ export default function BiometriaWizardModal({
       setLatamPassengerText(dedupePassengerText(payload.passengerText));
       setUseLatamExtension(true);
       pendingTelegramPrep.current = true;
+      // Já vai para a extensão: ela é preparada sozinha com os passageiros lidos.
+      if (program === "LATAM" && openSearch) setStep("extension");
     }
   }
 
@@ -1197,6 +1223,16 @@ export default function BiometriaWizardModal({
           travelDate: searchOutbound || null,
           paymentCardId: latamPaymentCardId || null,
           saleHint: extractedOrderId || searchLink || null,
+          context: {
+            saleKey: saleKeyRef.current,
+            clienteNome: clienteNome || null,
+            cedenteNome: cedenteNome || null,
+            origin: searchOrigin || null,
+            destination: searchDestination || null,
+            outbound: searchOutbound || null,
+            inbound: searchTrip === "IDA_VOLTA" ? searchInbound || null : null,
+            preparedBy: getSession()?.name || getSession()?.login || null,
+          },
         }),
       });
       const json = await res.json().catch(() => null);
@@ -1204,6 +1240,20 @@ export default function BiometriaWizardModal({
         throw new Error(json?.error || "Falha ao sincronizar extensão.");
       }
       const n = json.data?.passengers?.length ?? 0;
+      if (on) {
+        const ctx = json.data?.context || {};
+        setExtPrepared({
+          at: String(ctx.preparedAt || new Date().toISOString()),
+          names: (json.data?.passengers || []).map((p: { firstName?: string; lastName?: string }) =>
+            [p.firstName, p.lastName].filter(Boolean).join(" ")
+          ),
+          clienteNome: ctx.clienteNome || null,
+          route: [ctx.origin, ctx.destination].filter(Boolean).join(" → "),
+        });
+        setStaleExt(null);
+      } else {
+        setExtPrepared(null);
+      }
       const badCpf = latamParsedPassengers.filter(
         (p) => p.cpf && (p.cpfValid === false || !isValidCpf(p.cpf))
       ).length;
@@ -1253,6 +1303,37 @@ export default function BiometriaWizardModal({
     latamPrepKey,
     latamParsedPassengers,
   ]);
+
+  // Ao entrar no passo: confere se a extensão ainda está com dados de outra emissão
+  useEffect(() => {
+    if (!open || step !== "extension") return;
+    let alive = true;
+    fetch("/api/latam-extension/fill-session", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive || !j?.ok) return;
+        const d = j.data || {};
+        const ctx = d.context || {};
+        const pax: Array<{ firstName?: string; lastName?: string }> = Array.isArray(d.passengers)
+          ? d.passengers
+          : [];
+        if (d.useExtension && pax.length && ctx.saleKey !== saleKeyRef.current) {
+          setStaleExt({
+            at: ctx.preparedAt || (d.updatedAt ? new Date(d.updatedAt).toISOString() : null),
+            names: pax.map((p) => [p.firstName, p.lastName].filter(Boolean).join(" ")),
+            clienteNome: ctx.clienteNome || null,
+            cedenteNome: ctx.cedenteNome || null,
+            route: [ctx.origin, ctx.destination].filter(Boolean).join(" → "),
+          });
+        } else {
+          setStaleExt(null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, step]);
 
   // Ao entrar no passo: carrega cartões e pré-seleciona o padrão de taxa
   useEffect(() => {
@@ -2124,6 +2205,42 @@ export default function BiometriaWizardModal({
                 só se for emitir sem a extensão.
               </p>
 
+              {useLatamExtension && staleExt && !extPrepared ? (
+                <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+                  <div className="font-bold">
+                    ⚠ A extensão ainda está com os dados de OUTRA emissão
+                  </div>
+                  <div className="mt-1 space-y-0.5">
+                    <div>
+                      Preparada {fmtPreparedAt(staleExt.at)}
+                      {staleExt.clienteNome ? <> · cliente <b>{staleExt.clienteNome}</b></> : null}
+                      {staleExt.route ? <> · {staleExt.route}</> : null}
+                    </div>
+                    <div>
+                      Passageiros salvos: <b>{staleExt.names.join(", ") || "—"}</b>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 font-semibold">
+                    Não preencha na LATAM antes de preparar a extensão com os passageiros desta venda.
+                  </div>
+                </div>
+              ) : null}
+
+              {useLatamExtension && extPrepared ? (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                  <div className="font-bold">✓ Extensão preparada para esta venda {fmtPreparedAt(extPrepared.at)}</div>
+                  <div className="mt-1 space-y-0.5">
+                    <div>
+                      Cliente: <b>{extPrepared.clienteNome || "—"}</b>
+                      {extPrepared.route ? <> · {extPrepared.route}</> : null}
+                    </div>
+                    <div>
+                      Passageiros ({extPrepared.names.length}): <b>{extPrepared.names.join(", ") || "—"}</b>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                   <input
@@ -2508,7 +2625,19 @@ export default function BiometriaWizardModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("order")}
+                  onClick={() => {
+                    if (
+                      useLatamExtension &&
+                      !extPrepared &&
+                      !window.confirm(
+                        staleExt
+                          ? `A extensão ainda está com os passageiros de outra emissão (${staleExt.names.join(", ") || "—"}). Seguir mesmo assim?`
+                          : "A extensão não foi preparada para esta venda. Seguir mesmo assim?"
+                      )
+                    )
+                      return;
+                    setStep("order");
+                  }}
                   className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   Seguir
@@ -2748,4 +2877,15 @@ function CredBox({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   );
+}
+
+/** "às 14:32 (há 5 min)" */
+function fmtPreparedAt(iso: string | null | undefined) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hm = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Recife" });
+  const min = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  const ago = min < 1 ? "agora" : min < 60 ? `há ${min} min` : `há ${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}`;
+  return `às ${hm} (${ago})`;
 }

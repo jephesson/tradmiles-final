@@ -328,6 +328,8 @@ model LatamFillSession {
   passengersJson String  @default("[]")
   paymentCardId  String?
   saleHint       String?
+  /// Para conferir na LATAM: cliente, cedente, trecho, datas e hora em que foi preparada.
+  contextJson    String?
 
   updatedAt DateTime @updatedAt
 

@@ -4336,6 +4336,86 @@ async function fillAll(passengers) {
 
 let fillRunning = false;
 
+const TM_STALE_MIN = 20;
+
+function tmEsc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function tmFmtDate(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || "");
+}
+
+function tmMaskCpf(cpf) {
+  const d = String(cpf || "").replace(/\D/g, "");
+  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : d || "—";
+}
+
+/** Mostra quem vai ser preenchido e quando a extensão foi preparada. Resolve true = preencher. */
+function confirmFillPanel(data, passengers) {
+  return new Promise((resolve) => {
+    document.getElementById("tm-confirm-fill")?.remove();
+    const ctx = data.context || {};
+    const at = ctx.preparedAt ? new Date(ctx.preparedAt) : data.updatedAt ? new Date(data.updatedAt) : null;
+    const mins = at && !isNaN(at.getTime()) ? Math.max(0, Math.round((Date.now() - at.getTime()) / 60000)) : null;
+    const stale = mins == null || mins >= TM_STALE_MIN;
+    const hm = at && !isNaN(at.getTime()) ? at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—";
+    const ago = mins == null ? "hora desconhecida" : mins < 1 ? "agora" : mins < 60 ? `há ${mins} min` : `há ${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+    const route = [ctx.origin, ctx.destination].filter(Boolean).join(" → ");
+    const dates = [ctx.outbound && tmFmtDate(ctx.outbound), ctx.inbound && `volta ${tmFmtDate(ctx.inbound)}`].filter(Boolean).join(" · ");
+
+    const rows = passengers
+      .map((p, i) => {
+        const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || p.fullName || "—";
+        return `<tr><td style="padding:4px 6px;color:#64748b">${i + 1}</td><td style="padding:4px 6px;font-weight:600">${tmEsc(name)}</td><td style="padding:4px 6px;font-family:ui-monospace,monospace">${tmEsc(tmMaskCpf(p.cpf))}</td><td style="padding:4px 6px">${tmEsc(p.birthDate || "—")}</td></tr>`;
+      })
+      .join("");
+
+    const wrap = document.createElement("div");
+    wrap.id = "tm-confirm-fill";
+    wrap.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;font:13px/1.4 system-ui,sans-serif;";
+    wrap.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;color:#0f172a">
+        <div style="padding:14px 16px;background:${stale ? "#fff1f2" : "#f0fdf4"};border-bottom:1px solid ${stale ? "#fecdd3" : "#bbf7d0"}">
+          <div style="font-weight:800;font-size:15px;color:${stale ? "#be123c" : "#166534"}">
+            ${stale ? "⚠ Confira: extensão preparada há muito tempo" : "Conferir antes de preencher"}
+          </div>
+          <div style="margin-top:4px;color:${stale ? "#9f1239" : "#166534"}">
+            Preparada às <b>${tmEsc(hm)}</b> (${tmEsc(ago)})${ctx.preparedBy ? ` por ${tmEsc(ctx.preparedBy)}` : ""}.
+            ${stale ? "<br><b>Pode ser de outra emissão.</b> Se não for esta venda, cancele e clique em Preparar extensão na venda." : ""}
+          </div>
+        </div>
+        <div style="padding:12px 16px">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px">
+            <span style="color:#64748b">Cliente</span><b>${tmEsc(ctx.clienteNome || "—")}</b>
+            <span style="color:#64748b">Conta</span><span>${tmEsc(ctx.cedenteNome || "—")}</span>
+            <span style="color:#64748b">Trecho</span><span>${tmEsc(route || "—")}${dates ? ` · ${tmEsc(dates)}` : ""}</span>
+          </div>
+          <div style="margin-top:10px;font-weight:700">Passageiros (${passengers.length})</div>
+          <table style="margin-top:4px;width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="text-align:left;color:#64748b;border-bottom:1px solid #e2e8f0"><th style="padding:4px 6px">#</th><th style="padding:4px 6px">Nome</th><th style="padding:4px 6px">CPF</th><th style="padding:4px 6px">Nascimento</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #e2e8f0;background:#f8fafc">
+          <button type="button" data-tm="cancel" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;font:600 13px system-ui;cursor:pointer">Cancelar</button>
+          <button type="button" data-tm="ok" style="height:38px;padding:0 16px;border-radius:10px;border:0;background:${stale ? "#e11d48" : "#0f172a"};color:#fff;font:700 13px system-ui;cursor:pointer">${stale ? "Preencher mesmo assim" : "Está certo, preencher"}</button>
+        </div>
+      </div>`;
+    const done = (v) => {
+      wrap.remove();
+      resolve(v);
+    };
+    wrap.querySelector('[data-tm="ok"]').addEventListener("click", () => done(true));
+    wrap.querySelector('[data-tm="cancel"]').addEventListener("click", () => done(false));
+    wrap.addEventListener("click", (e) => {
+      if (e.target === wrap) done(false);
+    });
+    document.documentElement.appendChild(wrap);
+  });
+}
+
 async function runFill({ manual } = {}) {
   ensureFab();
   if (fillRunning) {
@@ -4357,6 +4437,13 @@ async function runFill({ manual } = {}) {
     if (!passengers.length) {
       showToast("Sessão sem passageiros. Prepare de novo na venda.", false);
       return { ok: false, error: "sem pax" };
+    }
+
+    // Conferência: quem são os passageiros, de qual cliente e quando foi preparada.
+    const confirmed = await confirmFillPanel(res.data, passengers);
+    if (!confirmed) {
+      showToast("TradeMiles: preenchimento cancelado. Prepare a extensão na venda certa.", false);
+      return { ok: false, error: "cancelado" };
     }
 
     for (let attempt = 0; attempt < 8; attempt++) {

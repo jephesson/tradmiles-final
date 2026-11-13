@@ -9,6 +9,7 @@ import {
 } from "@/lib/latam/parsePassengerText";
 import { parsePassengerTextWithFallback } from "@/lib/latam/interpretPassengersWithAI";
 import {
+  type FillSessionContext,
   getFillSession,
   setFillSession,
 } from "@/lib/latam/fillSessionStore";
@@ -190,6 +191,8 @@ export async function GET(req: Request) {
     passengers: [],
     paymentCardId: null,
     saleHint: null,
+    context: null,
+    updatedAt: null,
   };
 
   const paymentCard =
@@ -266,6 +269,23 @@ export async function PUT(req: Request) {
     if (!card) return bad("Cartão não encontrado.");
   }
 
+  const rawCtx = body?.context && typeof body.context === "object" ? body.context : {};
+  const str = (v: unknown, max = 160) => {
+    const t = String(v ?? "").trim().slice(0, max);
+    return t || null;
+  };
+  const context: FillSessionContext = {
+    saleKey: str(rawCtx.saleKey, 200),
+    clienteNome: str(rawCtx.clienteNome),
+    cedenteNome: str(rawCtx.cedenteNome),
+    origin: str(rawCtx.origin, 3)?.toUpperCase() || null,
+    destination: str(rawCtx.destination, 3)?.toUpperCase() || null,
+    outbound: str(rawCtx.outbound, 10),
+    inbound: str(rawCtx.inbound, 10),
+    preparedAt: new Date().toISOString(),
+    preparedBy: str(rawCtx.preparedBy),
+  };
+
   await setFillSession({
     userId: session.userId,
     team: session.team,
@@ -273,6 +293,7 @@ export async function PUT(req: Request) {
     passengers,
     paymentCardId,
     saleHint,
+    context,
   });
 
   return NextResponse.json({
