@@ -1,5 +1,6 @@
 "use client";
 
+import { WELCOME_INTRO_KEY } from "@/components/WelcomeIntro";
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -30,6 +31,11 @@ export default function LoginClient() {
 
   async function goHome(home: string) {
     const dest = home !== "/dashboard" && next === "/dashboard" ? home : next;
+    try {
+      sessionStorage.setItem(WELCOME_INTRO_KEY, "1");
+    } catch {
+      /* sem storage: entra sem a abertura */
+    }
     router.replace(dest);
   }
 
