@@ -32,7 +32,7 @@ export default function LoginClient() {
   async function goHome(home: string) {
     const dest = home !== "/dashboard" && next === "/dashboard" ? home : next;
     try {
-      sessionStorage.setItem(WELCOME_INTRO_KEY, "1");
+      sessionStorage.setItem(WELCOME_INTRO_KEY, String(Date.now()));
     } catch {
       /* sem storage: entra sem a abertura */
     }

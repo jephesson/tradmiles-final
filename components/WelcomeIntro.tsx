@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { getSession } from "@/lib/auth";
 
@@ -38,19 +38,19 @@ export default function WelcomeIntro() {
   const [phrase, setPhrase] = useState(PHRASES[0]);
   const [name, setName] = useState("");
 
-  const flagRef = useRef<boolean | null>(null);
-
   useEffect(() => {
-    // Lê a marca uma vez só (o ref sobrevive ao efeito rodar duas vezes no modo dev).
-    if (flagRef.current === null) {
-      try {
-        flagRef.current = sessionStorage.getItem(WELCOME_INTRO_KEY) === "1";
-        if (flagRef.current) sessionStorage.removeItem(WELCOME_INTRO_KEY);
-      } catch {
-        flagRef.current = false;
-      }
+    // A marca só é apagada quando a pessoa clica em seguir; se o dashboard remontar, a abertura continua.
+    let flag = false;
+    try {
+      const raw = sessionStorage.getItem(WELCOME_INTRO_KEY);
+      const at = Number(raw);
+      // "1" (versão antiga) ou horário do login nos últimos 30 min.
+      flag = raw === "1" || (Number.isFinite(at) && at > 0 && Date.now() - at < 30 * 60_000);
+      if (raw && !flag) sessionStorage.removeItem(WELCOME_INTRO_KEY);
+    } catch {
+      flag = false;
     }
-    if (!flagRef.current) return;
+    if (!flag) return;
     const t0 = window.setTimeout(() => {
       setPhrase(PHRASES[Math.floor(Math.random() * PHRASES.length)]);
       setName(firstName(getSession()?.name));
@@ -62,6 +62,11 @@ export default function WelcomeIntro() {
   }, []);
 
   const skip = useCallback(() => {
+    try {
+      sessionStorage.removeItem(WELCOME_INTRO_KEY);
+    } catch {
+      /* ignore */
+    }
     setLeaving(true);
     window.setTimeout(() => setShow(false), 450);
   }, []);
