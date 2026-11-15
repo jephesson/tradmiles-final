@@ -9,6 +9,7 @@ import {
 } from "@/lib/balcao-commission";
 import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
 import { sumDespesasMonthCents } from "@/lib/despesas";
+import { caixaEntraNoLucro, sumCaixaViasAereasMonthCents } from "@/lib/contabil/caixaViasAereas";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
@@ -199,6 +200,7 @@ function addResumoSheet(
     profitTotalCents: number;
     lossTotalCents: number;
     expensesTotalCents: number;
+    caixaViasAereasCents: number;
     profitAfterLossCents: number;
   }
 ) {
@@ -228,6 +230,7 @@ function addResumoSheet(
   ws.addRow({ campo: "Lucro vendas (sem 8%)", valor: args.salesProfitTotalCents / 100 });
   ws.addRow({ campo: "Lucro líquido balcão", valor: args.balcaoNetProfitCents / 100 });
   ws.addRow({ campo: "Lucro total período", valor: args.profitTotalCents / 100 });
+  ws.addRow({ campo: "Caixa Vias Aéreas (fica com a empresa)", valor: args.caixaViasAereasCents / 100 });
   ws.addRow({ campo: "Prejuízo do mês", valor: args.lossTotalCents / 100 });
   ws.addRow({ campo: "Despesas do mês", valor: args.expensesTotalCents / 100 });
   ws.addRow({ campo: "Lucro tributável", valor: args.profitAfterLossCents / 100 });
@@ -235,7 +238,7 @@ function addResumoSheet(
   for (let r = 2; r < moneyRowsStart; r++) {
     ws.getCell(`B${r}`).alignment = { horizontal: "left", vertical: "middle" };
   }
-  for (let r = moneyRowsStart; r < moneyRowsStart + 9; r++) {
+  for (let r = moneyRowsStart; r < moneyRowsStart + 10; r++) {
     ws.getCell(`B${r}`).numFmt = '"R$"#,##0.00;[Red]-"R$"#,##0.00';
     ws.getCell(`B${r}`).alignment = { horizontal: "right", vertical: "middle" };
   }
@@ -520,8 +523,17 @@ export async function GET(req: Request) {
     const lossTotalCents = applyLoss ? await computeLossTotalCentsLikePrejuizo(team, scopeMonth) : 0;
     const expensesTotalCents = applyLoss ? await sumDespesasMonthCents(team, scopeMonth) : 0;
 
-    // ✅ lucro tributável (não deixar negativo)
-    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents - expensesTotalCents);
+    // ✅ caixa Vias Aéreas: fica com a empresa (não é custo real) — soma no lucro a partir de out/2026
+    const caixaViasAereasCents =
+      applyLoss && caixaEntraNoLucro(scopeMonth)
+        ? (await sumCaixaViasAereasMonthCents(team, scopeMonth)).totalCents
+        : 0;
+
+    // ✅ lucro tributável = vendas + balcão + caixa − prejuízos − despesas (não deixar negativo)
+    const profitAfterLossCents = Math.max(
+      0,
+      profitTotalCents + caixaViasAereasCents + lossTotalCents - expensesTotalCents
+    );
 
     // vendas do período (para montar XLSX)
     const sales = await prisma.sale.findMany({
@@ -689,6 +701,7 @@ export async function GET(req: Request) {
         profitTotalCents,
         lossTotalCents,
         expensesTotalCents,
+        caixaViasAereasCents,
         profitAfterLossCents,
       });
 
@@ -823,6 +836,7 @@ export async function GET(req: Request) {
       profitTotalCents,
       lossTotalCents,
       expensesTotalCents,
+      caixaViasAereasCents,
       profitAfterLossCents,
     });
 

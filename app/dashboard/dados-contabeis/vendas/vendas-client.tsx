@@ -118,6 +118,7 @@ type PreviewResp = {
     balcaoNetProfitCents?: number;
     lossTotalCents: number;
     expensesTotalCents?: number;
+    caixaViasAereasCents?: number;
     profitAfterLossCents: number;
     totalDeductionCents: number;
   };
@@ -281,8 +282,8 @@ export default function VendasDadosContabeisClient() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Contabilidade</div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dados contábeis — Vendas</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-slate-500">
-              Lucro do período = vendas (sem 8%) + balcão líquido. Lucro tributável = lucro − prejuízos do mês −
-              despesas. {isModel ? "O rateio é proporcional ao total vendido por cliente." : "O rateio é proporcional ao valor de cada venda."}
+              Lucro do período = vendas (sem 8%) + balcão líquido. Lucro tributável = lucro + caixa Vias Aéreas −
+              prejuízos do mês − despesas. {isModel ? "O rateio é proporcional ao total vendido por cliente." : "O rateio é proporcional ao valor de cada venda."}
             </p>
           </div>
 
@@ -411,7 +412,7 @@ export default function VendasDadosContabeisClient() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
         <KPI label="Nº de vendas" value={String(totals.salesCount || 0)} tone="slate" />
         <KPI label="Total vendido" value={fmtMoneyBRFromCents(totals.totalSoldCents || 0)} tone="sky" />
         <KPI label="Lucro vendas (sem 8%)" value={fmtMoneyBRFromCents(totals.salesProfitTotalCents || 0)} tone="emerald" />
@@ -428,6 +429,16 @@ export default function VendasDadosContabeisClient() {
           value={fmtMoneyBRFromCents(totals.expensesTotalCents || 0)}
           tone="amber"
           sub={`${expenses.length} lançamento(s)`}
+        />
+        <KPI
+          label="Caixa Vias Aéreas"
+          value={fmtMoneyBRFromCents(totals.caixaViasAereasCents || 0)}
+          tone="teal"
+          sub={
+            month >= "2026-10"
+              ? "Fica com a empresa · soma no lucro"
+              : "Antes de out/2026: não somava"
+          }
         />
         <KPI label="Lucro tributável" value={fmtMoneyBRFromCents(totals.profitAfterLossCents || 0)} tone="sky" />
       </div>

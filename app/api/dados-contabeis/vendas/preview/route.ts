@@ -9,6 +9,7 @@ import {
 } from "@/lib/balcao-commission";
 import { sumManualPrejuizoCents } from "@/lib/prejuizo-manual";
 import { sumDespesasMonthCents } from "@/lib/despesas";
+import { caixaEntraNoLucro, sumCaixaViasAereasMonthCents } from "@/lib/contabil/caixaViasAereas";
 import { DEFAULT_EMPLOYEE_C1_BPS, weekendC1ExtraCents } from "@/lib/payouts/employeeCommissionRates";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
 
@@ -499,8 +500,17 @@ export async function GET(req: Request) {
         })
       : [];
 
-    // ✅ lucro tributável (não deixar negativo)
-    const profitAfterLossCents = Math.max(0, profitTotalCents + lossTotalCents - expensesTotalCents);
+    // ✅ caixa Vias Aéreas: fica com a empresa (não é custo real) — soma no lucro a partir de out/2026
+    const caixaViasAereasCents =
+      applyLoss && caixaEntraNoLucro(scopeMonth)
+        ? (await sumCaixaViasAereasMonthCents(team, scopeMonth)).totalCents
+        : 0;
+
+    // ✅ lucro tributável = vendas + balcão + caixa − prejuízos − despesas (não deixar negativo)
+    const profitAfterLossCents = Math.max(
+      0,
+      profitTotalCents + caixaViasAereasCents + lossTotalCents - expensesTotalCents
+    );
 
     // =========================
     // RAW: UMA LINHA POR VENDA
@@ -663,6 +673,7 @@ export async function GET(req: Request) {
         balcaoNetProfitCents,
         lossTotalCents, // ✅ igual /prejuizo
         expensesTotalCents,
+        caixaViasAereasCents,
         profitAfterLossCents,
         totalDeductionCents: mode === "raw" ? totalDeductionRawCents : totalDeductionModelCents,
       },
