@@ -335,7 +335,7 @@ function monthlySeriesByKey(data: ProfitSource, metric: YoyMetric) {
     const sales =
       metric === "LUCRO"
         ? Number(m.profitAfterTaxWithoutFeeCents || 0) + Number(LEGACY_MONTHLY_PROFIT_CENTS[key] || 0)
-        : Number(m.soldWithoutFeeCents || 0);
+        : Number(m.soldWithoutFeeCents || 0) + Number(LEGACY_MONTHLY_SALES_CENTS[key] || 0);
     out.set(key, sales + (balcao.get(key) || 0));
   }
   return out;
