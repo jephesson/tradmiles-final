@@ -307,6 +307,234 @@ const LEGACY_MONTHLY_PROFIT_CENTS: Record<string, number> = {
   "2025-12": 1455849, // dez/25
 };
 
+type ProfitSource = {
+  profitMonths?: Array<{ key?: string; profitAfterTaxWithoutFeeCents?: number; soldWithoutFeeCents?: number }>;
+  balcao?: { months?: Array<{ key?: string; netProfitCents?: number; customerChargeCents?: number }> };
+};
+
+type YoyMetric = "LUCRO" | "FATURAMENTO";
+
+/**
+ * Valor de cada mês na mesma conta da timeline:
+ * lucro = vendas (com o histórico legado) + balcão; faturamento = vendido sem taxa + balcão.
+ */
+function monthlySeriesByKey(data: ProfitSource, metric: YoyMetric) {
+  const balcao = new Map<string, number>();
+  for (const row of data.balcao?.months || []) {
+    const key = String(row?.key || "");
+    if (!key) continue;
+    balcao.set(
+      key,
+      Number((metric === "LUCRO" ? row?.netProfitCents : row?.customerChargeCents) || 0)
+    );
+  }
+  const out = new Map<string, number>();
+  for (const m of data.profitMonths || []) {
+    const key = String(m?.key || "");
+    if (!key) continue;
+    const sales =
+      metric === "LUCRO"
+        ? Number(m.profitAfterTaxWithoutFeeCents || 0) + Number(LEGACY_MONTHLY_PROFIT_CENTS[key] || 0)
+        : Number(m.soldWithoutFeeCents || 0);
+    out.set(key, sales + (balcao.get(key) || 0));
+  }
+  return out;
+}
+
+function sameMonthLastYear(key: string) {
+  const [y, m] = key.split("-");
+  return `${Number(y) - 1}-${m}`;
+}
+
+type YoyRow = {
+  key: string;
+  prevKey: string;
+  curCents: number;
+  prevCents: number | null; // null = sem dado no ano anterior
+  deltaPct: number | null;
+  partial: boolean;
+};
+
+function YoyProfitChart({
+  rows,
+  loading,
+  metric,
+  onMetric,
+}: {
+  rows: YoyRow[];
+  loading: boolean;
+  metric: YoyMetric;
+  onMetric: (m: YoyMetric) => void;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const w = 980;
+  const h = 230;
+  const leftPad = 12;
+  const rightPad = 70;
+  const topPad = 14;
+  const bottomPad = 44;
+  const plotW = w - leftPad - rightPad;
+  const plotH = h - topPad - bottomPad;
+  const baseY = topPad + plotH;
+
+  const maxCents = Math.max(1, ...rows.map((r) => Math.max(r.curCents, r.prevCents || 0)));
+  const { ymax, ticks } = niceYAxis(maxCents);
+  const scaleY = (v: number) => baseY - (Math.max(0, v) / ymax) * plotH;
+  const slot = rows.length ? plotW / rows.length : plotW;
+  const barW = Math.min(22, slot * 0.3);
+
+  const compared = rows.filter((r) => r.prevCents != null && !r.partial);
+  const better = compared.filter((r) => r.curCents >= (r.prevCents || 0)).length;
+  const curSum = compared.reduce((a, r) => a + r.curCents, 0);
+  const prevSum = compared.reduce((a, r) => a + (r.prevCents || 0), 0);
+  const sumPct = prevSum > 0 ? ((curSum - prevSum) / prevSum) * 100 : null;
+  const hov = hovered != null ? rows[hovered] : null;
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold tracking-tight text-slate-900">
+          {metric === "LUCRO" ? "Lucro" : "Faturamento"} vs mesmo mês do ano anterior
+        </div>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
+          {(["FATURAMENTO", "LUCRO"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onMetric(m)}
+              className={cn(
+                "rounded-md px-3 py-1 transition-colors",
+                metric === m ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+              )}
+            >
+              {m === "LUCRO" ? "Lucro" : "Faturamento"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="mb-3 text-xs text-slate-500">
+        Cada mês ao lado do mesmo mês um ano antes. Verde = melhor que o ano passado, vermelho = pior.
+      </p>
+
+      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] text-slate-500">Meses melhores que o ano anterior</div>
+          <div className="text-sm font-semibold text-slate-900">
+            {compared.length ? `${better} de ${compared.length}` : "—"}
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] text-slate-500">Soma dos meses comparados</div>
+          <div className="text-sm font-semibold text-slate-900">
+            {compared.length ? `${fmtMoneyBR(curSum)} vs ${fmtMoneyBR(prevSum)}` : "—"}
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] text-slate-500">Variação no acumulado</div>
+          <div
+            className={cn(
+              "text-sm font-semibold",
+              sumPct == null ? "text-slate-700" : sumPct >= 0 ? "text-emerald-700" : "text-rose-700"
+            )}
+          >
+            {sumPct == null ? "—" : fmtPctSigned(sumPct)}
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-neutral-600">
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-sm bg-slate-300" />
+          Ano anterior
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-sm bg-emerald-500" />
+          Este ano (melhor)
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+          <span className="h-2 w-2 rounded-sm bg-rose-500" />
+          Este ano (pior)
+        </span>
+      </div>
+
+      {loading && !rows.length ? (
+        <div className="py-16 text-center text-sm text-slate-500">Carregando o ano anterior…</div>
+      ) : (
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full" onMouseLeave={() => setHovered(null)}>
+          {ticks.map((v, i) => (
+            <g key={`t-${i}`}>
+              <line x1={leftPad} x2={leftPad + plotW} y1={scaleY(v)} y2={scaleY(v)} stroke="#e5e7eb" />
+              <text x={leftPad + plotW + 6} y={scaleY(v) + 3} fontSize="10" fill="#64748b">
+                {fmtMoneyCompactBR(v)}
+              </text>
+            </g>
+          ))}
+          {rows.map((r, i) => {
+            const cx = leftPad + slot * i + slot / 2;
+            const worse = r.prevCents != null && r.curCents < r.prevCents;
+            const curColor = r.prevCents == null ? "#38bdf8" : worse ? "#f43f5e" : "#10b981";
+            return (
+              <g key={r.key} onMouseEnter={() => setHovered(i)}>
+                <rect x={leftPad + slot * i} y={topPad} width={slot} height={plotH + bottomPad} fill={hovered === i ? "#f1f5f9" : "transparent"} />
+                {r.prevCents != null ? (
+                  <rect
+                    x={cx - barW - 1}
+                    y={scaleY(r.prevCents)}
+                    width={barW}
+                    height={Math.max(0, baseY - scaleY(r.prevCents))}
+                    rx="3"
+                    fill="#cbd5e1"
+                  />
+                ) : null}
+                <rect
+                  x={cx + 1}
+                  y={scaleY(r.curCents)}
+                  width={barW}
+                  height={Math.max(0, baseY - scaleY(r.curCents))}
+                  rx="3"
+                  fill={curColor}
+                  opacity={r.partial ? 0.55 : 1}
+                />
+                <text x={cx} y={baseY + 15} fontSize="11" textAnchor="middle" fill="#334155" fontWeight="600">
+                  {shortMonthFromKey(r.key)}
+                </text>
+                <text
+                  x={cx}
+                  y={baseY + 30}
+                  fontSize="10"
+                  textAnchor="middle"
+                  fontWeight="600"
+                  fill={r.deltaPct == null ? "#94a3b8" : r.deltaPct >= 0 ? "#047857" : "#be123c"}
+                >
+                  {r.deltaPct == null ? "sem dado" : `${fmtPctSigned(r.deltaPct)}${r.partial ? "*" : ""}`}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
+
+      <div className="mt-2 min-h-[2.5rem] rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 text-xs text-slate-600">
+        {hov ? (
+          <>
+            <span className="font-semibold text-slate-900">{monthLabelLongPT(hov.key)}</span>
+            {hov.partial ? " (mês em andamento)" : ""}: {fmtMoneyBR(hov.curCents)}
+            {" · "}
+            {monthLabelLongPT(hov.prevKey)}: {hov.prevCents == null ? "sem dado" : fmtMoneyBR(hov.prevCents)}
+            {hov.deltaPct != null ? (
+              <span className={cn("ml-1 font-semibold", hov.deltaPct >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                ({fmtPctSigned(hov.deltaPct)})
+              </span>
+            ) : null}
+          </>
+        ) : (
+          "Passe o mouse num mês para ver os valores. * = mês em andamento (não entra no acumulado)."
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Card({
   title,
   value,
@@ -1689,6 +1917,10 @@ export default function AnaliseDadosClient() {
   const [focusYM, setFocusYM] = useState<string>(""); // YYYY-MM
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<Analytics | null>(null);
+  // 24 meses só para comparar com o ano anterior (o resto da tela segue o período escolhido).
+  const [yoyData, setYoyData] = useState<ProfitSource | null>(null);
+  const [yoyLoading, setYoyLoading] = useState(false);
+  const [yoyMetric, setYoyMetric] = useState<YoyMetric>("FATURAMENTO");
 
   const [topPeriod, setTopPeriod] = useState<"MONTH" | "TOTAL">("MONTH");
   const [topProgram, setTopProgram] = useState<"ALL" | "LATAM" | "SMILES">("ALL");
@@ -1760,6 +1992,47 @@ export default function AnaliseDadosClient() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthsBack, focusYM, topPeriod, topProgram, chartMode, daysPreset, daysBack, dateFrom, dateTo, maWindow, milheiroDaysBack]);
+
+  useEffect(() => {
+    if (!focusYM || monthsBack >= 24) return;
+    let alive = true;
+    const qs = new URLSearchParams({ monthsBack: "24", month: focusYM });
+    setYoyLoading(true);
+    fetch(`/api/analytics?${qs.toString()}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (alive) setYoyData(j);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setYoyLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [focusYM, monthsBack]);
+
+  const yoyRows = useMemo<YoyRow[]>(() => {
+    const src = monthsBack >= 24 ? (data as unknown as ProfitSource | null) : yoyData;
+    if (!src) return [];
+    const profit = monthlySeriesByKey(src, yoyMetric);
+    const keys = Array.from(profit.keys()).sort().slice(-12);
+    const nowKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/Recife" }).slice(0, 7);
+    return keys.map((key) => {
+      const prevKey = sameMonthLastYear(key);
+      const curCents = profit.get(key) || 0;
+      const prevRaw = profit.get(prevKey);
+      const prevCents = prevRaw && prevRaw > 0 ? prevRaw : null;
+      return {
+        key,
+        prevKey,
+        curCents,
+        prevCents,
+        deltaPct: prevCents ? ((curCents - prevCents) / prevCents) * 100 : null,
+        partial: key === nowKey,
+      };
+    });
+  }, [data, yoyData, monthsBack, yoyMetric]);
 
   const monthOptions = useMemo<string[]>(() => {
     const arr = (data?.months || []) as any[];
@@ -3116,6 +3389,13 @@ export default function AnaliseDadosClient() {
         accent="text-emerald-700"
         valueLabel="Lucro do mês"
         footer="Lucro do mês: comissões C1+C2+C3 (sem imposto) + balcão − prejuízo nas milhas. É o valor usado para pagar e no bônus."
+      />
+
+      <YoyProfitChart
+        rows={yoyRows}
+        loading={yoyLoading || (monthsBack >= 24 && loading)}
+        metric={yoyMetric}
+        onMetric={setYoyMetric}
       />
 
       {/* Gráfico evolução */}
