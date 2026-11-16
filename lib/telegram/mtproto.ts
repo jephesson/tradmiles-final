@@ -263,6 +263,24 @@ function isPrivatePerson(d: unknown) {
   return cls === "" && row.isUser !== false && !row.isGroup && !row.isChannel;
 }
 
+/** Grupos que aparecem na lista mesmo não sendo conversa com pessoa (ex.: grupo onde a equipe junta as fichas). */
+const ALLOWED_GROUP_TITLES = ["minhas emissoes"];
+
+function normTitle(t: string) {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function isAllowedGroup(d: unknown) {
+  const title = normTitle(dialogTitle(d));
+  return ALLOWED_GROUP_TITLES.includes(title);
+}
+
+/** Id com sinal do Telegram (-123 grupo, -100… supergrupo). */
+function dialogMarkedId(d: unknown) {
+  const id = (d as { id?: unknown }).id;
+  return id == null ? "" : String(id);
+}
+
 function dialogTitle(d: unknown) {
   const row = d as { title?: string; name?: string };
   return String(row.title || row.name || "").trim();
@@ -319,7 +337,8 @@ export async function listTelegramChats(
 
       for (const d of dialogs) {
         const title = dialogTitle(d);
-        const id = dialogPeerId(d);
+        const allowedGroup = isAllowedGroup(d);
+        const id = allowedGroup ? dialogMarkedId(d) || dialogPeerId(d) : dialogPeerId(d);
         if (!id) continue;
         const msg = d.message as { message?: string } | undefined;
         const lastMessage = String(msg?.message || "")
@@ -337,7 +356,7 @@ export async function listTelegramChats(
           accessHash: dialogAccessHash(d),
         };
         const cur = cursorFromDialog(d);
-        if (isPrivatePerson(d)) {
+        if (allowedGroup || isPrivatePerson(d)) {
           if (people.length < page) {
             people.push(row);
             peopleCursor = cur;
@@ -367,6 +386,17 @@ async function resolveChatEntity(
 ) {
   const raw = String(chatId || "").trim();
   const hash = String(accessHash || "").trim();
+
+  // Grupo comum não tem accessHash.
+  if (/^-\d+$/.test(raw) && !raw.startsWith("-100")) {
+    try {
+      return await client.getInputEntity(
+        new Api.InputPeerChat({ chatId: bigInt(raw.slice(1)) })
+      );
+    } catch {
+      /* tenta os fallbacks */
+    }
+  }
 
   if (hash && hash !== "0") {
     try {
@@ -404,7 +434,7 @@ async function resolveChatEntity(
   }
 
   const dialogs = await client.getDialogs({ limit: 80 });
-  const found = dialogs.find((d) => dialogPeerId(d) === raw);
+  const found = dialogs.find((d) => dialogPeerId(d) === raw || dialogMarkedId(d) === raw);
   if (found?.entity) return found.entity;
 
   throw new Error("Não abri essa conversa. Volte à lista e escolha de novo.");
