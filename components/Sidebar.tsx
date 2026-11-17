@@ -628,6 +628,55 @@ export default function Sidebar() {
     router.replace("/login");
   }
 
+  /* Menu em sanfona: abrir um grupo fecha os irmãos do mesmo nível. */
+  const NAV_SETTERS: Record<string, (v: boolean) => void> = {
+    Cadastro: setOpenCadastro,
+    GestaoPontos: setOpenGestaoPontos,
+    Lucros: setOpenLucros,
+    Analise: setOpenAnalise,
+    Financeiro: setOpenFinanceiro,
+    Rede: setOpenRede,
+    GestorEmissoes: setOpenGestorEmissoes,
+    EmissoesBalcao: setOpenEmissoesBalcao,
+    Outros: setOpenOutros,
+    Cedentes: setOpenCedentes,
+    Funcionarios: setOpenFuncionarios,
+    Socios: setOpenSocios,
+    Clientes: setOpenClientes,
+    PontosVisualizar: setOpenPontosVisualizar,
+    Clubes: setOpenClubes,
+    Compras: setOpenCompras,
+    Vendas: setOpenVendas,
+    CheckLocalizador: setOpenCheckLocalizador,
+    CotacaoPassagens: setOpenCotacaoPassagens,
+    ContasSelecionadasLatam: setOpenContasSelecionadasLatam,
+    ContasSelecionadasSmiles: setOpenContasSelecionadasSmiles,
+    ContasSelecionadasLivelo: setOpenContasSelecionadasLivelo,
+    EmissoesPorCedente: setOpenEmissoesPorCedente,
+    PainelEmissoes: setOpenPainelEmissoes,
+    Indicacoes: setOpenIndicacoes,
+    Afiliados: setOpenAfiliados,
+    Pendencias: setOpenPendencias,
+    Importacoes: setOpenImportacoes,
+    Protocolos: setOpenProtocolos,
+    GrupoVip: setOpenGrupoVip,
+  };
+  const NAV_GROUPS: string[][] = [
+    ["Cadastro", "GestaoPontos", "Lucros", "Analise", "Financeiro", "Rede", "GestorEmissoes", "EmissoesBalcao", "Outros"],
+    ["Cedentes", "Funcionarios", "Socios", "Clientes"],
+    ["PontosVisualizar", "Clubes", "Compras", "Vendas", "CheckLocalizador", "CotacaoPassagens"],
+    ["ContasSelecionadasLatam", "ContasSelecionadasSmiles", "ContasSelecionadasLivelo"],
+    ["EmissoesPorCedente", "PainelEmissoes"],
+    ["Indicacoes", "Afiliados", "Pendencias", "Importacoes", "Protocolos", "GrupoVip"],
+  ];
+  function toggleNav(name: string, isOpen: boolean) {
+    if (!isOpen) {
+      const siblings = NAV_GROUPS.find((g) => g.includes(name)) || [];
+      for (const other of siblings) if (other !== name) NAV_SETTERS[other]?.(false);
+    }
+    NAV_SETTERS[name]?.(!isOpen);
+  }
+
   /* =========================
    * UI
    * ========================= */
@@ -658,14 +707,14 @@ export default function Sidebar() {
         <Accordion
           title="Cadastro"
           open={openCadastro}
-          onToggle={() => setOpenCadastro((v) => !v)}
+          onToggle={() => toggleNav("Cadastro", openCadastro)}
           active={isCadastroRoute}
           accent="sky"
         >
           <SubAccordion
             title="Cedentes"
             open={openCedentes}
-            onToggle={() => setOpenCedentes((v) => !v)}
+            onToggle={() => toggleNav("Cedentes", openCedentes)}
           >
             <NavLink href="/dashboard/cedentes/redirecionar-email">
               Redirecionar e-mail
@@ -699,7 +748,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Funcionários"
             open={openFuncionarios}
-            onToggle={() => setOpenFuncionarios((v) => !v)}
+            onToggle={() => toggleNav("Funcionarios", openFuncionarios)}
           >
             <NavLink href="/dashboard/funcionarios/novo">
               Cadastrar funcionário
@@ -726,7 +775,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Sócios"
             open={openSocios}
-            onToggle={() => setOpenSocios((v) => !v)}
+            onToggle={() => toggleNav("Socios", openSocios)}
           >
             <NavLink href="/dashboard/socios">Sócios</NavLink>
           </SubAccordion>
@@ -735,7 +784,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Clientes"
             open={openClientes}
-            onToggle={() => setOpenClientes((v) => !v)}
+            onToggle={() => toggleNav("Clientes", openClientes)}
           >
             <NavLink href="/dashboard/clientes/novo">Cadastrar cliente</NavLink>
 
@@ -749,14 +798,14 @@ export default function Sidebar() {
         <Accordion
           title="Gestão de pontos"
           open={openGestaoPontos}
-          onToggle={() => setOpenGestaoPontos((v) => !v)}
+          onToggle={() => toggleNav("GestaoPontos", openGestaoPontos)}
           active={isGestaoPontosRoute}
           accent="emerald"
         >
           <SubAccordion
             title="Visualizar pontos"
             open={openPontosVisualizar}
-            onToggle={() => setOpenPontosVisualizar((v) => !v)}
+            onToggle={() => toggleNav("PontosVisualizar", openPontosVisualizar)}
           >
             {/* ✅ APENAS OS RETÂNGULOS */}
             <div className="pl-2 pr-2 pb-1">
@@ -843,7 +892,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Clube"
             open={openClubes}
-            onToggle={() => setOpenClubes((v) => !v)}
+            onToggle={() => toggleNav("Clubes", openClubes)}
           >
             <NavLink href="/dashboard/clubes/cadastrar" exact>
               Cadastrar clube
@@ -861,7 +910,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Compras"
             open={openCompras}
-            onToggle={() => setOpenCompras((v) => !v)}
+            onToggle={() => toggleNav("Compras", openCompras)}
           >
             <NavLink href="/dashboard/compras/nova">Efetuar compra</NavLink>
             <NavLink href="/dashboard/compras" exact>
@@ -872,7 +921,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Vendas"
             open={openVendas}
-            onToggle={() => setOpenVendas((v) => !v)}
+            onToggle={() => toggleNav("Vendas", openVendas)}
           >
             <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
 
@@ -891,7 +940,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Check Localizador"
             open={openCheckLocalizador}
-            onToggle={() => setOpenCheckLocalizador((v) => !v)}
+            onToggle={() => toggleNav("CheckLocalizador", openCheckLocalizador)}
           >
             <NavLink href="/dashboard/check-localizador/latam">Latam</NavLink>
             <NavLink href="/dashboard/check-localizador/smiles" exact>
@@ -906,7 +955,7 @@ export default function Sidebar() {
             title="Cotação de passagens"
             href="/dashboard/cotacao-passagens"
             open={openCotacaoPassagens}
-            onToggle={() => setOpenCotacaoPassagens((v) => !v)}
+            onToggle={() => toggleNav("CotacaoPassagens", openCotacaoPassagens)}
           >
             <NavLink href="/dashboard/cotacao-passagens" exact>
               Pesquisar
@@ -918,7 +967,7 @@ export default function Sidebar() {
         <Accordion
           title="Lucros & Comissões"
           open={openLucros}
-          onToggle={() => setOpenLucros((v) => !v)}
+          onToggle={() => toggleNav("Lucros", openLucros)}
           active={isLucrosRoute}
           accent="amber"
         >
@@ -943,7 +992,7 @@ export default function Sidebar() {
         <Accordion
           title="Análise & Estratégia"
           open={openAnalise}
-          onToggle={() => setOpenAnalise((v) => !v)}
+          onToggle={() => toggleNav("Analise", openAnalise)}
           active={isAnaliseRoute}
           accent="teal"
         >
@@ -965,7 +1014,7 @@ export default function Sidebar() {
               title="Latam"
               href="/dashboard/contas-selecionadas/latam"
               open={openContasSelecionadasLatam}
-              onToggle={() => setOpenContasSelecionadasLatam((v) => !v)}
+              onToggle={() => toggleNav("ContasSelecionadasLatam", openContasSelecionadasLatam)}
               variant="nav"
               active={isContasSelecionadasLatamRoute}
             >
@@ -985,7 +1034,7 @@ export default function Sidebar() {
               title="Smiles"
               href="/dashboard/contas-selecionadas/smiles"
               open={openContasSelecionadasSmiles}
-              onToggle={() => setOpenContasSelecionadasSmiles((v) => !v)}
+              onToggle={() => toggleNav("ContasSelecionadasSmiles", openContasSelecionadasSmiles)}
               variant="nav"
               active={isContasSelecionadasSmilesRoute}
             >
@@ -999,7 +1048,7 @@ export default function Sidebar() {
               title="Livelo"
               href="/dashboard/contas-selecionadas/livelo"
               open={openContasSelecionadasLivelo}
-              onToggle={() => setOpenContasSelecionadasLivelo((v) => !v)}
+              onToggle={() => toggleNav("ContasSelecionadasLivelo", openContasSelecionadasLivelo)}
               variant="nav"
               active={isContasSelecionadasLiveloRoute}
             >
@@ -1017,7 +1066,7 @@ export default function Sidebar() {
         <Accordion
           title="Financeiro"
           open={openFinanceiro}
-          onToggle={() => setOpenFinanceiro((v) => !v)}
+          onToggle={() => toggleNav("Financeiro", openFinanceiro)}
           active={isFinanceiroRoute}
           accent="orange"
         >
@@ -1056,7 +1105,7 @@ export default function Sidebar() {
         <Accordion
           title="Rede"
           open={openRede}
-          onToggle={() => setOpenRede((v) => !v)}
+          onToggle={() => toggleNav("Rede", openRede)}
           active={isRedeRoute}
           accent="violet"
         >
@@ -1067,14 +1116,14 @@ export default function Sidebar() {
         <Accordion
           title="Gestor de emissões"
           open={openGestorEmissoes}
-          onToggle={() => setOpenGestorEmissoes((v) => !v)}
+          onToggle={() => toggleNav("GestorEmissoes", openGestorEmissoes)}
           active={isGestorEmissoesRoute}
           accent="blue"
         >
           <SubAccordion
             title="Emissões por cedente"
             open={openEmissoesPorCedente}
-            onToggle={() => setOpenEmissoesPorCedente((v) => !v)}
+            onToggle={() => toggleNav("EmissoesPorCedente", openEmissoesPorCedente)}
             variant="nav"
             active={isEmissoesRoute}
           >
@@ -1100,7 +1149,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Painel de Emissões"
             open={openPainelEmissoes}
-            onToggle={() => setOpenPainelEmissoes((v) => !v)}
+            onToggle={() => toggleNav("PainelEmissoes", openPainelEmissoes)}
             variant="nav"
             active={isPainelEmissoesRoute}
           >
@@ -1126,7 +1175,7 @@ export default function Sidebar() {
         <Accordion
           title="Emissões no balcão"
           open={openEmissoesBalcao}
-          onToggle={() => setOpenEmissoesBalcao((v) => !v)}
+          onToggle={() => toggleNav("EmissoesBalcao", openEmissoesBalcao)}
           active={isEmissoesBalcaoRoute}
           accent="cyan"
         >
@@ -1151,14 +1200,14 @@ export default function Sidebar() {
         <Accordion
           title="Outros"
           open={openOutros}
-          onToggle={() => setOpenOutros((v) => !v)}
+          onToggle={() => toggleNav("Outros", openOutros)}
           active={isOutrosRoute}
           accent="slate"
         >
           <SubAccordion
             title="Indicações"
             open={openIndicacoes}
-            onToggle={() => setOpenIndicacoes((v) => !v)}
+            onToggle={() => toggleNav("Indicacoes", openIndicacoes)}
             variant="nav"
             active={isIndicacoesRoute}
           >
@@ -1169,7 +1218,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Afiliados"
             open={openAfiliados}
-            onToggle={() => setOpenAfiliados((v) => !v)}
+            onToggle={() => toggleNav("Afiliados", openAfiliados)}
             variant="nav"
             active={isAfiliadosRoute}
           >
@@ -1181,7 +1230,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Pendências"
             open={openPendencias}
-            onToggle={() => setOpenPendencias((v) => !v)}
+            onToggle={() => toggleNav("Pendencias", openPendencias)}
             variant="nav"
             active={isPendenciasRoute}
           >
@@ -1193,7 +1242,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Importações"
             open={openImportacoes}
-            onToggle={() => setOpenImportacoes((v) => !v)}
+            onToggle={() => toggleNav("Importacoes", openImportacoes)}
             variant="nav"
             active={isImportacoesRoute || isImportacoesEmissoesLatamRoute}
           >
@@ -1216,7 +1265,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Protocolos"
             open={openProtocolos}
-            onToggle={() => setOpenProtocolos((v) => !v)}
+            onToggle={() => toggleNav("Protocolos", openProtocolos)}
             variant="nav"
             active={isProtocolosRoute}
           >
@@ -1229,7 +1278,7 @@ export default function Sidebar() {
           <SubAccordion
             title="Grupo VIP WhatsApp"
             open={openGrupoVip}
-            onToggle={() => setOpenGrupoVip((v) => !v)}
+            onToggle={() => toggleNav("GrupoVip", openGrupoVip)}
             variant="nav"
             active={isGrupoVipWhatsappRoute}
           >
@@ -1288,7 +1337,7 @@ export default function Sidebar() {
     <>
       <NavChrome.Provider value={{ mobile: false }}>
         <aside className="hidden h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-50/90 shadow-[4px_0_32px_-16px_rgba(15,23,42,0.18)] ring-1 ring-slate-200/55 sm:w-64 lg:flex">
-          <NavTree />
+          {NavTree()}
         </aside>
       </NavChrome.Provider>
       {mobileOpen
@@ -1309,7 +1358,7 @@ export default function Sidebar() {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <NavTree />
+                {NavTree()}
               </div>
             </NavChrome.Provider>,
             document.body
