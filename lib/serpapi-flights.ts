@@ -198,19 +198,29 @@ export async function searchGoogleFlightsCheapest(
 
   const tryRapid = async () => searchRapidApiGoogleFlightsCheapest(origin, dest, dateISO, filters);
 
+  // RapidAPI é a principal; SerpAPI só entra de reserva se a RapidAPI falhar.
+  if (hasRapid) {
+    const rapid = await tryRapid();
+    if (!("error" in rapid)) return rapid;
+    if (hasSerp && Date.now() >= serpapiBlockedUntil) {
+      const serp = await searchSerpApiOnly(origin, dest, dateISO, filters);
+      if (!("error" in serp)) return serp;
+      if (serpapiLooksQuota(serp.status || 0, serp.error)) {
+        serpapiBlockedUntil = Date.now() + SERPAPI_QUOTA_MS;
+      }
+    }
+    return { error: rapid.error };
+  }
+
   if (hasSerp && Date.now() >= serpapiBlockedUntil) {
     const serp = await searchSerpApiOnly(origin, dest, dateISO, filters);
     if (!("error" in serp)) return serp;
     if (serpapiLooksQuota(serp.status || 0, serp.error)) {
       serpapiBlockedUntil = Date.now() + SERPAPI_QUOTA_MS;
-      if (hasRapid) return tryRapid();
-    } else if (hasRapid) {
-      const rapid = await tryRapid();
-      if (!("error" in rapid)) return rapid;
     }
     return { error: serp.error };
   }
+  if (hasSerp) return { error: "SerpAPI sem cota no momento. Configure RAPIDAPI_KEY para continuar." };
 
-  if (hasRapid) return tryRapid();
   return { error: "Configure SERPAPI_API_KEY ou RAPIDAPI_KEY no ambiente (Vercel / .env.local)." };
 }

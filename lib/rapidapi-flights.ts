@@ -100,6 +100,11 @@ export async function searchRapidApiGoogleFlightsCheapest(
   if (res.status === 429) {
     return { error: "RapidAPI atingiu o limite de requisições." };
   }
+  if (res.status === 401 || res.status === 403) {
+    return {
+      error: `RapidAPI recusou a chave (HTTP ${res.status}). Confira se a conta está inscrita na API ${host}.`,
+    };
+  }
   if (!res.ok) {
     const msg =
       data && typeof data === "object" && "message" in data
