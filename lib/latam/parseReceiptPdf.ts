@@ -267,13 +267,38 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
     : null;
 
   let miles: number | null = null;
+  // O total vem em "Total pago … Millas X" (voo + adicionais, ex.: bagagem).
+  // A primeira linha "Millas" é só o voo — usar só se não houver total.
+  const NUM = String.raw`(\d{1,3}(?:\.\d{3})+|\d{3,7})`;
+  const totalMilesM = compact.match(
+    new RegExp(String.raw`Total\s+pago\s*(?:\([^)]*\)\s*)?(?:BRL\s*[\d.]+,\d{2}\s*)?Millas\s+${NUM}\b`, "i")
+  );
+  const paidMilesM = compact.match(
+    new RegExp(String.raw`LATAM\s*Pass\s*CP\s*:[\d,\s]{0,200}Millas\s+${NUM}\b`, "i")
+  );
   const milesM =
-    compact.match(/\bMillas\s+(\d{1,3}(?:\.\d{3})+|\d{3,7})\b/i) ||
-    compact.match(/(\d{1,3}(?:\.\d{3})+|\d{3,7})\s*milhas(?:\s+LATAM)?/i) ||
-    compact.match(/LATAM\s*Pass[\s\S]{0,40}?(\d{1,3}(?:\.\d{3})+|\d{3,7})/i);
+    totalMilesM ||
+    paidMilesM ||
+    compact.match(new RegExp(String.raw`\bMillas\s+${NUM}\b`, "i")) ||
+    compact.match(new RegExp(String.raw`${NUM}\s*milhas(?:\s+LATAM)?`, "i")) ||
+    compact.match(new RegExp(String.raw`LATAM\s*Pass[\s\S]{0,40}?${NUM}`, "i"));
   if (milesM?.[1]) {
     miles = parseMiles(milesM[1]);
     if (miles) hints.push("miles");
+  }
+  // Leitura confusa: total e pagamento não batem, ou várias linhas de milhas sem total.
+  const allMiles = new Set(
+    Array.from(compact.matchAll(new RegExp(String.raw`\bMillas\s+${NUM}\b`, "gi")))
+      .map((m) => parseMiles(m[1]!))
+      .filter((n): n is number => Boolean(n))
+  );
+  const totalMiles = totalMilesM?.[1] ? parseMiles(totalMilesM[1]) : null;
+  const paidMiles = paidMilesM?.[1] ? parseMiles(paidMilesM[1]) : null;
+  if (
+    (totalMiles && paidMiles && totalMiles !== paidMiles) ||
+    (!totalMiles && !paidMiles && allMiles.size > 1)
+  ) {
+    hints.push("miles_ambiguous");
   }
 
   // Na venda usamos o que o cliente pagou em R$ (Total pago), não só a linha

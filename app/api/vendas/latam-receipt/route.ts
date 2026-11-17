@@ -6,11 +6,12 @@ import {
   purchaseCodeFromLatamPdfUrl,
   type LatamReceiptParsed,
 } from "@/lib/latam/parseReceiptPdf";
+import { receiptNeedsAi, refineReceiptWithAI } from "@/lib/latam/receiptWithAI";
 import { bufferFromUrl, textFromPdfBytes, textViaReader } from "@/lib/latam/receiptText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 20;
+export const maxDuration = 45;
 
 
 function bad(error: string, status = 400, extra?: Record<string, unknown>) {
@@ -80,7 +81,9 @@ export async function POST(req: Request) {
       });
     }
 
-    const parsed = parseLatamReceiptText(text);
+    let parsed = parseLatamReceiptText(text);
+    // Leitura confusa ou incompleta: a OpenAI confere/completa.
+    if (receiptNeedsAi(parsed)) parsed = await refineReceiptWithAI(text, parsed);
     if (!parsed.purchaseCode && fromUrlCode) {
       parsed.purchaseCode = fromUrlCode;
       parsed.sourceHints.push("purchaseCode_from_url");
