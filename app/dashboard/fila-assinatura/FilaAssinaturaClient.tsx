@@ -58,6 +58,7 @@ type Item = {
   createdAt: string;
   addedBy: { id: string; name: string };
   cedente: CedenteLite;
+  cpfs?: { limit: number; used: number; free: number };
 };
 
 const STATUS_META: Record<Status, { label: string; select: string; badge: string }> = {
@@ -88,8 +89,8 @@ const RESULT_LABEL: Record<Resultado, string> = {
 };
 
 // Larguras fixas nas colunas de status/ações para as linhas alinharem com o cabeçalho.
-const GRID_COLS_ADMIN = "lg:grid-cols-[1.5rem_minmax(0,1fr)_7rem_9rem_9rem_13.5rem]";
-const GRID_COLS_STAFF = "lg:grid-cols-[1.5rem_minmax(0,1fr)_7rem_9rem_9rem_8rem]";
+const GRID_COLS_ADMIN = "lg:grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_7rem_9rem_9rem_13.5rem]";
+const GRID_COLS_STAFF = "lg:grid-cols-[1.5rem_minmax(0,1fr)_5.5rem_7rem_9rem_9rem_8rem]";
 
 const ICON_BTN =
   "group relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg shadow-sm ring-1 transition-colors";
@@ -606,6 +607,7 @@ export default function FilaAssinaturaClient() {
         >
           <span>#</span>
           <span>Cedente</span>
+          <span title="CPFs livres na LATAM (limite − passageiros dos últimos 365 dias)">CPFs livres</span>
           <span>Colocado por</span>
           <span>LATAM Pass</span>
           <span>Livelo</span>
@@ -660,6 +662,27 @@ export default function FilaAssinaturaClient() {
                       {item.cedente.cpfMask ? ` • CPF ${item.cedente.cpfMask}` : ""}
                       {item.cedente.responsavel ? ` • ${item.cedente.responsavel.name}` : ""}
                     </p>
+                  </div>
+
+                  <div className="col-span-2 min-w-0 lg:col-span-1">
+                    {item.cpfs ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ring-1",
+                          item.cpfs.free === 0
+                            ? "bg-red-50 text-red-700 ring-red-200"
+                            : item.cpfs.free <= 5
+                            ? "bg-amber-50 text-amber-800 ring-amber-200"
+                            : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        )}
+                        title={`LATAM: ${item.cpfs.used} de ${item.cpfs.limit} CPFs usados nos últimos 365 dias`}
+                      >
+                        {item.cpfs.free}/{item.cpfs.limit}
+                        <span className="ml-1 font-medium lg:hidden">CPFs livres</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
                   </div>
 
                   <div className="col-span-2 min-w-0 text-xs leading-tight text-slate-500 lg:col-span-1">

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CedenteStatus, type AssinaturaStatus, type FilaAssinaturaResultado } from "@prisma/client";
+import { CedenteStatus, LoyaltyProgram, type AssinaturaStatus, type FilaAssinaturaResultado } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
 import { EXCLUDED_CPF_PREFIX } from "@/lib/cedentes/activeCedenteWhere";
@@ -63,6 +63,48 @@ function cedenteOut(c: {
     telefone: c.telefone || null,
     responsavel: c.owner,
   };
+}
+
+/**
+ * CPFs livres na LATAM (mesma conta do Turbo): limite − max(passageiros emitidos
+ * nos últimos 365 dias, ajuste manual).
+ */
+async function cpfsLivresLatam(team: string, cedenteIds: string[]) {
+  const out = new Map<string, { limit: number; used: number; free: number }>();
+  if (!cedenteIds.length) return out;
+
+  const end = new Date();
+  end.setUTCHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 364);
+  start.setUTCHours(0, 0, 0, 0);
+
+  const [accounts, usedAgg] = await Promise.all([
+    prisma.latamTurboAccount.findMany({
+      where: { team, cedenteId: { in: cedenteIds } },
+      select: { cedenteId: true, cpfLimit: true, cpfUsed: true },
+    }),
+    prisma.emissionEvent.groupBy({
+      by: ["cedenteId"],
+      where: { program: LoyaltyProgram.LATAM, issuedAt: { gte: start, lte: end }, cedenteId: { in: cedenteIds } },
+      _sum: { passengersCount: true },
+    }),
+  ]);
+
+  const acc = new Map(accounts.map((a) => [a.cedenteId, a]));
+  const usedCalc = new Map(usedAgg.map((x) => [x.cedenteId, Number(x._sum.passengersCount || 0)]));
+  const int = (v: unknown, d: number) => {
+    const n = Math.trunc(Number(v));
+    return Number.isFinite(n) ? Math.min(999, Math.max(0, n)) : d;
+  };
+
+  for (const id of cedenteIds) {
+    const a = acc.get(id);
+    const limit = int(a?.cpfLimit ?? 25, 25);
+    const used = Math.max(int(usedCalc.get(id) ?? 0, 0), int(a?.cpfUsed ?? 0, 0));
+    out.set(id, { limit, used, free: Math.max(0, limit - used) });
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
@@ -130,6 +172,8 @@ export async function GET(req: NextRequest) {
       prisma.user.findUnique({ where: { id: session.id }, select: { name: true } }),
     ]);
 
+    const cpfs = await cpfsLivresLatam(session.team, items.map((i) => i.cedenteId));
+
     return ok({
       isAdmin: isAdminRole(session.role),
       meId: session.id,
@@ -143,6 +187,7 @@ export async function GET(req: NextRequest) {
         createdAt: i.createdAt,
         addedBy: i.addedBy,
         cedente: cedenteOut(i.cedente),
+        cpfs: cpfs.get(i.cedenteId) || { limit: 25, used: 0, free: 25 },
       })),
     });
   } catch (e: unknown) {
