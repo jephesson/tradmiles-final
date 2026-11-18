@@ -1,6 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Cake,
+  Check,
+  CheckCircle2,
+  Copy,
+  IdCard,
+  Landmark,
+  ListPlus,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Phone,
+  RefreshCw,
+  User,
+  UserCheck,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isProgramCreacaoPendente } from "@/lib/cedentes/programCreacaoPendente";
 
@@ -38,8 +57,10 @@ type Funcionario = { id: string; name: string; login: string; isActive?: boolean
 
 type Item = {
   id: string;
+  identificador?: string | null;
   nomeCompleto: string;
   cpf: string;
+  dataNascimento: string | null;
 
   telefone: string | null;
   emailCriado: string | null;
@@ -270,30 +291,44 @@ export default function CedentesPendentesPage() {
   }, []);
 
   return (
-    <div className="max-w-5xl">
-      <div className="mb-4 flex items-end justify-between gap-3">
+    <div className="mx-auto max-w-6xl space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Cedentes pendentes</h1>
-          <div className="text-sm text-slate-600">
-            Total: <b>{totalPendentes}</b>
-          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold tracking-wide text-sky-700 ring-1 ring-sky-200">
+            <UserCheck size={14} /> CEDENTES
+          </span>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Cedentes pendentes</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Confira os dados, preencha os pontos e aprove.{" "}
+            <span className="font-semibold text-slate-700">
+              {totalPendentes} {totalPendentes === 1 ? "pendente" : "pendentes"}
+            </span>
+          </p>
         </div>
-
         <button
           onClick={() => void load()}
-          className="rounded-xl border px-3 py-2 text-sm hover:bg-slate-50"
+          disabled={loading}
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
         >
-          Atualizar
+          <RefreshCw size={15} className={cn(loading && "animate-spin")} /> Atualizar
         </button>
-      </div>
+      </header>
 
-      {loading && <div>Carregando...</div>}
+      {loading && !items.length ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-14 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando pendentes…
+        </div>
+      ) : null}
 
-      {!loading && items.length === 0 && (
-        <div className="rounded-xl border p-4 text-sm text-slate-600">Nenhum pendente 🎉</div>
-      )}
+      {!loading && items.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white py-14 text-center">
+          <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500" />
+          <p className="mt-2 text-sm font-semibold text-slate-700">Nenhum cadastro pendente</p>
+          <p className="text-sm text-slate-500">Quando alguém se cadastrar, aparece aqui.</p>
+        </div>
+      ) : null}
 
-      <div className="space-y-3">
+      <div className="space-y-5">
         {items.map((c) => {
           const missing = labelMissing(c);
           const programPending = programPendingLabels(c);
@@ -304,76 +339,158 @@ export default function CedentesPendentesPage() {
             pontosEsfera: 0,
           };
           const ad = adminDraft[c.id];
+          const wa = whatsappHref(c.telefone);
+          const nasc = fmtNascimento(c.dataNascimento);
 
           return (
-            <div key={c.id} className="rounded-2xl border p-4">
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="text-lg font-semibold">{c.nomeCompleto}</div>
+            <article
+              key={c.id}
+              className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/50"
+            >
+              {/* Cabeçalho do cadastro */}
+              <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-base font-bold text-white">
+                  {initials(c.nomeCompleto)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-lg font-semibold text-slate-900">{c.nomeCompleto}</h2>
+                  <p className="text-xs text-slate-500">
+                    {c.identificador ? `${c.identificador} · ` : ""}cadastrado em{" "}
+                    {new Date(c.createdAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                  </p>
+                </div>
+                {wa ? (
+                  <a
+                    href={wa}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+                    title={`Abrir conversa com ${c.telefone}`}
+                  >
+                    <MessageCircle size={16} /> WhatsApp
+                  </a>
+                ) : (
+                  <span className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                    Sem telefone para WhatsApp
+                  </span>
+                )}
+              </div>
 
-                  <div className="mt-1 text-sm text-slate-600 space-y-1">
-                    <div>
-                      CPF: <b>{c.cpf}</b> · Telefone: <b>{c.telefone ?? "-"}</b>
-                    </div>
-                    <div>
-                      Email: <b>{c.emailCriado ?? "-"}</b>
-                    </div>
-                    <div>
-                      PIX: <b>{c.banco ?? "-"}</b> · <b>{c.pixTipo ?? "-"}</b> ·{" "}
-                      <b>{c.chavePix ?? "-"}</b> · Titular:{" "}
-                      <b>{c.titularConfirmado ? "Sim" : "Não"}</b>
-                    </div>
-                    <div>
-                      Responsável: <b>{c.owner?.name ?? "-"}</b>
-                    </div>
-                    <div>
-                      Indicação:{" "}
-                      <b>
-                        {c.referredByCedente
+              <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+                {/* Dados */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <InfoTile icon={<IdCard size={15} />} label="CPF" value={c.cpf} copy />
+                  <InfoTile
+                    icon={<Cake size={15} />}
+                    label="Nascimento"
+                    value={nasc ? nasc.data : null}
+                    hint={nasc ? `${nasc.idade} anos` : "Não informado"}
+                    warn={!nasc}
+                  />
+                  <InfoTile
+                    icon={<Phone size={15} />}
+                    label="Telefone"
+                    value={c.telefone}
+                    copy
+                    action={
+                      wa ? (
+                        <a
+                          href={wa}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg p-1 text-emerald-600 hover:bg-emerald-50"
+                          title="Abrir no WhatsApp"
+                        >
+                          <MessageCircle size={14} />
+                        </a>
+                      ) : null
+                    }
+                  />
+                  <InfoTile icon={<Mail size={15} />} label="E-mail" value={c.emailCriado} copy />
+                  <InfoTile
+                    icon={<Landmark size={15} />}
+                    label="PIX"
+                    value={c.chavePix ? `${c.pixTipo ?? "—"} · ${c.chavePix}` : null}
+                    hint={[c.banco, c.titularConfirmado ? "titular confirmado" : "titular não confirmado"]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    warn={!c.chavePix || !c.titularConfirmado}
+                  />
+                  <InfoTile icon={<User size={15} />} label="Responsável" value={c.owner?.name ?? null} />
+                  <div className="sm:col-span-2 xl:col-span-3">
+                    <InfoTile
+                      icon={<Users size={15} />}
+                      label="Indicação"
+                      value={
+                        c.referredByCedente
                           ? `${c.referredByCedente.nomeCompleto} (${c.referredByCedente.identificador})`
-                          : "—"}
-                      </b>
-                    </div>
-                    <div>
-                      Criado em <b>{new Date(c.createdAt).toLocaleString("pt-BR")}</b>
-                    </div>
+                          : null
+                      }
+                      hint={c.referredByCedente ? undefined : "Sem indicação"}
+                    />
                   </div>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-3 text-sm min-w-[260px]">
-                  <div className="font-medium mb-2">Campos faltando</div>
+                {/* Pendências */}
+                <aside
+                  className={cn(
+                    "h-fit rounded-2xl border p-4 text-sm",
+                    missing.length || programPending.length
+                      ? "border-amber-200 bg-amber-50/60"
+                      : "border-emerald-200 bg-emerald-50/60"
+                  )}
+                >
                   {missing.length === 0 ? (
-                    <div className="text-slate-700">Nenhum ✅</div>
+                    <p className="flex items-center gap-2 font-semibold text-emerald-800">
+                      <CheckCircle2 size={16} /> Cadastro completo
+                    </p>
                   ) : (
-                    <ul className="list-disc pl-5 text-slate-700">
-                      {missing.map((m) => (
-                        <li key={m}>{m}</li>
-                      ))}
-                    </ul>
+                    <>
+                      <p className="flex items-center gap-2 font-semibold text-amber-900">
+                        <AlertTriangle size={16} /> Campos faltando
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {missing.map((m) => (
+                          <span
+                            key={m}
+                            className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-amber-900 ring-1 ring-amber-200"
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    </>
                   )}
                   {programPending.length > 0 ? (
-                    <div className="mt-3 border-t pt-2">
-                      <div className="font-medium text-amber-800">Programas pendentes de criação</div>
-                      <div className="mt-1 text-amber-900">{programPending.join(", ")}</div>
+                    <div className="mt-3 border-t border-amber-200/70 pt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                        Programas a criar
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {programPending.map((p) => (
+                          <span
+                            key={p}
+                            className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
-                </div>
+                </aside>
               </div>
 
               {isAdmin && ad ? (
-                <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
-                  <div className="mb-3 font-semibold text-indigo-950">
-                    Responsável e quem indicou
-                  </div>
-                  <p className="mb-3 text-xs text-slate-600">
-                    A indicação do link já vem preenchida. Se precisar mudar, ajuste aqui — entra junto no
-                    Aprovar.
+                <Section title="Responsável e quem indicou" tone="indigo">
+                  <p className="-mt-1 mb-3 text-xs text-slate-500">
+                    A indicação do link já vem preenchida. Se precisar mudar, ajuste aqui — entra junto no Aprovar.
                   </p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <label className="block">
-                      <span className="mb-1 block text-sm font-medium">Funcionário responsável</span>
+                      <span className={LABEL}>Funcionário responsável</span>
                       <select
-                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+                        className={INPUT}
                         value={ad.ownerId}
                         onChange={(e) => setAdminField(c.id, "ownerId", e.target.value)}
                       >
@@ -387,9 +504,9 @@ export default function CedentesPendentesPage() {
                     </label>
 
                     <label className="block">
-                      <span className="mb-1 block text-sm font-medium">Cedente que indicou</span>
+                      <span className={LABEL}>Cedente que indicou</span>
                       <select
-                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm"
+                        className={INPUT}
                         value={ad.referredByCedenteId}
                         onChange={(e) => setAdminField(c.id, "referredByCedenteId", e.target.value)}
                       >
@@ -403,7 +520,7 @@ export default function CedentesPendentesPage() {
                     </label>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-4">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <ProgramToggle
                       label="Latam pendente criação"
                       checked={!c.senhaLatamPass?.trim() ? true : ad.latamCreacaoPendente}
@@ -423,78 +540,55 @@ export default function CedentesPendentesPage() {
                       onChange={(v) => setAdminField(c.id, "liveloCreacaoPendente", v)}
                     />
                   </div>
-                  <p className="mt-2 text-xs text-slate-600">
+                  <p className="mt-2 text-xs text-slate-500">
                     Sem senha do programa, fica pendente automaticamente. Com senha, você pode marcar manualmente.
                   </p>
-                </div>
+                </Section>
               ) : null}
 
-              <div className="mt-4 rounded-2xl border p-4">
-                <div className="mb-4 font-semibold">Credenciais para revisão</div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Section title="Credenciais para revisão">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <FieldText label="Senha do e-mail" value={c.senhaEmail} />
-                  <FieldText label="Senha Smiles" value={c.senhaSmiles} missing={!c.senhaSmiles?.trim()} />
                   <FieldText label="Senha Latam Pass" value={c.senhaLatamPass} missing={!c.senhaLatamPass?.trim()} />
+                  <FieldText label="Senha Smiles" value={c.senhaSmiles} missing={!c.senhaSmiles?.trim()} />
                   <FieldText label="Senha Livelo" value={c.senhaLivelo} missing={!c.senhaLivelo?.trim()} />
                   <FieldText label="Senha Esfera" value={c.senhaEsfera} />
                 </div>
-              </div>
+              </Section>
 
-              <div className="mt-4 rounded-2xl border p-4">
-                <div className="mb-2 font-semibold">Pontos (preencher antes de aprovar)</div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <FieldNumber
-                    label="Latam"
-                    value={d.pontosLatam}
-                    onChange={(v) => setDraftField(c.id, "pontosLatam", v)}
-                  />
-                  <FieldNumber
-                    label="Smiles"
-                    value={d.pontosSmiles}
-                    onChange={(v) => setDraftField(c.id, "pontosSmiles", v)}
-                  />
-                  <FieldNumber
-                    label="Livelo"
-                    value={d.pontosLivelo}
-                    onChange={(v) => setDraftField(c.id, "pontosLivelo", v)}
-                  />
-                  <FieldNumber
-                    label="Esfera"
-                    value={d.pontosEsfera}
-                    onChange={(v) => setDraftField(c.id, "pontosEsfera", v)}
-                  />
+              <Section title="Pontos" subtitle="preencher antes de aprovar">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <FieldNumber label="Latam" value={d.pontosLatam} onChange={(v) => setDraftField(c.id, "pontosLatam", v)} />
+                  <FieldNumber label="Smiles" value={d.pontosSmiles} onChange={(v) => setDraftField(c.id, "pontosSmiles", v)} />
+                  <FieldNumber label="Livelo" value={d.pontosLivelo} onChange={(v) => setDraftField(c.id, "pontosLivelo", v)} />
+                  <FieldNumber label="Esfera" value={d.pontosEsfera} onChange={(v) => setDraftField(c.id, "pontosEsfera", v)} />
                 </div>
-              </div>
+              </Section>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR_FILA" })}
-                  className="rounded-xl bg-black px-3 py-2 text-sm text-white hover:bg-slate-900"
-                >
-                  Aprovar + Fila de assinatura
-                </button>
-
-                <button
-                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR" })}
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-                >
-                  Apenas aprovar
-                </button>
-
+              <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
                 <button
                   onClick={() => setConfirmAsk({ id: c.id, kind: "RECUSAR" })}
-                  className="rounded-xl border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                  className="mr-auto inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
                 >
-                  Recusar
+                  <XCircle size={16} /> Recusar
                 </button>
-              </div>
-            </div>
+                <button
+                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR" })}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Check size={16} /> Apenas aprovar
+                </button>
+                <button
+                  onClick={() => setConfirmAsk({ id: c.id, kind: "APROVAR_FILA" })}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                >
+                  <ListPlus size={16} /> Aprovar + Fila de assinatura
+                </button>
+              </footer>
+            </article>
           );
         })}
       </div>
-
       {confirmAsk ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
@@ -549,15 +643,137 @@ function ProgramToggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className={cn("inline-flex items-center gap-2 text-sm", disabled && "opacity-50")}>
+    <label
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
+        checked ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-700",
+        disabled && "cursor-not-allowed opacity-60"
+      )}
+    >
       <input
         type="checkbox"
+        className="accent-amber-600"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       {label}
     </label>
+  );
+}
+
+const LABEL = "mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500";
+const INPUT =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+function whatsappHref(telefone?: string | null) {
+  let d = String(telefone || "").replace(/\D+/g, "");
+  if (!d) return null;
+  while (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length < 12) return null;
+  return `https://wa.me/${d}`;
+}
+
+/** A data de nascimento é gravada como meia-noite UTC: formata em UTC para não voltar um dia. */
+function fmtNascimento(v: string | null) {
+  if (!v) return null;
+  const dt = new Date(v);
+  if (Number.isNaN(dt.getTime())) return null;
+  const now = new Date();
+  let idade = now.getUTCFullYear() - dt.getUTCFullYear();
+  const m = now.getUTCMonth() - dt.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dt.getUTCDate())) idade--;
+  return { data: dt.toLocaleDateString("pt-BR", { timeZone: "UTC" }), idade };
+}
+
+function initials(nome: string) {
+  const parts = String(nome || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return ((parts[0][0] || "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setDone(true);
+          setTimeout(() => setDone(false), 1200);
+        } catch {
+          /* sem permissão de copiar */
+        }
+      }}
+      className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      title="Copiar"
+    >
+      {done ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+function InfoTile({
+  icon,
+  label,
+  value,
+  hint,
+  warn,
+  copy,
+  action,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | null;
+  hint?: string;
+  warn?: boolean;
+  copy?: boolean;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-3 py-2.5",
+        warn ? "border-amber-200 bg-amber-50/50" : "border-slate-100 bg-slate-50/70"
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          {icon}
+          {label}
+        </span>
+        <span className="flex items-center">
+          {action}
+          {copy && value ? <CopyButton text={value} /> : null}
+        </span>
+      </div>
+      <p className="mt-0.5 break-all text-sm font-semibold text-slate-900">{value || "—"}</p>
+      {hint ? <p className={cn("text-xs", warn ? "text-amber-800" : "text-slate-500")}>{hint}</p> : null}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  tone,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  tone?: "indigo";
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={cn("border-t border-slate-100 px-5 py-4", tone === "indigo" && "bg-indigo-50/40")}>
+      <h3 className="mb-3 text-sm font-semibold text-slate-900">
+        {title}
+        {subtitle ? <span className="ml-1.5 font-normal text-slate-500">· {subtitle}</span> : null}
+      </h3>
+      {children}
+    </section>
   );
 }
 
@@ -571,16 +787,16 @@ function FieldNumber({
   onChange: (v: number | "") => void;
 }) {
   return (
-    <div>
-      <label className="mb-1 block text-sm">{label}</label>
+    <label className="block">
+      <span className={LABEL}>{label}</span>
       <input
         type="number"
         min={0}
-        className="w-full rounded-xl border px-3 py-2"
+        className={cn(INPUT, "tabular-nums")}
         value={value}
         onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
       />
-    </div>
+    </label>
   );
 }
 
@@ -593,23 +809,25 @@ function FieldText({
   value: string | null;
   missing?: boolean;
 }) {
+  const v = value?.trim() || "";
   return (
     <div>
-      <div className="mb-1 flex items-center gap-2 text-sm">
-        {label}
+      <div className="mb-1 flex items-center gap-2">
+        <span className={cn(LABEL, "mb-0")}>{label}</span>
         {missing ? (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
             Pendente criação
           </span>
         ) : null}
       </div>
       <div
         className={cn(
-          "rounded-xl border px-3 py-2 text-sm break-all",
-          missing ? "border-amber-200 bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-900"
+          "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm",
+          missing ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-900"
         )}
       >
-        {value?.trim() || "-"}
+        <span className="break-all font-mono">{v || "—"}</span>
+        {v ? <CopyButton text={v} /> : null}
       </div>
     </div>
   );

@@ -26,6 +26,7 @@ export async function GET() {
         identificador: true,
         nomeCompleto: true,
         cpf: true,
+        dataNascimento: true,
 
         telefone: true,
         emailCriado: true,
