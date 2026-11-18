@@ -52,6 +52,10 @@ export default function BulkPixModal({
   const [results, setResults] = useState<Record<string, PayResult>>({});
   const [paying, setPaying] = useState(false);
   const [finished, setFinished] = useState(false);
+  // Comprovantes: um clique por cedente (o navegador só deixa abrir uma janela por clique).
+  const [receiptIdx, setReceiptIdx] = useState(0);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const [receiptSent, setReceiptSent] = useState<Record<string, "sent" | "copied" | string>>({});
 
   useEffect(() => {
     let alive = true;
@@ -104,6 +108,45 @@ export default function BulkPixModal({
     const c = checks[r.id];
     return a + (c?.state === "ready" ? c.amountCents : 0);
   }, 0);
+
+  const paidRows = rows.filter((r) => results[r.id]?.state === "paid");
+  const nextReceipt = paidRows[receiptIdx] || null;
+
+  async function sendNextReceipt() {
+    const r = nextReceipt;
+    if (!r) return;
+    // Abre a janela já no clique; o endereço do WhatsApp entra depois.
+    const waWin = window.open("about:blank", "_blank");
+    setReceiptBusy(true);
+    let mark: string;
+    try {
+      const res = await fetch(`/api/cedente-commissions/${r.id}/comprovante`, { cache: "no-store", credentials: "include" });
+      const meta = await res.json().catch(() => ({}));
+      if (!res.ok || !meta?.ok) throw new Error(meta?.error || "Não deu para gerar o comprovante.");
+      const message = String(meta.message || "");
+      if (message) {
+        try {
+          await navigator.clipboard.writeText(message);
+        } catch {
+          /* a mensagem já vai na URL do WhatsApp */
+        }
+      }
+      if (meta.whatsappUrl) {
+        if (waWin && !waWin.closed) waWin.location.href = String(meta.whatsappUrl);
+        else window.open(String(meta.whatsappUrl), "_blank", "noopener,noreferrer");
+        mark = "sent";
+      } else {
+        waWin?.close();
+        mark = "copied";
+      }
+    } catch (e) {
+      waWin?.close();
+      mark = e instanceof Error ? e.message : "Falha no comprovante.";
+    }
+    setReceiptSent((m) => ({ ...m, [r.id]: mark }));
+    setReceiptIdx((i) => i + 1);
+    setReceiptBusy(false);
+  }
 
   async function payAll() {
     if (!toPay.length) return;
@@ -236,6 +279,13 @@ export default function BulkPixModal({
                         ) : res.state === "paid" ? (
                           <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
                             <CheckCircle2 className="h-3.5 w-3.5" /> PIX enviado
+                            {receiptSent[r.id] === "sent" ? (
+                              <span className="font-medium text-slate-500"> · comprovante aberto no WhatsApp</span>
+                            ) : receiptSent[r.id] === "copied" ? (
+                              <span className="font-medium text-amber-700"> · sem WhatsApp, comprovante copiado</span>
+                            ) : receiptSent[r.id] ? (
+                              <span className="font-medium text-red-700"> · {receiptSent[r.id]}</span>
+                            ) : null}
                           </span>
                         ) : res.state === "awaiting" ? (
                           <span className="inline-flex items-center gap-1 font-semibold text-amber-700">
@@ -278,7 +328,11 @@ export default function BulkPixModal({
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
           <p className="text-xs text-slate-500">
             {finished
-              ? "Pronto. Os comprovantes saem pelo botão Comprovante de cada linha."
+              ? paidRows.length
+                ? nextReceipt
+                  ? "Clique para abrir o WhatsApp de cada cedente com o comprovante; envie lá e volte para o próximo."
+                  : "Comprovantes abertos para todos os pagos."
+                : "Pronto. Nenhum PIX saiu direto (os que pedem aprovação no Inter mandam comprovante pela linha depois)."
               : "Só vem marcado o que está ok. Quem está em amarelo, confira antes de marcar."}
           </p>
           <div className="flex gap-2">
@@ -290,6 +344,20 @@ export default function BulkPixModal({
             >
               {finished ? "Fechar" : "Cancelar"}
             </button>
+            {finished && nextReceipt ? (
+              <button
+                type="button"
+                onClick={() => void sendNextReceipt()}
+                disabled={receiptBusy}
+                className="inline-flex h-9 max-w-[22rem] items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                title={`Abrir o WhatsApp de ${nextReceipt.nome} com o comprovante`}
+              >
+                {receiptBusy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : null}
+                <span className="truncate">
+                  Enviar comprovante ({receiptIdx + 1} de {paidRows.length}) · {nextReceipt.nome.split(" ")[0]}
+                </span>
+              </button>
+            ) : null}
             {!finished ? (
               <button
                 type="button"
