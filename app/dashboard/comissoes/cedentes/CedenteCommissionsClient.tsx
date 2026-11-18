@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Banknote, ChevronDown, ChevronRight, Plus, RefreshCw, Search, Split, Trophy, Users, X } from "lucide-react";
+import BulkPixModal, { type BulkPixRow } from "./BulkPixModal";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { cn } from "@/lib/cn";
 
@@ -176,6 +177,7 @@ export default function CedenteCommissionsClient() {
     pixError?: string | null;
     share?: "cedente" | "employee";
   } | null>(null);
+  const [bulkRows, setBulkRows] = useState<BulkPixRow[] | null>(null);
   const [splitRow, setSplitRow] = useState<CommissionItem | null>(null);
   const [employees, setEmployees] = useState<
     { id: string; name: string; login: string; isActive?: boolean }[]
@@ -243,6 +245,27 @@ export default function CedenteCommissionsClient() {
       return hay.includes(s);
     });
   }, [data.items, q]);
+
+  // Pendentes que ainda podem sair por PIX (sem PIX em andamento no Inter).
+  const payableRows: BulkPixRow[] = useMemo(
+    () =>
+      filteredItems
+        .filter((it) => {
+          const inter = it.interPixPayments?.[0]?.status;
+          return (
+            it.status === "PENDING" &&
+            inter !== "AWAITING_APPROVAL" &&
+            inter !== "PROCESSING" &&
+            inter !== "CREATED"
+          );
+        })
+        .map((it) => ({
+          id: it.id,
+          nome: it.cedente?.nomeCompleto || "—",
+          identificador: it.cedente?.identificador || "",
+        })),
+    [filteredItems]
+  );
 
   const pageSum = useMemo(() => {
     return filteredItems.reduce((acc, it) => acc + (it.amountCents || 0), 0);
@@ -764,6 +787,23 @@ export default function CedenteCommissionsClient() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
+        {payableRows.length ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <p className="text-sm text-slate-600">
+              <span className="font-semibold text-slate-900">{payableRows.length}</span> pendente(s) prontas para PIX
+              nesta lista
+            </p>
+            <button
+              type="button"
+              onClick={() => setBulkRows(payableRows)}
+              disabled={loading}
+              className="h-9 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+              title="Confere a chave PIX de todos e paga os selecionados pelo Banco Inter"
+            >
+              Checar PIX e pagar todos
+            </button>
+          </div>
+        ) : null}
         <p className="text-[11px] text-slate-500 lg:hidden">
           Deslize a tabela para o lado para ver todas as colunas.
         </p>
@@ -1052,6 +1092,10 @@ export default function CedenteCommissionsClient() {
           </table>
         </div>
       </div>
+
+      {bulkRows ? (
+        <BulkPixModal rows={bulkRows} onClose={() => setBulkRows(null)} onDone={() => void load()} />
+      ) : null}
 
       {pixModal ? (
         <PixDestinoConfirmModal
