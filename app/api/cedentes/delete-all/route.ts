@@ -65,7 +65,50 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
-    const r = await prisma.cedente.deleteMany({});
+    // Guarda o rastro de cada cadastro antes de apagar tudo.
+    const all = await prisma.cedente.findMany({
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        telefone: true,
+        status: true,
+        createdAt: true,
+        referredByCedente: { select: { id: true, nomeCompleto: true, identificador: true } },
+        owner: { select: { name: true, login: true, team: true } },
+      },
+    });
+    const r = await prisma.$transaction(async (tx) => {
+      if (all.length) {
+        await tx.cedenteExclusion.createMany({
+          data: all.map((c) => ({
+            team: c.owner?.team || "",
+            cedenteId: c.id,
+            cedenteIdentificador: c.identificador,
+            cedenteNomeCompleto: c.nomeCompleto,
+            cedenteCpf: c.cpf,
+            scope: "ACCOUNT" as const,
+            program: null,
+            deletedById: auth.userId,
+            details: {
+              mode: "CADASTRO_APAGADO",
+              source: "apagar-todos",
+              reasonText: "Cadastro apagado em massa (apagar todos).",
+              historyPreserved: false,
+              telefone: c.telefone,
+              statusBefore: c.status,
+              cadastradoEm: c.createdAt.toISOString(),
+              referrerCedenteId: c.referredByCedente?.id || null,
+              referrerNome: c.referredByCedente?.nomeCompleto || null,
+              referrerIdentificador: c.referredByCedente?.identificador || null,
+              ownerName: c.owner?.name || c.owner?.login || null,
+            },
+          })),
+        });
+      }
+      return tx.cedente.deleteMany({});
+    });
     return NextResponse.json({ ok: true, deleted: r.count });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Erro ao apagar." }, { status: 500 });

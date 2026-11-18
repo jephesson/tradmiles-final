@@ -26,6 +26,9 @@ export async function GET(req: Request) {
     const take = clampInt(takeRaw, 1, 200);
     const skip = clampInt(skipRaw, 0, 1_000_000);
     const topWindowDays = clampInt(topWindowDaysRaw, 30, 365);
+    // Detalhe do ranking: pagas nos últimos N dias (por data de pagamento).
+    const paidSinceDaysRaw = Number(url.searchParams.get("paidSinceDays") || 0);
+    const paidSinceDays = paidSinceDaysRaw > 0 ? clampInt(paidSinceDaysRaw, 1, 3650) : 0;
 
     const where: any = {};
 
@@ -45,12 +48,14 @@ export async function GET(req: Request) {
       if (to) where.generatedAt.lte = endOfDay(parseDateOnly(to));
     }
 
+    if (paidSinceDays) where.paidAt = { gte: daysAgo(paidSinceDays) };
+
     const topPaidFrom = daysAgo(topWindowDays);
 
     const [items, total, topRecebedores] = await prisma.$transaction([
       prisma.cedenteCommission.findMany({
         where,
-        orderBy: { generatedAt: "desc" },
+        orderBy: paidSinceDays ? { paidAt: "desc" } : { generatedAt: "desc" },
         take,
         skip,
         include: {

@@ -12,7 +12,7 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
     }
 
-    const [cedentes, referrals] = await Promise.all([
+    const [cedentes, referrals, exclusions] = await Promise.all([
       prisma.cedente.findMany({
         where: { owner: { team: session.team } },
         select: {
@@ -35,7 +35,48 @@ export async function GET() {
         },
         take: 8000,
       }),
+      // Excluídos (conta inteira) continuam na rede, marcados, para saber se algum indicado deu problema.
+      prisma.cedenteExclusion.findMany({
+        where: { team: session.team, scope: "ACCOUNT", restoredAt: null },
+        select: {
+          cedenteId: true,
+          cedenteIdentificador: true,
+          cedenteNomeCompleto: true,
+          details: true,
+          createdAt: true,
+          deletedBy: { select: { name: true, login: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8000,
+      }),
     ]);
+
+    type Ced = (typeof cedentes)[number];
+    const excludedInfo = new Map<string, { at: string; by: string; reason: string | null }>();
+    const ghosts: Ced[] = [];
+    const known = new Set(cedentes.map((c) => c.id));
+    for (const ex of exclusions) {
+      if (excludedInfo.has(ex.cedenteId)) continue;
+      const d = (ex.details && typeof ex.details === "object" ? ex.details : {}) as Record<string, unknown>;
+      excludedInfo.set(ex.cedenteId, {
+        at: ex.createdAt.toISOString(),
+        by: ex.deletedBy?.name || ex.deletedBy?.login || "—",
+        reason: typeof d.reasonText === "string" ? d.reasonText : null,
+      });
+      // Cadastro apagado de vez: recria o nó a partir do rastro (com quem indicou).
+      if (!known.has(ex.cedenteId) && d.mode === "CADASTRO_APAGADO") {
+        known.add(ex.cedenteId);
+        ghosts.push({
+          id: ex.cedenteId,
+          identificador: ex.cedenteIdentificador,
+          nomeCompleto: ex.cedenteNomeCompleto,
+          status: "REJECTED",
+          referredByCedenteId: typeof d.referrerCedenteId === "string" ? d.referrerCedenteId : null,
+          owner: { id: "", name: typeof d.ownerName === "string" ? d.ownerName : "—", login: "" },
+        } as Ced);
+      }
+    }
+    cedentes.push(...ghosts);
 
     const byId = new Map(cedentes.map((c) => [c.id, c]));
     const parentById = new Map<string, string>();
@@ -85,7 +126,8 @@ export async function GET() {
         id: c.id,
         identificador: c.identificador,
         nomeCompleto: c.nomeCompleto,
-        status: c.status,
+        status: excludedInfo.has(c.id) ? "EXCLUIDO" : c.status,
+        excluded: excludedInfo.get(c.id) || null,
         ownerName: c.owner?.name || c.owner?.login || "—",
         parentId: parentById.get(c.id) || null,
       }));
@@ -103,6 +145,7 @@ export async function GET() {
         nodes,
         edges,
         stats: {
+          excluded: nodes.filter((n) => n.status === "EXCLUIDO").length,
           people: nodes.length,
           links: edges.length,
           roots,

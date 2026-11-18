@@ -118,6 +118,36 @@ type StoredCredentials = {
   senhaEsfera?: string | null;
 };
 
+type ApagadoInfo = {
+  source: string;
+  telefone: string | null;
+  referrerNome: string | null;
+  referrerIdentificador: string | null;
+  inviteOwnerName: string | null;
+};
+
+/** Cadastro apagado de vez (Fila / Visualizar): só sobra o rastro, não dá para restaurar. */
+function apagadoFromDetails(details: unknown): ApagadoInfo | null {
+  if (!details || typeof details !== "object") return null;
+  const d = details as Record<string, unknown>;
+  if (d.mode !== "CADASTRO_APAGADO") return null;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return {
+    source: str(d.source) || "cadastro",
+    telefone: str(d.telefone),
+    referrerNome: str(d.referrerNome),
+    referrerIdentificador: str(d.referrerIdentificador),
+    inviteOwnerName: str(d.inviteOwnerName),
+  };
+}
+
+function sourceLabel(source: string) {
+  if (source === "fila") return "Cadastro apagado (Fila)";
+  if (source === "visualizar") return "Cadastro apagado (Visualizar)";
+  if (source === "apagar-todos") return "Cadastro apagado (em massa)";
+  return "Cadastro apagado";
+}
+
 function credentialsFromDetails(details: unknown): StoredCredentials | null {
   if (!details || typeof details !== "object") return null;
   const c = (details as { credentials?: StoredCredentials }).credentials;
@@ -776,16 +806,38 @@ export default function CedentesExclusaoDefinitivaClient() {
                 </td>
               </tr>
             ) : (
-              excluded.map((r) => (
+              excluded.map((r) => {
+                const apagado = apagadoFromDetails(r.details);
+                return (
                 <tr key={r.id} className="border-b last:border-b-0">
                   <td className="px-3 py-2">{fmtDateTime(r.createdAt)}</td>
                   <td className="px-3 py-2">
                     <div className="font-medium">{r.cedenteNomeCompleto}</div>
                     <div className="text-xs text-slate-500">
                       {r.cedenteIdentificador} • CPF {maskCpf(r.cedenteCpf)}
+                      {apagado?.telefone ? ` • Tel. ${apagado.telefone}` : ""}
                     </div>
+                    {apagado ? (
+                      <div className="text-xs text-slate-500">
+                        Indicado por:{" "}
+                        <span className="font-medium text-slate-700">
+                          {apagado.referrerNome
+                            ? `${apagado.referrerNome}${apagado.referrerIdentificador ? ` (${apagado.referrerIdentificador})` : ""}`
+                            : "ninguém"}
+                        </span>
+                        {apagado.inviteOwnerName ? ` • Convite de ${apagado.inviteOwnerName}` : ""}
+                      </div>
+                    ) : null}
                   </td>
-                  <td className="px-3 py-2">{r.scope === "ACCOUNT" ? "Conta inteira" : "Programa"}</td>
+                  <td className="px-3 py-2">
+                    {apagado ? (
+                      <span className="font-medium text-rose-700">{sourceLabel(apagado.source)}</span>
+                    ) : r.scope === "ACCOUNT" ? (
+                      "Conta inteira"
+                    ) : (
+                      "Programa"
+                    )}
+                  </td>
                   <td className="px-3 py-2">{r.program || "-"}</td>
                   <td className="px-3 py-2">
                     {r.deletedBy?.name || "-"}
@@ -802,6 +854,8 @@ export default function CedentesExclusaoDefinitivaClient() {
                           {r.restoredBy?.login ? ` por @${r.restoredBy.login}` : ""}
                         </div>
                       </div>
+                    ) : apagado ? (
+                      <span className="text-xs text-slate-500">Apagado do sistema · só o rastro</span>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -827,7 +881,8 @@ export default function CedentesExclusaoDefinitivaClient() {
                     )}
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

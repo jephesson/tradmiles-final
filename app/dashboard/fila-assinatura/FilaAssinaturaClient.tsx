@@ -530,7 +530,7 @@ export default function FilaAssinaturaClient() {
       const res = await fetch("/api/cedentes/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [item.cedente.id], password }),
+        body: JSON.stringify({ ids: [item.cedente.id], password, source: "fila" }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Não deu para excluir o cadastro.");

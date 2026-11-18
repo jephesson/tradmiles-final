@@ -48,7 +48,7 @@ async function requirePassword(req: Request, password: string) {
     return { ok: false as const, status: 401, error: "Senha inválida." };
   }
 
-  return { ok: true as const, userId: user.id };
+  return { ok: true as const, userId: user.id, team: session.team };
 }
 
 export async function POST(req: Request) {
@@ -70,8 +70,62 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
-    const r = await prisma.cedente.deleteMany({
+    const source = String(body?.source ?? "").trim().slice(0, 40) || "cadastro";
+    const reason = String(body?.reason ?? "").trim().slice(0, 500) || null;
+
+    // Guarda o rastro antes de apagar: quem era, telefone, quem indicou e quem excluiu.
+    const toDelete = await prisma.cedente.findMany({
       where: { id: { in: ids } },
+      select: {
+        id: true,
+        identificador: true,
+        nomeCompleto: true,
+        cpf: true,
+        telefone: true,
+        status: true,
+        createdAt: true,
+        referredByCedenteId: true,
+        referredByCedente: { select: { id: true, nomeCompleto: true, identificador: true } },
+        referralAsReferred: {
+          select: { referrerCedente: { select: { id: true, nomeCompleto: true, identificador: true } } },
+        },
+        owner: { select: { id: true, name: true, login: true, team: true } },
+        invite: { select: { code: true, user: { select: { id: true, name: true } } } },
+      },
+    });
+
+    const r = await prisma.$transaction(async (tx) => {
+      for (const c of toDelete) {
+        const referrer = c.referredByCedente || c.referralAsReferred?.referrerCedente || null;
+        await tx.cedenteExclusion.create({
+          data: {
+            team: c.owner?.team || auth.team,
+            cedenteId: c.id,
+            cedenteIdentificador: c.identificador,
+            cedenteNomeCompleto: c.nomeCompleto,
+            cedenteCpf: c.cpf,
+            scope: "ACCOUNT",
+            program: null,
+            deletedById: auth.userId,
+            details: {
+              mode: "CADASTRO_APAGADO",
+              source,
+              reasonText: reason || (source === "fila" ? "Cadastro excluído pela Fila de assinatura." : "Cadastro apagado."),
+              historyPreserved: false,
+              telefone: c.telefone,
+              statusBefore: c.status,
+              cadastradoEm: c.createdAt.toISOString(),
+              referrerCedenteId: referrer?.id || null,
+              referrerNome: referrer?.nomeCompleto || null,
+              referrerIdentificador: referrer?.identificador || null,
+              ownerName: c.owner?.name || c.owner?.login || null,
+              inviteCode: c.invite?.code || null,
+              inviteOwnerName: c.invite?.user?.name || null,
+            },
+          },
+        });
+      }
+      return tx.cedente.deleteMany({ where: { id: { in: ids } } });
     });
 
     return NextResponse.json({ ok: true, deleted: r.count });

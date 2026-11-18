@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Banknote, Plus, RefreshCw, Search, Split, Trophy, Users, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Banknote, ChevronDown, ChevronRight, Plus, RefreshCw, Search, Split, Trophy, Users, X } from "lucide-react";
 import PixDestinoConfirmModal, { type PixDestinoView } from "@/components/PixDestinoConfirmModal";
 import { cn } from "@/lib/cn";
 
@@ -144,6 +144,14 @@ export default function CedenteCommissionsClient() {
   const [take, setTake] = useState(50);
   const [skip, setSkip] = useState(0);
   const [topWindowDays, setTopWindowDays] = useState(30);
+  // Ranking: linha aberta mostra tudo que foi pago ao cedente no período.
+  const [openPaidCedenteId, setOpenPaidCedenteId] = useState<string | null>(null);
+  const [paidDetail, setPaidDetail] = useState<{
+    key: string;
+    loading: boolean;
+    error: string;
+    items: CommissionItem[];
+  } | null>(null);
 
   const [data, setData] = useState<ListResp>({
     total: 0,
@@ -241,6 +249,38 @@ export default function CedenteCommissionsClient() {
   }, [filteredItems]);
 
   const topRecebedores = data.topRecebedores || [];
+
+  async function togglePaidDetail(cedenteId: string | null) {
+    if (!cedenteId) return;
+    if (openPaidCedenteId === cedenteId) {
+      setOpenPaidCedenteId(null);
+      return;
+    }
+    setOpenPaidCedenteId(cedenteId);
+    const key = `${cedenteId}:${topWindowDays}`;
+    if (paidDetail?.key === key && !paidDetail.error) return;
+    setPaidDetail({ key, loading: true, error: "", items: [] });
+    try {
+      const params = new URLSearchParams({
+        status: "PAID",
+        cedenteId,
+        paidSinceDays: String(topWindowDays),
+        take: "200",
+      });
+      const res = await fetch(`/api/cedente-commissions?${params.toString()}`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Não deu para carregar os pagamentos.");
+      const items = (json.data?.items ?? json.items ?? []) as CommissionItem[];
+      setPaidDetail({ key, loading: false, error: "", items });
+    } catch (e: unknown) {
+      setPaidDetail({
+        key,
+        loading: false,
+        error: e instanceof Error ? e.message : "Não deu para carregar os pagamentos.",
+        items: [],
+      });
+    }
+  }
 
   const totalPages = useMemo(() => {
     const t = data?.total || 0;
@@ -928,7 +968,10 @@ export default function CedenteCommissionsClient() {
               <button
                 key={days}
                 type="button"
-                onClick={() => setTopWindowDays(days)}
+                onClick={() => {
+                  setTopWindowDays(days);
+                  setOpenPaidCedenteId(null);
+                }}
                 className={cn(
                   "h-9 rounded-full px-3 text-xs font-semibold transition",
                   topWindowDays === days
@@ -962,14 +1005,30 @@ export default function CedenteCommissionsClient() {
                   </td>
                 </tr>
               ) : (
-                topRecebedores.map((item, idx) => (
+                topRecebedores.map((item, idx) => {
+                  const isOpen = Boolean(item.cedenteId) && openPaidCedenteId === item.cedenteId;
+                  const detail =
+                    isOpen && paidDetail?.key === `${item.cedenteId}:${topWindowDays}` ? paidDetail : null;
+                  return (
+                  <Fragment key={item.cedenteId || `sem-cedente-${item.totalCents}`}>
                   <tr
-                    key={item.cedenteId || `sem-cedente-${item.totalCents}`}
-                    className="hover:bg-slate-50/70"
+                    onClick={() => void togglePaidDetail(item.cedenteId)}
+                    className={cn(
+                      "cursor-pointer hover:bg-slate-50/70",
+                      isOpen && "bg-slate-50"
+                    )}
+                    title="Ver tudo que foi pago"
                   >
                     <td className="px-4 py-3 text-xs font-semibold text-slate-400">{idx + 1}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
-                      {item.cedente?.nomeCompleto || "—"}
+                      <span className="inline-flex items-center gap-1.5">
+                        {isOpen ? (
+                          <ChevronDown className="h-4 w-4 text-slate-400" aria-hidden />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
+                        )}
+                        {item.cedente?.nomeCompleto || "—"}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{item.cedente?.identificador || "—"}</td>
                     <td className="px-4 py-3 tabular-nums text-slate-600">{item.cedente?.cpf || "—"}</td>
@@ -978,7 +1037,16 @@ export default function CedenteCommissionsClient() {
                       {fmtMoneyBR(item.totalCents)}
                     </td>
                   </tr>
-                ))
+                  {isOpen ? (
+                    <tr className="bg-slate-50">
+                      <td colSpan={6} className="px-4 pb-4 pt-1">
+                        <PaidList detail={detail} />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1217,6 +1285,63 @@ export default function CedenteCommissionsClient() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PaidList({
+  detail,
+}: {
+  detail: { loading: boolean; error: string; items: CommissionItem[] } | null;
+}) {
+  if (!detail || detail.loading) {
+    return <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-slate-500">Carregando pagamentos…</div>;
+  }
+  if (detail.error) {
+    return <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{detail.error}</div>;
+  }
+  if (!detail.items.length) {
+    return <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-slate-500">Nenhum pagamento no período.</div>;
+  }
+  const total = detail.items.reduce((a, it) => a + (it.amountCents || 0), 0);
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <table className="min-w-full text-xs">
+        <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-2 text-left font-semibold">Pago em</th>
+            <th className="px-3 py-2 text-left font-semibold">Valor</th>
+            <th className="px-3 py-2 text-left font-semibold">Origem</th>
+            <th className="px-3 py-2 text-left font-semibold">Gerada em</th>
+            <th className="px-3 py-2 text-left font-semibold">Pago por</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {detail.items.map((it) => (
+            <tr key={it.id}>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-700">{fmtDateTimeBR(it.paidAt)}</td>
+              <td className="whitespace-nowrap px-3 py-2 font-semibold tabular-nums text-slate-900">
+                {fmtMoneyBR(it.amountCents)}
+              </td>
+              <td className="px-3 py-2 text-slate-600">
+                {it.purchase?.numero ? `Compra ${it.purchase.numero}` : it.note || "—"}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{fmtDateTimeBR(it.generatedAt)}</td>
+              <td className="px-3 py-2 text-slate-600">{it.paidBy?.name || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="bg-slate-50">
+            <td className="px-3 py-2 text-[11px] font-semibold text-slate-500">
+              {detail.items.length} pagamento{detail.items.length === 1 ? "" : "s"}
+            </td>
+            <td className="px-3 py-2 font-bold tabular-nums text-slate-900" colSpan={4}>
+              {fmtMoneyBR(total)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }

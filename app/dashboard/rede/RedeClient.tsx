@@ -39,7 +39,7 @@ import {
 type Graph = {
   nodes: RedeNode[];
   edges: Array<{ from: string; to: string }>;
-  stats: { people: number; links: number; roots: number; maxDirect: number };
+  stats: { people: number; links: number; roots: number; maxDirect: number; excluded?: number };
 };
 
 type ViewMode = "navegar" | "arvore";
@@ -49,6 +49,7 @@ function statusClass(status: string) {
   if (s === "APPROVED") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
   if (s === "PENDING") return "bg-amber-50 text-amber-800 ring-amber-200";
   if (s === "REJECTED") return "bg-rose-50 text-rose-800 ring-rose-200";
+  if (s === "EXCLUIDO") return "bg-rose-600 text-white ring-rose-600";
   return "bg-slate-50 text-slate-600 ring-slate-200";
 }
 
@@ -57,6 +58,7 @@ function statusLabel(status: string) {
   if (s === "APPROVED") return "Aprovado";
   if (s === "PENDING") return "Pendente";
   if (s === "REJECTED") return "Rejeitado";
+  if (s === "EXCLUIDO") return "Excluído";
   return status || "—";
 }
 
@@ -315,6 +317,11 @@ export default function RedeClient() {
               <span className="rounded-full bg-slate-100 px-3 py-1 text-[12px] font-medium text-slate-700">
                 {graph.stats.roots} raízes
               </span>
+              {graph.stats.excluded ? (
+                <span className="rounded-full bg-rose-50 px-3 py-1 text-[12px] font-medium text-rose-700 ring-1 ring-rose-200">
+                  {graph.stats.excluded} excluído{graph.stats.excluded === 1 ? "" : "s"}
+                </span>
+              ) : null}
             </>
           ) : null}
           <div className="flex rounded-xl border border-slate-200 bg-white p-0.5 text-[12px] font-semibold">
@@ -527,12 +534,23 @@ export default function RedeClient() {
                       </div>
                     </div>
                     <Link
-                      href={`/dashboard/cedentes/${selected.id}`}
+                      href={
+                        selected.excluded
+                          ? "/dashboard/cedentes/exclusao-definitiva"
+                          : `/dashboard/cedentes/${selected.id}`
+                      }
                       className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800"
                     >
-                      Abrir ficha
+                      {selected.excluded ? "Ver exclusões" : "Abrir ficha"}
                     </Link>
                   </div>
+                  {selected.excluded ? (
+                    <div className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-[12px] text-rose-800 ring-1 ring-rose-200">
+                      <span className="font-semibold">Excluído</span> em{" "}
+                      {new Date(selected.excluded.at).toLocaleString("pt-BR")} por {selected.excluded.by}
+                      {selected.excluded.reason ? <div className="mt-0.5 text-rose-700">{selected.excluded.reason}</div> : null}
+                    </div>
+                  ) : null}
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                     <div className="rounded-2xl bg-violet-50 px-2 py-3">
                       <div className="text-lg font-bold text-violet-900">{selectedChildren.length}</div>

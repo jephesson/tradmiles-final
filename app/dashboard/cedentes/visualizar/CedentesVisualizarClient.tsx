@@ -148,7 +148,7 @@ export default function CedentesVisualizarClient() {
     const res = await fetch("/api/cedentes/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selected), password }),
+      body: JSON.stringify({ ids: Array.from(selected), password, source: "visualizar" }),
     });
 
     const json = await res.json().catch(() => null);

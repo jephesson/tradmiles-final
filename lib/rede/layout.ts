@@ -5,6 +5,8 @@ export type RedeNode = {
   status: string;
   ownerName: string;
   parentId: string | null;
+  /** Preenchido quando o cedente foi excluído (conta inteira ou cadastro apagado). */
+  excluded?: { at: string; by: string; reason: string | null } | null;
 };
 
 export type LaidOutNode = RedeNode & {
