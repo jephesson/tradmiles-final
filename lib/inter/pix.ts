@@ -1,8 +1,9 @@
 import { interConfig } from "@/lib/inter/config";
-import { interHttp } from "@/lib/inter/http";
+import { INTER_DOWN_MESSAGE, interHttp, interUnavailable } from "@/lib/inter/http";
 import { interAccessToken } from "@/lib/inter/oauth";
 
 function formatInterError(status: number, json: unknown, text: string) {
+  if (interUnavailable(status, text)) return INTER_DOWN_MESSAGE;
   const data = (json || {}) as {
     message?: string;
     title?: string;

@@ -1,5 +1,5 @@
 import { interConfig } from "@/lib/inter/config";
-import { interHttp } from "@/lib/inter/http";
+import { INTER_DOWN_MESSAGE, interUnavailable, interHttp } from "@/lib/inter/http";
 
 type TokenCache = { accessToken: string; expiresAt: number; scope: string };
 let cache: TokenCache | null = null;
@@ -32,6 +32,7 @@ export async function interAccessToken() {
   };
 
   if (!res.status || res.status >= 400 || !data.access_token) {
+    if (interUnavailable(res.status, res.text)) throw new Error(INTER_DOWN_MESSAGE);
     throw new Error(
       (data.error_description || data.error || res.text || `Inter OAuth HTTP ${res.status}`).slice(
         0,

@@ -158,7 +158,9 @@ export default function BulkPixModal({
       return;
     setPaying(true);
     // Um por vez: o Inter não gosta de rajada e fica fácil ver onde parou.
-    for (const r of toPay) {
+    const queue = [...toPay];
+    for (let i = 0; i < queue.length; i++) {
+      const r = queue[i];
       setResults((m) => ({ ...m, [r.id]: { state: "paying" } }));
       let out: PayResult;
       try {
@@ -177,10 +179,33 @@ export default function BulkPixModal({
         out = { state: "error", error: e instanceof Error ? e.message : "Falha ao pagar." };
       }
       setResults((m) => ({ ...m, [r.id]: out }));
+      // Inter fora do ar: não adianta seguir; os próximos ficam para tentar de novo.
+      if (out.state === "error" && /fora do ar|no healthy upstream/i.test(out.error)) {
+        const rest = queue.slice(i + 1);
+        if (rest.length) {
+          setResults((m) => ({
+            ...m,
+            ...Object.fromEntries(rest.map((x) => [x.id, { state: "error", error: "Não enviado: Banco Inter fora do ar." } as PayResult])),
+          }));
+        }
+        break;
+      }
     }
     setPaying(false);
     setFinished(true);
     onDone();
+  }
+
+  const failedRows = rows.filter((r) => results[r.id]?.state === "error");
+
+  /** Volta os que falharam para a fila (nenhum PIX saiu para eles). */
+  function retryFailed() {
+    setResults((m) => {
+      const next = { ...m };
+      for (const r of failedRows) delete next[r.id];
+      return next;
+    });
+    setFinished(false);
   }
 
   const allSelectable = rows.filter((r) => problemOf(checks[r.id]).level !== "block" && !results[r.id]);
@@ -327,12 +352,14 @@ export default function BulkPixModal({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
           <p className="text-xs text-slate-500">
-            {finished
+            {finished && failedRows.length
+              ? `${failedRows.length} não foram pagos — nenhum PIX saiu para eles. Tente de novo em alguns minutos.`
+              : finished
               ? paidRows.length
                 ? nextReceipt
                   ? "Clique para abrir o WhatsApp de cada cedente com o comprovante; envie lá e volte para o próximo."
                   : "Comprovantes abertos para todos os pagos."
-                : "Pronto. Nenhum PIX saiu direto (os que pedem aprovação no Inter mandam comprovante pela linha depois)."
+                : "Pronto. Os que pedem aprovação no Inter mandam comprovante pela linha depois de aprovar."
               : "Só vem marcado o que está ok. Quem está em amarelo, confira antes de marcar."}
           </p>
           <div className="flex gap-2">
@@ -344,6 +371,15 @@ export default function BulkPixModal({
             >
               {finished ? "Fechar" : "Cancelar"}
             </button>
+            {finished && failedRows.length ? (
+              <button
+                type="button"
+                onClick={retryFailed}
+                className="inline-flex h-9 items-center gap-2 rounded-xl bg-amber-500 px-4 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                Tentar de novo ({failedRows.length})
+              </button>
+            ) : null}
             {finished && nextReceipt ? (
               <button
                 type="button"

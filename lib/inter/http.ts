@@ -80,3 +80,14 @@ export async function interHttp(opts: {
     req.end();
   });
 }
+
+/** Inter (ou o gateway dele) fora do ar: troca a resposta técnica por uma mensagem clara. */
+export const INTER_DOWN_MESSAGE =
+  "Banco Inter fora do ar agora. Nenhum PIX saiu — tente de novo em alguns minutos.";
+
+export function interUnavailable(status: number, text?: string | null) {
+  if (status === 502 || status === 503 || status === 504) return true;
+  return /no healthy upstream|upstream connect error|service unavailable|bad gateway|gateway time-?out/i.test(
+    String(text || "")
+  );
+}
