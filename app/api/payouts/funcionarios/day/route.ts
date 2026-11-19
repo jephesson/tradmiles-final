@@ -203,14 +203,14 @@ export async function GET(req: Request) {
         role: { in: ["admin", "staff", "emissor"] },
         ...(scopeUserId ? { id: scopeUserId } : {}),
       },
-      select: { id: true, name: true, login: true },
+      select: { id: true, name: true, login: true, role: true },
       orderBy: [{ name: "asc" }],
     });
 
     const teamUsers = isAdmin
       ? await prisma.user.findMany({
           where: { team: session.team, role: { in: ["admin", "staff", "emissor"] } },
-          select: { id: true, name: true, login: true },
+          select: { id: true, name: true, login: true, role: true },
           orderBy: [{ name: "asc" }],
         })
       : users;
@@ -219,7 +219,7 @@ export async function GET(req: Request) {
     const payouts = await prisma.employeePayout.findMany({
       where: { team: session.team, date },
       include: {
-        user: { select: { id: true, name: true, login: true } },
+        user: { select: { id: true, name: true, login: true, role: true } },
         paidBy: { select: { id: true, name: true } },
       },
     });

@@ -22,7 +22,7 @@ type Basis = "SALE_DATE" | "PURCHASE_FINALIZED";
 /** Base fixa na API de comissões (UI não expõe alternativa). */
 const PAYOUT_BASIS: Basis = "SALE_DATE";
 
-type UserLite = { id: string; name: string; login: string };
+type UserLite = { id: string; name: string; login: string; role?: string };
 type PaidByLite = { id: string; name: string } | null;
 
 type MonthlyBonusPart = {
@@ -1217,8 +1217,29 @@ export default function ComissoesFuncionariosClient() {
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {(day?.rows || []).map((r) => {
+              {/* Sócios primeiro, emissores depois (cada grupo com um título). */}
+              {[...(day?.rows || [])]
+                .sort((x, y) => Number(x.user.role === "emissor") - Number(y.user.role === "emissor"))
+                .map((r, idx, arr) => {
                 const b = r.breakdown;
+                const group = r.user.role === "emissor" ? "Emissores" : "Sócios";
+                const prevGroup = idx > 0 ? (arr[idx - 1].user.role === "emissor" ? "Emissores" : "Sócios") : "";
+                const groupHeader =
+                  group !== prevGroup ? (
+                    <tr key={`grp-${group}`} className="bg-slate-50/90">
+                      <td
+                        colSpan={showMonthlyBonus ? 14 : 13}
+                        className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"
+                      >
+                        {group}
+                        {group === "Emissores" ? (
+                          <span className="ml-2 font-medium normal-case tracking-normal text-slate-400">
+                            só C1 e C2 · vendas contam no bônus do sócio
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null;
                 const { c1, c2, c3 } = c123FromBreakdown(b);
 
                 const isMissing = String(r.id || "").startsWith("missing:");
@@ -1234,7 +1255,8 @@ export default function ComissoesFuncionariosClient() {
                 const displayName = firstName(r.user.name, r.user.login);
                 const lucroSemTaxa = lucroSemTaxaEmbarqueCents(r);
 
-                return (
+                return [
+                  groupHeader,
                   <tr key={r.id} className="transition hover:bg-slate-50/80">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-900">{displayName}</div>
@@ -1363,8 +1385,8 @@ export default function ComissoesFuncionariosClient() {
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
-                  </tr>
-                );
+                  </tr>,
+                ];
               })}
 
               {!day?.rows?.length && (
