@@ -5,6 +5,7 @@ import {
   emissorCanCallApi,
   emissorCanVisit,
   isEmissor,
+  isPublicApi,
   isSocio,
   socioCanCallApi,
   socioCanVisit,
@@ -90,6 +91,11 @@ export async function middleware(req: NextRequest) {
     ) {
       return NextResponse.redirect(new URL(EMISSOR_HOME, req.url));
     }
+    return NextResponse.next();
+  }
+
+  // Páginas públicas (convite, afiliado, grupo VIP...) valem para qualquer papel logado.
+  if (url.pathname.startsWith("/api/") && isPublicApi(url.pathname, req.method)) {
     return NextResponse.next();
   }
 

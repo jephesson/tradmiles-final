@@ -112,3 +112,19 @@ export function emissorCanCallApi(pathname: string, method = "GET") {
     return !r.methods || r.methods.includes(m) || m === "OPTIONS";
   });
 }
+
+/* =========================
+ * APIs das páginas públicas (convite de cedente, afiliado, grupo VIP, parceiros, cadastro de emissor).
+ * Funcionam para qualquer um — inclusive quem está logado como emissor ou sócio no mesmo navegador.
+ * ========================= */
+const PUBLIC_API_PREFIXES = [
+  "/api/convites/",
+  "/api/afiliado/",
+  "/api/grupo-vip/public/",
+  "/api/emissor-convite/",
+];
+
+export function isPublicApi(pathname: string, method = "GET") {
+  if (pathname === "/api/parceiros" && String(method).toUpperCase() === "GET") return true;
+  return PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p));
+}
