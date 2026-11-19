@@ -353,12 +353,65 @@ function DetailCard({ title, children }: { title: string; children: React.ReactN
 }
 
 /** Conta completa de um funcionário no mês. */
-function EmployeeDetail({ r }: { r: SummaryRow }) {
+function EmployeeDetail({ r, month }: { r: SummaryRow; month: string }) {
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfErr, setPdfErr] = useState("");
+
+  async function downloadPdf() {
+    setPdfBusy(true);
+    setPdfErr("");
+    try {
+      const qs = new URLSearchParams({ month, userId: r.user.id });
+      const res = await fetch(`/api/payouts/funcionarios/detail-pdf?${qs.toString()}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error || `Erro (${res.status})`);
+      }
+      const blob = await res.blob();
+      const href = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      const who = firstName(r.user.name, r.user.login)
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "");
+      a.download = `detalhamento-${who}-${month}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(href);
+    } catch (e: unknown) {
+      setPdfErr(e instanceof Error ? e.message : "Falha ao gerar o PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   const commissions = r.commission1Cents + r.commission2Cents + r.commission3RateioCents;
   const salesTax = r.salesTaxCents ?? r.payoutTaxCents - (r.bonusTaxCents || 0);
   const parts = r.bonusParts || [];
   const debts = r.debts || [];
   return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+        <div className="text-sm font-semibold text-slate-900">
+          Conta completa de {firstName(r.user.name, r.user.login)} · {monthTitleBR(month)}
+        </div>
+        <div className="flex items-center gap-2">
+          {pdfErr ? <span className="text-xs text-rose-700">{pdfErr}</span> : null}
+          <button
+            type="button"
+            onClick={() => void downloadPdf()}
+            disabled={pdfBusy}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FileDown className="h-4 w-4" /> {pdfBusy ? "Gerando…" : "Baixar PDF"}
+          </button>
+        </div>
+      </div>
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <DetailCard title={`Vendas · ${r.salesCount} vendas em ${r.days} dias`}>
         <DetailLine label="C1 (1%)" cents={r.commission1Cents} />
@@ -439,6 +492,7 @@ function EmployeeDetail({ r }: { r: SummaryRow }) {
         ) : null}
         <DetailLine label="Recebido" cents={r.netAfterDebtCents ?? r.netNoFeeCents} strong />
       </DetailCard>
+    </div>
     </div>
   );
 }
@@ -1364,7 +1418,7 @@ export default function LucrosFuncionariosMesClient() {
                     {open ? (
                       <tr className="bg-slate-50/60">
                         <td colSpan={13} className="px-4 pb-5 pt-1">
-                          <EmployeeDetail r={r} />
+                          <EmployeeDetail r={r} month={month} />
                         </td>
                       </tr>
                     ) : null}
