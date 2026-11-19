@@ -143,6 +143,16 @@ model User {
   /** Cartão que abre por padrão para pagar a taxa de embarque (pode ser o da empresa). */
   defaultFeeCardId String?
 
+  /** Emissor: sócio a quem ele responde; as vendas dele contam no bônus desse sócio. */
+  linkedSocioId String?
+
+  /** Cadastro do emissor pelo link de convite. */
+  birthDate          DateTime?
+  bankName           String?
+  meiCnpj            String?
+  contractVersion    String?
+  contractAcceptedAt DateTime?
+
   /** Telas liberadas para role socio. Ex.: ["dividas-cartoes"] */
   allowedPages String[] @default([])
 
@@ -3122,3 +3132,34 @@ model ProblemReportUpdate {
   @@index([reportId, createdAt])
   @@map("problem_report_updates")
 }
+
+/// Link único para o emissor se cadastrar (dados, senha, autenticador e aceite do contrato).
+model EmissorInvite {
+  id    String @id @default(cuid())
+  team  String
+  token String @unique
+
+  linkedSocioId    String
+  defaultFeeCardId String?
+  createdById      String
+
+  /// Segredo do Google Authenticator gerado ao abrir o link (cifrado).
+  totpSecretEnc String?
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  userId    String?
+
+  /// Prova do aceite: versão, texto aceito, IP e navegador.
+  contractVersion String?
+  contractText    String?
+  acceptIp        String?
+  acceptUserAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([team])
+  @@map("emissor_invites")
+}
+

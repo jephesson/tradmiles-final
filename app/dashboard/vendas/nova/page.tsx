@@ -15,7 +15,7 @@ type Sess = {
   login: string;
   name?: string;
   team: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
 };
 
 
@@ -46,5 +46,11 @@ export default async function Page() {
     employeeBonusAboveMetaBps: resolveEmployeeBonusAboveMetaBps(settingsRow),
   };
 
-  return <NovaVendaClient initialMe={initialMe} initialEmployeeCommission={initialEmployeeCommission} />;
+  return (
+    <NovaVendaClient
+      initialMe={initialMe}
+      initialEmployeeCommission={initialEmployeeCommission}
+      isEmissor={sess.role === "emissor"}
+    />
+  );
 }

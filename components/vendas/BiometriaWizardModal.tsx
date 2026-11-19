@@ -2549,6 +2549,12 @@ export default function BiometriaWizardModal({
                           </option>
                         ))}
                       </select>
+                      {getSession()?.role === "emissor" ? (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Abre com o cartão padrão do seu sócio. Você pode escolher outro sócio ou a Vias
+                          Aéreas.
+                        </p>
+                      ) : (
                       <p className="mt-1 text-[11px] text-slate-500">
                         Abre com o cartão marcado como{" "}
                         <Link
@@ -2560,6 +2566,7 @@ export default function BiometriaWizardModal({
                         </Link>{" "}
                         (ou o último usado).
                       </p>
+                      )}
                       {latamCardOwnerId === VIAS_OWNER_ID ||
                       latamPaymentCards.find((c) => c.id === latamPaymentCardId)
                         ?.isCompany ? (
@@ -2567,7 +2574,7 @@ export default function BiometriaWizardModal({
                           Taxa de embarque desta emissão: Vias Aéreas
                         </p>
                       ) : null}
-                      {latamPaymentCards.length === 0 ? (
+                      {latamPaymentCards.length === 0 && getSession()?.role !== "emissor" ? (
                         <p className="mt-1 text-[11px] text-slate-500">
                           Nenhum cartão cadastrado. Cadastre em{" "}
                           <Link

@@ -1,7 +1,7 @@
 // src/lib/auth.ts
 "use client";
 
-import { parseRole, socioHome } from "@/lib/roles";
+import { EMISSOR_HOME, parseRole, socioHome } from "@/lib/roles";
 
 export type Session = {
   id: string;
@@ -9,7 +9,7 @@ export type Session = {
   login: string;
   email?: string | null;
   team: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
   pages?: string[];
 };
 
@@ -133,7 +133,7 @@ export async function signIn(params: {
       role,
       pages,
     });
-    return { ok: true, home: role === "socio" ? socioHome(pages) : "/dashboard" };
+    return { ok: true, home: role === "socio" ? socioHome(pages) : role === "emissor" ? EMISSOR_HOME : "/dashboard" };
   }
   return { ok: true, home: "/dashboard" };
 }
@@ -181,7 +181,7 @@ export async function finishTotp(
       role,
       pages,
     });
-    return { ok: true, home: role === "socio" ? socioHome(pages) : "/dashboard" };
+    return { ok: true, home: role === "socio" ? socioHome(pages) : role === "emissor" ? EMISSOR_HOME : "/dashboard" };
   }
   return { ok: true, home: "/dashboard" };
 }

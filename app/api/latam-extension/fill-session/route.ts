@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/require-session";
+import { emissorMayUseCard } from "@/lib/emissores";
 import {
   type ParsedPassenger,
   type TitularContact,
@@ -226,6 +227,14 @@ export async function PUT(req: Request) {
       ? null
       : String(body.paymentCardId);
   const saleHint = body?.saleHint ? String(body.saleHint) : null;
+
+  // Emissor paga a taxa só com cartão de sócio ou da empresa.
+  if (session.role === "emissor" && paymentCardId && !(await emissorMayUseCard(session.team, paymentCardId))) {
+    return NextResponse.json(
+      { ok: false, error: "Use o cartão de um sócio ou da Vias Aéreas." },
+      { status: 403 }
+    );
+  }
 
   const titular = await resolveTitularContact(
     session.team,

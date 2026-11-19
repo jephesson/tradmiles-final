@@ -93,6 +93,7 @@ function roleLabel(role: Session["role"] | undefined) {
   if (role === "admin") return "Admin";
   if (role === "staff") return "Equipe";
   if (role === "socio") return "Sócio";
+  if (role === "emissor") return "Emissor";
   return "";
 }
 
@@ -136,6 +137,8 @@ export default function DashboardTopNav() {
     let alive = true;
 
     async function load() {
+      // Emissor não vê o painel de vendas.
+      if (getSession()?.role === "emissor") return;
       try {
         const res = await fetch("/api/vendas/pending-count", { cache: "no-store" });
         const json = await res.json().catch(() => null);
@@ -193,7 +196,31 @@ export default function DashboardTopNav() {
           </div>
         </Link>
 
-        {isSocioUser ? (
+        {session?.role === "emissor" ? (
+          <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Atalhos do emissor">
+            {[
+              { href: "/dashboard/vendas/nova", label: "Efetuar venda" },
+              { href: "/dashboard/painel-emissoes", label: "Painel de emissões" },
+              { href: "/dashboard/agenda", label: "Agenda" },
+            ].map((item) => {
+              const active = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "inline-flex h-9 shrink-0 items-center rounded-full px-3 text-[12.5px] font-bold transition-colors",
+                    active
+                      ? "bg-emerald-500 text-white shadow-sm"
+                      : "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/20 hover:bg-emerald-400/25"
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        ) : isSocioUser ? (
           <div className="hidden min-w-0 flex-1 text-sm font-semibold text-white lg:block">
             Dívida cartões
           </div>

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { emissorSocioMap } from "@/lib/emissores";
 import { pvSemTaxaFromSaleFields } from "@/lib/payouts/purchaseFinalizeMetrics";
 import type { EmployeeBonusMetrics } from "@/lib/bonus/monthlyBonus";
 import {
@@ -89,6 +90,10 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
       fetchMonthConsolidatedLucroLiquido(team, month),
     ]);
 
+  // Emissor não recebe bônus: as vendas e o C2 dele contam para o sócio vinculado.
+  const emissorToSocio = await emissorSocioMap(team);
+  const creditTo = (userId: string) => emissorToSocio.get(userId) || userId;
+
   const byUser: Record<
     string,
     { c2: number; salesVolume: number; salesCount: number; finalizedAccounts: number }
@@ -107,14 +112,14 @@ export async function fetchMonthlyBonusMetrics(team: string, month: string) {
     const b = (p.breakdown || {}) as {
       commission2Cents?: number;
     };
-    const a = ensure(p.userId);
+    const a = ensure(creditTo(p.userId));
     a.c2 += safeInt(b.commission2Cents, 0);
   }
 
   for (const s of sales) {
     const sellerId = String(s.sellerId || "").trim();
     if (!sellerId) continue;
-    const a = ensure(sellerId);
+    const a = ensure(creditTo(sellerId));
     a.salesVolume += pvSemTaxaFromSaleFields({
       totalCents: s.totalCents,
       embarqueFeeCents: s.embarqueFeeCents,

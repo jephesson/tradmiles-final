@@ -3,7 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { readSessionCookie } from "@/lib/session";
 
-type Role = "admin" | "staff" | "socio";
+type Role = "admin" | "staff" | "socio" | "emissor";
 
 export type Session = {
   id: string;

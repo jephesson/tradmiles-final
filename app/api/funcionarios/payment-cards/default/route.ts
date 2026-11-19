@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-server";
+import { defaultCardForSocio, emissorMayUseCard } from "@/lib/emissores";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,8 +20,26 @@ export async function GET() {
   }
   const user = await prisma.user.findFirst({
     where: { id: sess.id, team: sess.team },
-    select: { defaultFeeCardId: true },
+    select: { defaultFeeCardId: true, linkedSocioId: true },
   });
+
+  // Emissor: cartão definido no cadastro (de sócio ou da empresa); sem ele, o padrão do sócio.
+  if (sess.role === "emissor") {
+    const chosen = user?.defaultFeeCardId
+      ? await prisma.employeePaymentCard.findFirst({
+          where: { id: user.defaultFeeCardId, team: sess.team },
+          select: { id: true, userId: true, isCompany: true },
+        })
+      : null;
+    const card =
+      chosen && (await emissorMayUseCard(sess.team, chosen.id))
+        ? chosen
+        : user?.linkedSocioId
+          ? await defaultCardForSocio(sess.team, user.linkedSocioId)
+          : null;
+    return NextResponse.json({ ok: true, data: card });
+  }
+
   const cardId = user?.defaultFeeCardId || null;
   const card = cardId
     ? await prisma.employeePaymentCard.findFirst({
@@ -38,6 +57,7 @@ export async function PUT(req: Request) {
   } catch {
     return bad("Não autenticado", 401);
   }
+  if (sess.role === "emissor") return bad("O cartão padrão do emissor é definido pelo admin.", 403);
   const body = await req.json().catch(() => ({}));
   const cardId = String(body?.cardId || "").trim() || null;
 

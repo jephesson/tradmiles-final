@@ -1,6 +1,8 @@
 // app/dashboard/painel-emissoes/page.tsx
 
+import { cookies } from "next/headers";
 import PainelEmissoesClient from "./PainelEmissoesClient";
+import { readSessionCookie } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +21,8 @@ function normalizeProgram(v: string) {
     : "latam";
 }
 
-export default function Page({ searchParams }: { searchParams: SP }) {
+export default async function Page({ searchParams }: { searchParams: SP }) {
   const program = normalizeProgram(getOne(searchParams, "programa"));
-  return <PainelEmissoesClient initialProgram={program} />;
+  const sess = readSessionCookie((await cookies()).get("tm.session")?.value);
+  return <PainelEmissoesClient initialProgram={program} readOnly={sess?.role === "emissor"} />;
 }

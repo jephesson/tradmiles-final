@@ -21,7 +21,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
   name?: string;
 };
 
@@ -149,7 +149,7 @@ export async function GET(req: Request) {
         where: {
           id: scopeUserId,
           team: session.team,
-          role: { in: ["admin", "staff"] },
+          role: { in: ["admin", "staff", "emissor"] },
         },
         select: { id: true },
       });
@@ -200,7 +200,7 @@ export async function GET(req: Request) {
     const users = await prisma.user.findMany({
       where: {
         team: session.team,
-        role: { in: ["admin", "staff"] },
+        role: { in: ["admin", "staff", "emissor"] },
         ...(scopeUserId ? { id: scopeUserId } : {}),
       },
       select: { id: true, name: true, login: true },
@@ -209,7 +209,7 @@ export async function GET(req: Request) {
 
     const teamUsers = isAdmin
       ? await prisma.user.findMany({
-          where: { team: session.team, role: { in: ["admin", "staff"] } },
+          where: { team: session.team, role: { in: ["admin", "staff", "emissor"] } },
           select: { id: true, name: true, login: true },
           orderBy: [{ name: "asc" }],
         })

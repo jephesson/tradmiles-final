@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { isSocio, socioCanCallApi, socioCanVisit, socioHome } from "@/lib/roles";
+import {
+  EMISSOR_HOME,
+  emissorCanCallApi,
+  emissorCanVisit,
+  isEmissor,
+  isSocio,
+  socioCanCallApi,
+  socioCanVisit,
+  socioHome,
+} from "@/lib/roles";
 import { isSessionIdleExpired } from "@/lib/session-idle";
 import { verifySessionValueEdge } from "@/lib/session-token";
 
@@ -69,6 +78,9 @@ export async function middleware(req: NextRequest) {
         return NextResponse.redirect(new URL(socioHome(pages), req.url));
       }
     }
+    if (isEmissor(sess?.role) && !emissorCanVisit(url.pathname)) {
+      return NextResponse.redirect(new URL(EMISSOR_HOME, req.url));
+    }
     return NextResponse.next();
   }
 
@@ -78,13 +90,31 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  if (url.pathname.startsWith("/api/") && valid && isEmissor(sess?.role)) {
+    if (!emissorCanCallApi(url.pathname, req.method)) {
+      return NextResponse.json({ ok: false, error: "Sem permissão." }, { status: 403 });
+    }
+  }
+
   if (isLogin) {
     if (req.method !== "GET") return NextResponse.next();
     if (valid) {
       const wanted = sanitizeNext(url.searchParams.get("next"));
-      const home = isSocio(sess?.role) ? socioHome(sess?.pages || []) : "/dashboard";
+      const home = isSocio(sess?.role)
+        ? socioHome(sess?.pages || [])
+        : isEmissor(sess?.role)
+          ? EMISSOR_HOME
+          : "/dashboard";
       const target = new URL(
-        wanted && !isSocio(sess?.role) ? wanted : wanted && socioCanVisit(wanted, sess?.pages) ? wanted : home,
+        isEmissor(sess?.role)
+          ? wanted && emissorCanVisit(wanted)
+            ? wanted
+            : home
+          : wanted && !isSocio(sess?.role)
+            ? wanted
+            : wanted && socioCanVisit(wanted, sess?.pages)
+              ? wanted
+              : home,
         req.url
       );
       return NextResponse.redirect(target);

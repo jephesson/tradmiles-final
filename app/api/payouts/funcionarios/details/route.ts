@@ -296,7 +296,7 @@ export async function GET(req: NextRequest) {
   }
 
   const membersRaw = await prisma.user.findMany({
-    where: { team: session.team, role: { in: ["admin", "staff"] } },
+    where: { team: session.team, role: { in: ["admin", "staff", "emissor"] } },
     select: { id: true, name: true, login: true },
   });
   const members: TeamMemberLite[] = membersRaw.map((u) => ({

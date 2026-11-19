@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Role = "admin" | "staff" | "socio";
+type Role = "admin" | "staff" | "socio" | "emissor";
 
 type SessionCookie = {
   id: string;

@@ -5,7 +5,7 @@ import { hasSessionSecret, sessionSecret } from "@/lib/session-secret";
 export type Sess = {
   id: string;
   login: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
   team: string;
   pages?: string[];
   last?: number;

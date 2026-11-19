@@ -92,6 +92,22 @@ export async function GET(req: Request) {
     return bad("Só admin lista todos os cartões.", 403);
   }
 
+  // Emissor: só cartões da empresa ou de sócio (nunca de outro emissor).
+  if (session.role === "emissor") {
+    if (!userId) {
+      const rows = await prisma.employeePaymentCard.findMany({
+        where: { team: session.team, isCompany: true },
+        orderBy: [{ isDefaultBoarding: "desc" }, { createdAt: "desc" }],
+      });
+      return NextResponse.json({ ok: true, data: rows.map(publicCard) });
+    }
+    const owner = await prisma.user.findFirst({
+      where: { id: userId, team: session.team, isActive: true, role: { in: ["admin", "staff"] } },
+      select: { id: true },
+    });
+    if (!owner) return bad("Cartão só de sócio ou da empresa.", 403);
+  }
+
   const ownerFilter = all
     ? {}
     : userId

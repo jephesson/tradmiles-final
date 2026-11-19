@@ -407,7 +407,9 @@ function applyLatamWindow(s: Suggestion, usedRaw: number): Suggestion {
 export default function NovaVendaClient({
   initialMe,
   initialEmployeeCommission,
+  isEmissor = false,
 }: {
+  isEmissor?: boolean;
   initialMe: UserLite;
   initialEmployeeCommission: {
     employeeC1Bps: number;
@@ -944,6 +946,23 @@ export default function NovaVendaClient({
     if (!c?.id) throw new Error("Cedente não encontrado.");
     setSel(suggestionFromCedenteRecord(c, ptsFromCedenteRecord(c, program)));
   }
+
+  // Emissor: o cartão da taxa abre no padrão definido pelo admin (sócio ou Vias Aéreas).
+  useEffect(() => {
+    if (!isEmissor) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/funcionarios/payment-cards/default", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        const def = json?.ok ? json.data : null;
+        if (def?.isCompany) setFeeCardPreset("VIAS");
+        else if (def?.userId) setFeeCardPreset(`USER:${def.userId}`);
+        else setFeeCardPreset("VIAS");
+      } catch {
+        setFeeCardPreset("VIAS");
+      }
+    })();
+  }, [isEmissor]);
 
   // carrega funcionários (preferência: /api/funcionarios)
   useEffect(() => {
@@ -1642,7 +1661,7 @@ export default function NovaVendaClient({
         return;
       }
       if (opts?.goVendasIfNoSuggest !== false) {
-        window.location.href = "/dashboard/vendas";
+        window.location.href = isEmissor ? "/dashboard/vendas/nova" : "/dashboard/vendas";
       }
     })();
   }
@@ -1657,7 +1676,7 @@ export default function NovaVendaClient({
       });
       setFinalizeSuggestOpen(false);
       setFinalizeSuggest(null);
-      window.location.href = "/dashboard/vendas";
+      window.location.href = isEmissor ? "/dashboard/vendas/nova" : "/dashboard/vendas";
     } catch (e: any) {
       alert(e?.message || "Falha ao finalizar a compra.");
     } finally {
@@ -1668,7 +1687,7 @@ export default function NovaVendaClient({
   function declineFinalizeSuggest() {
     setFinalizeSuggestOpen(false);
     setFinalizeSuggest(null);
-    window.location.href = "/dashboard/vendas";
+    window.location.href = isEmissor ? "/dashboard/vendas/nova" : "/dashboard/vendas";
   }
 
   const eligibleSuggestions = useMemo(
@@ -2147,10 +2166,12 @@ export default function NovaVendaClient({
           ) : null}
         </div>
 
-        <Link href="/dashboard/vendas" className={cn(BTN_SECONDARY, "shrink-0 self-start")}>
-          <ArrowLeft className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
-          Voltar às vendas
-        </Link>
+        {isEmissor ? null : (
+          <Link href="/dashboard/vendas" className={cn(BTN_SECONDARY, "shrink-0 self-start")}>
+            <ArrowLeft className="h-4 w-4 text-slate-500" strokeWidth={2} aria-hidden />
+            Voltar às vendas
+          </Link>
+        )}
       </div>
 
       <nav
@@ -3427,6 +3448,7 @@ export default function NovaVendaClient({
                         >
                           {assignedSellerId ? "Atribuída" : "Logado"}
                         </span>
+                        {isEmissor ? null : (
                         <button
                           type="button"
                           onClick={() => setAssignSellerOpen((v) => !v)}
@@ -3434,6 +3456,7 @@ export default function NovaVendaClient({
                         >
                           Trocar
                         </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -3695,7 +3718,7 @@ export default function NovaVendaClient({
                     value={feeCardPreset}
                     onChange={(e) => setFeeCardPreset(e.target.value)}
                   >
-                    <option value="SELF">{selfLabel}</option>
+                    {isEmissor ? null : <option value="SELF">{selfLabel}</option>}
                     <option value="VIAS">Vias Aéreas</option>
                     {users.length ? <option disabled>────────────</option> : null}
                     {users.map((u) => (
@@ -3703,7 +3726,7 @@ export default function NovaVendaClient({
                         {u.name} (@{u.login})
                       </option>
                     ))}
-                    <option value="MANUAL">Manual</option>
+                    {isEmissor ? null : <option value="MANUAL">Manual</option>}
                   </select>
 
                   {feeCardPreset === "MANUAL" ? (

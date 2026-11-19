@@ -6,7 +6,7 @@ import { readSessionCookie } from "@/lib/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Sess = { id: string; login: string; team: string; role: "admin" | "staff" | "socio" };
+type Sess = { id: string; login: string; team: string; role: "admin" | "staff" | "socio" | "emissor" };
 
 
 
@@ -69,8 +69,9 @@ export async function GET(req: Request) {
   const at = atParam ? parseDateISOToLocalDay(atParam) : null;
   const now = at ?? new Date();
 
+  // Emissor não entra no rateio (C3): só recebe C1/C2.
   const users = await prisma.user.findMany({
-    where: { team: session.team },
+    where: { team: session.team, role: { not: "emissor" } },
     orderBy: { name: "asc" },
     select: { id: true, name: true, login: true, role: true },
   });
@@ -201,7 +202,7 @@ export async function PUT(req: Request) {
   // valida payees no mesmo team
   const payeeIds: string[] = items.map((it: RateioItem) => it.payeeId);
   const payees = await prisma.user.findMany({
-    where: { id: { in: payeeIds }, team: session.team },
+    where: { id: { in: payeeIds }, team: session.team, role: { not: "emissor" } },
     select: { id: true },
   });
   if (payees.length !== payeeIds.length) {

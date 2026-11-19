@@ -4,7 +4,7 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 export function totpRequired(role: string) {
   const r = String(role || "").trim().toLowerCase();
-  return r === "admin" || r === "staff";
+  return r === "admin" || r === "staff" || r === "emissor";
 }
 
 export function generateTotpSecret(): string {

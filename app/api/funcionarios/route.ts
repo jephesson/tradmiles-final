@@ -1,3 +1,5 @@
+import { listSocios } from "@/lib/emissores";
+import { getSessionServer } from "@/lib/auth-server";
 // app/api/funcionarios/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
@@ -45,8 +47,18 @@ function slugifyId(v: string) {
 // =========================
 export async function GET() {
   try {
+    // Emissor só precisa dos sócios (dono do cartão da taxa), sem CPF/PIX.
+    const sess = await getSessionServer().catch(() => null);
+    if (sess?.role === "emissor") {
+      const socios = await listSocios(sess.team);
+      return NextResponse.json({
+        ok: true,
+        data: socios.map((u) => ({ id: u.id, name: u.name, login: u.login, role: "staff", isActive: true })),
+      });
+    }
+
     const users = await prisma.user.findMany({
-      where: { role: { not: "socio" } },
+      where: { role: { notIn: ["socio", "emissor"] } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

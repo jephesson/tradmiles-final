@@ -46,7 +46,7 @@ type Sess = {
   id: string;
   login: string;
   team: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
   name?: string;
   email?: string | null;
 };
@@ -315,7 +315,8 @@ export async function POST(req: Request) {
   const cedenteKey = String(body.cedenteId || "").trim();
   const clienteId = String(body.clienteId || "").trim();
   const purchaseKey = String(body.purchaseNumero || body.purchaseId || "").trim();
-  const sellerIdRaw = String(body.sellerId || "").trim();
+  // Emissor vende sempre em nome próprio (não atribui a outra pessoa).
+  const sellerIdRaw = session?.role === "emissor" ? "" : String(body.sellerId || "").trim();
 
   const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
   const locator = body.locator ? String(body.locator) : null;
@@ -799,7 +800,8 @@ export async function POST(req: Request) {
 
       return {
         sale,
-        finalizeSuggest: shouldSuggest
+        // Emissor não finaliza compra (rateio é dos sócios).
+        finalizeSuggest: shouldSuggest && session?.role !== "emissor"
           ? {
               purchaseId: purchaseIdReal,
               purchaseNumero: purchase.numero,

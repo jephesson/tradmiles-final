@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { emissorSocioMap } from "@/lib/emissores";
 import { requireSession } from "@/lib/auth-server";
 import { chooseC1, dayBounds, milheiroNoFeeFromPv, todayISORecife } from "@/lib/payouts/employeePayouts";
 import {
@@ -282,6 +283,7 @@ export async function POST(req: Request) {
       where: { team, role: { in: ["admin", "staff"] } },
       select: { id: true, name: true, login: true },
     });
+    const emissorToSocio = await emissorSocioMap(team);
     const members: TeamMemberLite[] = membersRaw.map((u) => ({
       id: String(u.id),
       nameNorm: norm(String(u.name || "")),
@@ -574,7 +576,9 @@ export async function POST(req: Request) {
       if (fee > 0) {
         const { ignore, userId } = resolveFeePayerFromLabel(s.feeCardLabel, members);
         if (!ignore) {
-          const receiverId = userId || sellerId;
+          // Taxa paga por emissor sai do cartão de um sócio: sem dono identificado, vai ao sócio vinculado.
+          const fallbackId = sellerId ? emissorToSocio.get(sellerId) || sellerId : sellerId;
+          const receiverId = userId || fallbackId;
           if (receiverId) ensure(receiverId).feeCents += fee;
         }
       }

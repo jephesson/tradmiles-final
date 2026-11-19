@@ -8,7 +8,7 @@ type Sess = {
   login: string;
   name?: string;
   team: string;
-  role: "admin" | "staff" | "socio";
+  role: "admin" | "staff" | "socio" | "emissor";
 };
 
 

@@ -138,7 +138,8 @@ export default function Sidebar() {
     const roleOk =
       fromStorage?.role === "admin" ||
       fromStorage?.role === "staff" ||
-      fromStorage?.role === "socio";
+      fromStorage?.role === "socio" ||
+      fromStorage?.role === "emissor";
     if (roleOk) return;
 
     let cancelled = false;
@@ -185,6 +186,7 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/clientes") ||
     pathname.startsWith("/dashboard/funcionarios") ||
     pathname.startsWith("/dashboard/socios") ||
+    pathname.startsWith("/dashboard/emissores") ||
     pathname.startsWith("/dashboard/bloqueios");
 
   const isIndicacoesRoute = pathname.startsWith("/dashboard/indicacoes");
@@ -396,6 +398,7 @@ export default function Sidebar() {
     pathname.startsWith("/dashboard/funcionarios")
   );
   const [openSocios, setOpenSocios] = useState(pathname.startsWith("/dashboard/socios"));
+  const [openEmissores, setOpenEmissores] = useState(pathname.startsWith("/dashboard/emissores"));
   const [openClientes, setOpenClientes] = useState(
     pathname.startsWith("/dashboard/clientes")
   );
@@ -494,6 +497,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     setOpenSocios(pathname.startsWith("/dashboard/socios"));
+    setOpenEmissores(pathname.startsWith("/dashboard/emissores"));
   }, [pathname]);
 
   useEffect(() => {
@@ -642,6 +646,7 @@ export default function Sidebar() {
     Cedentes: setOpenCedentes,
     Funcionarios: setOpenFuncionarios,
     Socios: setOpenSocios,
+    Emissores: setOpenEmissores,
     Clientes: setOpenClientes,
     PontosVisualizar: setOpenPontosVisualizar,
     Clubes: setOpenClubes,
@@ -663,7 +668,7 @@ export default function Sidebar() {
   };
   const NAV_GROUPS: string[][] = [
     ["Cadastro", "GestaoPontos", "Lucros", "Analise", "Financeiro", "Rede", "GestorEmissoes", "EmissoesBalcao", "Outros"],
-    ["Cedentes", "Funcionarios", "Socios", "Clientes"],
+    ["Cedentes", "Funcionarios", "Emissores", "Socios", "Clientes"],
     ["PontosVisualizar", "Clubes", "Compras", "Vendas", "CheckLocalizador", "CotacaoPassagens"],
     ["ContasSelecionadasLatam", "ContasSelecionadasSmiles", "ContasSelecionadasLivelo"],
     ["EmissoesPorCedente", "PainelEmissoes"],
@@ -686,7 +691,19 @@ export default function Sidebar() {
     <>
       <div className="flex min-h-0 flex-1 flex-col">
         <NavScroll>
-        {session?.role === "socio" ? (
+        {session?.role === "emissor" ? (
+          <Accordion
+            title="Emissões"
+            open
+            onToggle={() => {}}
+            active
+            accent="emerald"
+          >
+            <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
+            <NavLink href="/dashboard/painel-emissoes">Painel de emissões</NavLink>
+            <NavLink href="/dashboard/agenda">Agenda</NavLink>
+          </Accordion>
+        ) : session?.role === "socio" ? (
           <Accordion
             title="Financeiro"
             open
@@ -770,6 +787,16 @@ export default function Sidebar() {
               Dados de pagamento
             </NavLink>
           </SubAccordion>
+
+          {session?.role === "admin" ? (
+          <SubAccordion
+            title="Emissores"
+            open={openEmissores}
+            onToggle={() => toggleNav("Emissores", openEmissores)}
+          >
+            <NavLink href="/dashboard/emissores">Emissores</NavLink>
+          </SubAccordion>
+          ) : null}
 
           {session?.role === "admin" ? (
           <SubAccordion
@@ -1327,7 +1354,7 @@ export default function Sidebar() {
       </div>
       <NavFooter
         isAdmin={session?.role === "admin"}
-        isSocio={session?.role === "socio"}
+        isSocio={session?.role === "socio" || session?.role === "emissor"}
         onLogout={() => void doLogout()}
       />
     </>

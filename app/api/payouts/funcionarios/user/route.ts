@@ -56,7 +56,7 @@ export async function GET(req: Request) {
 
     // (opcional, mas bom) garante que o userId existe no time
     const user = await prisma.user.findFirst({
-      where: { id: userId, team, role: { in: ["admin", "staff"] } },
+      where: { id: userId, team, role: { in: ["admin", "staff", "emissor"] } },
       select: { id: true, name: true, login: true },
     });
     if (!user) {
