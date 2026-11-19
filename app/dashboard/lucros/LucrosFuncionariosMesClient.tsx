@@ -264,9 +264,9 @@ function TeamProfitSummary({
           tone="amber"
         />
         <MiniStat
-          label="A receber (após dívidas)"
+          label="Recebido (após dívidas)"
           value={fmtMoneyBR(t?.netAfterDebt ?? t?.netNoFee ?? 0)}
-          hint="o que cai na conta"
+          hint="o que já caiu na conta"
           tone="slate"
         />
         <MiniStat label="Taxas de embarque" value={fmtMoneyBR(t?.fee || 0)} hint="reembolso, fora do lucro" tone="sky" />
@@ -437,7 +437,7 @@ function EmployeeDetail({ r }: { r: SummaryRow }) {
             sign="−"
           />
         ) : null}
-        <DetailLine label="A receber" cents={r.netAfterDebtCents ?? r.netNoFeeCents} strong />
+        <DetailLine label="Recebido" cents={r.netAfterDebtCents ?? r.netNoFeeCents} strong />
       </DetailCard>
     </div>
   );
@@ -1307,7 +1307,7 @@ export default function LucrosFuncionariosMesClient() {
                 <th className="px-3 py-3 text-right" title="Comissão do balcão (60%), já líquida">+ Balcão</th>
                 <th className={cn("px-3 py-3 text-right", lucroCellCls)}>= Lucro</th>
                 <th className="px-3 py-3 text-right" title="Dívidas com a empresa abatidas no mês">Dívidas</th>
-                <th className="px-3 py-3 text-right" title="Lucro menos as dívidas abatidas">A receber</th>
+                <th className="px-3 py-3 text-right" title="Lucro menos as dívidas abatidas: o que caiu na conta">Recebido</th>
                 <th className="px-3 py-3 text-right">Horas</th>
                 <th className="px-3 py-3 text-right">R$/hora</th>
               </tr>
