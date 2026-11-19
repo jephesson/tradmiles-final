@@ -142,6 +142,10 @@ export async function GET(req: Request) {
         balcaoGross: number;
         balcaoTax: number;
         balcaoCommission: number;
+        bonusGross: number;
+        bonusTax: number;
+        bonusNet: number;
+        salesTax: number;
       }
     > = {};
 
@@ -162,6 +166,10 @@ export async function GET(req: Request) {
         balcaoGross: 0,
         balcaoTax: 0,
         balcaoCommission: 0,
+        bonusGross: 0,
+        bonusTax: 0,
+        bonusNet: 0,
+        salesTax: 0,
       });
     }
 
@@ -189,6 +197,7 @@ export async function GET(req: Request) {
 
       a.gross += gross;
       a.payoutTax += tax;
+      a.salesTax += tax;
       a.fee += fee;
 
       a.payoutNetNoFee += netNoFee;
@@ -228,7 +237,42 @@ export async function GET(req: Request) {
       const a = ensure(userId);
       a.payoutNetNoFee += bonus.netBonusCents;
       a.payoutTax += bonus.taxCents;
+      a.bonusGross += bonus.grossBonusCents;
+      a.bonusTax += bonus.taxCents;
+      a.bonusNet += bonus.netBonusCents;
       if (!day1PayoutUsers.has(userId) && bonus.netBonusCents > 0) a.days += 1;
+    }
+
+    // Dívidas com a empresa abatidas no mês, por dívida (só informativo: não mexe no lucro).
+    const debtCharges = await prisma.employeeDebtDayCharge.groupBy({
+      by: ["userId", "dividaId"],
+      where: { team, date: { gte: startDate, lt: endDate } },
+      _sum: { amountCents: true },
+      _count: { _all: true },
+    });
+    const debtInfo = debtCharges.length
+      ? await prisma.dividaAReceber.findMany({
+          where: { id: { in: [...new Set(debtCharges.map((d) => d.dividaId))] } },
+          select: { id: true, title: true, totalCents: true, receivedCents: true, status: true },
+        })
+      : [];
+    const debtById = new Map(debtInfo.map((d) => [d.id, d]));
+    const debtsByUser = new Map<
+      string,
+      { id: string; title: string; chargedCents: number; days: number; remainingCents: number; status: string }[]
+    >();
+    for (const d of debtCharges) {
+      const info = debtById.get(d.dividaId);
+      const list = debtsByUser.get(d.userId) || [];
+      list.push({
+        id: d.dividaId,
+        title: info?.title || "Dívida",
+        chargedCents: safeInt(d._sum.amountCents, 0),
+        days: d._count._all,
+        remainingCents: Math.max(0, safeInt(info?.totalCents, 0) - safeInt(info?.receivedCents, 0)),
+        status: String(info?.status || ""),
+      });
+      debtsByUser.set(d.userId, list);
     }
 
     const teamUsers = users.map((u) => ({
@@ -270,7 +314,15 @@ export async function GET(req: Request) {
           balcaoGross: 0,
           balcaoTax: 0,
           balcaoCommission: 0,
+          bonusGross: 0,
+          bonusTax: 0,
+          bonusNet: 0,
+          salesTax: 0,
         } as const);
+      // Líquido = o que o funcionário ganhou no mês. Dívida descontada não reduz o ganho:
+      // aparece à parte, junto com o que sobra depois dela.
+      const net = Math.max(0, a.payoutNetNoFee + a.balcaoCommission);
+      const minutes = minutesMap.get(`${u.id}|${month}`) || 0;
 
       return {
         user: { id: u.id, name: u.name, login: u.login, role: u.role },
@@ -290,15 +342,21 @@ export async function GET(req: Request) {
         balcaoOpsCount: a.balcaoOps,
         balcaoGrossCents: a.balcaoGross,
         balcaoCommissionCents: a.balcaoCommission,
+        bonusGrossCents: a.bonusGross,
+        bonusTaxCents: a.bonusTax,
+        bonusNetCents: a.bonusNet,
+        bonusParts: bonusByUser.get(u.id)?.parts || [],
+        salesTaxCents: a.salesTax,
+        salesNetCents: a.gross - a.salesTax,
+        debts: debtsByUser.get(u.id) || [],
 
-        netNoFeeCents: Math.max(0, a.payoutNetNoFee + a.balcaoCommission - a.discount),
+        netNoFeeCents: net,
+        debtDiscountCents: a.discount,
+        netAfterDebtCents: Math.max(0, net - a.discount),
         netWithFeeCents: a.netWithFee,
-        agendaMinutes: minutesMap.get(`${u.id}|${month}`) || 0,
-        agendaHours: hoursFromMinutes(minutesMap.get(`${u.id}|${month}`) || 0),
-        centsPerHour: centsPerHour(
-          Math.max(0, a.payoutNetNoFee + a.balcaoCommission - a.discount),
-          minutesMap.get(`${u.id}|${month}`) || 0
-        ),
+        agendaMinutes: minutes,
+        agendaHours: hoursFromMinutes(minutes),
+        centsPerHour: centsPerHour(net, minutes),
       };
     });
 
@@ -318,6 +376,11 @@ export async function GET(req: Request) {
         acc.balcaoGross += r.balcaoGrossCents;
         acc.balcaoCommission += r.balcaoCommissionCents;
         acc.netNoFee += r.netNoFeeCents;
+        acc.debtDiscount += r.debtDiscountCents;
+        acc.netAfterDebt += r.netAfterDebtCents;
+        acc.bonusGross += r.bonusGrossCents;
+        acc.bonusTax += r.bonusTaxCents;
+        acc.salesTax += r.salesTaxCents;
         acc.netWithFee += r.netWithFeeCents;
         return acc;
       },
@@ -336,6 +399,11 @@ export async function GET(req: Request) {
         balcaoGross: 0,
         balcaoCommission: 0,
         netNoFee: 0,
+        debtDiscount: 0,
+        netAfterDebt: 0,
+        bonusGross: 0,
+        bonusTax: 0,
+        salesTax: 0,
         netWithFee: 0,
       }
     );

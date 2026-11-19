@@ -90,8 +90,8 @@ export async function loadEmployeeHourlyHistory(
     const month = day.slice(0, 7);
     if (!isMonthISO(month)) continue;
     const bucket = ensure(p.userId, month);
-    bucket.payoutNetNoFee +=
-      safeInt(p.grossProfitCents, 0) - safeInt(p.tax7Cents, 0) - safeInt(p.discountCents, 0);
+    // Dívida descontada não reduz o ganho do mês (nem o R$/hora).
+    bucket.payoutNetNoFee += safeInt(p.grossProfitCents, 0) - safeInt(p.tax7Cents, 0);
     monthsSet.add(month);
   }
 

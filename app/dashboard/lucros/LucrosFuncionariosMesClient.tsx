@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Eye,
   FileDown,
   Info,
@@ -34,6 +36,15 @@ type SummaryRow = {
   balcaoCommissionCents: number;
 
   netNoFeeCents: number;
+  bonusGrossCents?: number;
+  bonusTaxCents?: number;
+  bonusNetCents?: number;
+  bonusParts?: { kind: string; title: string; detail: string; grossCents: number; taxCents: number; netCents: number }[];
+  salesTaxCents?: number;
+  salesNetCents?: number;
+  debts?: { id: string; title: string; chargedCents: number; days: number; remainingCents: number; status: string }[];
+  debtDiscountCents?: number;
+  netAfterDebtCents?: number;
   netWithFeeCents: number;
   agendaMinutes?: number;
   agendaHours?: number;
@@ -61,6 +72,11 @@ type SummaryResp = {
     balcaoGross: number;
     balcaoCommission: number;
     netNoFee: number;
+    debtDiscount?: number;
+    netAfterDebt?: number;
+    bonusGross?: number;
+    bonusTax?: number;
+    salesTax?: number;
     netWithFee: number;
   };
   viewer?: { isAdmin: boolean; meId: string; asUserId: string | null };
@@ -183,33 +199,246 @@ async function apiGet<T>(url: string): Promise<T> {
   return json as T;
 }
 
-function KPI({
+/** Composição do lucro da equipe no mês, de cima para baixo. */
+function TeamProfitSummary({
+  totals,
+  loading,
+}: {
+  totals: SummaryResp["totals"] | undefined;
+  loading: boolean;
+}) {
+  const t = totals;
+  const steps: { label: string; hint: string; cents: number; sign: "+" | "−" | "" }[] = [
+    { label: "Comissões das vendas", hint: "C1 + C2 + C3", cents: t?.gross || 0, sign: "" },
+    { label: "Bônus do dia 1", hint: "meta, cashback, assiduidade", cents: t?.bonusGross || 0, sign: "+" },
+    {
+      label: "Imposto",
+      hint: `vendas ${fmtMoneyBR(t?.salesTax || 0)} · bônus ${fmtMoneyBR(t?.bonusTax || 0)}`,
+      cents: t?.payoutTax || 0,
+      sign: "−",
+    },
+    { label: "Balcão (60%)", hint: "comissão já líquida", cents: t?.balcaoCommission || 0, sign: "+" },
+  ];
+  return (
+    <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]", loading && "opacity-60")}>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lucro da equipe no mês</div>
+        <div className="mt-3 divide-y divide-slate-100">
+          {steps.map((st) => (
+            <div key={st.label} className="flex items-center justify-between gap-3 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-800">
+                  {st.sign ? <span className="mr-1.5 text-slate-400">{st.sign}</span> : null}
+                  {st.label}
+                </div>
+                <div className="text-xs text-slate-500">{st.hint}</div>
+              </div>
+              <div
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  st.sign === "−" ? "text-rose-700" : "text-slate-900"
+                )}
+              >
+                {st.sign === "−" ? "− " : ""}
+                {fmtMoneyBR(st.cents)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 flex items-end justify-between gap-3 rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
+          <div>
+            <div className="text-sm font-semibold text-emerald-900">= Lucro líquido</div>
+            <div className="text-xs text-emerald-800/80">base do bônus e do imposto · sem taxa e sem dívida</div>
+          </div>
+          <div className="text-2xl font-bold tabular-nums tracking-tight text-emerald-900">
+            {fmtMoneyBR(t?.netNoFee || 0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <MiniStat
+          label="Dívidas abatidas"
+          value={fmtMoneyBR(t?.debtDiscount || 0)}
+          hint="empréstimos da empresa"
+          tone="amber"
+        />
+        <MiniStat
+          label="A receber (após dívidas)"
+          value={fmtMoneyBR(t?.netAfterDebt ?? t?.netNoFee ?? 0)}
+          hint="o que cai na conta"
+          tone="slate"
+        />
+        <MiniStat label="Taxas de embarque" value={fmtMoneyBR(t?.fee || 0)} hint="reembolso, fora do lucro" tone="sky" />
+        <MiniStat
+          label="Imposto do balcão"
+          value={fmtMoneyBR(t?.balcaoTax || 0)}
+          hint={`${t?.balcaoOps || 0} ops no balcão`}
+          tone="slate"
+        />
+        <MiniStat label="Vendas" value={String(t?.salesCount || 0)} hint="no mês" tone="slate" />
+        <MiniStat label="Dias computados" value={String(t?.days || 0)} hint="somando a equipe" tone="slate" />
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({
   label,
   value,
-  emphasis = "default",
+  hint,
+  tone,
 }: {
   label: string;
   value: string;
-  emphasis?: "default" | "net" | "profit" | "warn";
+  hint: string;
+  tone: "amber" | "sky" | "slate";
 }) {
-  const bar =
-    emphasis === "net"
-      ? "bg-emerald-500"
-      : emphasis === "profit"
-        ? "bg-sky-500"
-        : emphasis === "warn"
-          ? "bg-amber-500"
-          : "bg-slate-300";
-
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/70 p-3.5 shadow-sm shadow-slate-200/35">
-      <div className={cn("absolute left-0 top-0 h-full w-1 rounded-r", bar)} aria-hidden />
-      <div className="pl-2.5">
-        <div className="text-[10px] font-semibold uppercase leading-snug tracking-wide text-slate-500">
-          {label}
+    <div
+      className={cn(
+        "rounded-2xl border p-3.5 shadow-sm",
+        tone === "amber" && "border-amber-200 bg-amber-50/70",
+        tone === "sky" && "border-sky-200 bg-sky-50/70",
+        tone === "slate" && "border-slate-200/80 bg-white"
+      )}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-base font-bold tabular-nums text-slate-900">{value}</div>
+      <div className="text-[11px] text-slate-500">{hint}</div>
+    </div>
+  );
+}
+
+function DetailLine({
+  label,
+  cents,
+  sign,
+  strong,
+  muted,
+}: {
+  label: React.ReactNode;
+  cents: number;
+  sign?: "+" | "−";
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div className={cn("flex items-baseline justify-between gap-3 py-1 text-sm", strong && "border-t border-slate-200 pt-2")}>
+      <span className={cn(muted ? "text-slate-500" : "text-slate-700", strong && "font-semibold text-slate-900")}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          "tabular-nums",
+          sign === "−" ? "text-rose-700" : "text-slate-900",
+          strong && "font-bold",
+          muted && "text-slate-500"
+        )}
+      >
+        {sign === "−" ? "− " : sign === "+" ? "+ " : ""}
+        {fmtMoneyBR(cents)}
+      </span>
+    </div>
+  );
+}
+
+function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+/** Conta completa de um funcionário no mês. */
+function EmployeeDetail({ r }: { r: SummaryRow }) {
+  const commissions = r.commission1Cents + r.commission2Cents + r.commission3RateioCents;
+  const salesTax = r.salesTaxCents ?? r.payoutTaxCents - (r.bonusTaxCents || 0);
+  const parts = r.bonusParts || [];
+  const debts = r.debts || [];
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <DetailCard title={`Vendas · ${r.salesCount} vendas em ${r.days} dias`}>
+        <DetailLine label="C1 (1%)" cents={r.commission1Cents} />
+        <DetailLine label="C2 (bônus)" cents={r.commission2Cents} sign="+" />
+        <DetailLine label="C3 (rateio)" cents={r.commission3RateioCents} sign="+" />
+        <DetailLine label="Comissões" cents={commissions} strong />
+        <DetailLine label="Imposto das vendas" cents={salesTax} sign="−" />
+        <DetailLine label="Líquido das vendas" cents={commissions - salesTax} strong />
+      </DetailCard>
+
+      <DetailCard title="Bônus do dia 1">
+        {parts.length ? (
+          <>
+            {parts.map((p, i) => (
+              <div key={`${p.kind}-${i}`} className="border-b border-slate-100 py-1.5 last:border-0">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="text-slate-700">{p.title}</span>
+                  <span className="tabular-nums text-slate-900">{fmtMoneyBR(p.grossCents)}</span>
+                </div>
+                <div className="flex justify-between gap-3 text-[11px] text-slate-500">
+                  <span>imposto {fmtMoneyBR(p.taxCents)}</span>
+                  <span>líquido {fmtMoneyBR(p.netCents)}</span>
+                </div>
+              </div>
+            ))}
+            <DetailLine label="Bônus" cents={r.bonusGrossCents || 0} strong />
+            <DetailLine label="Imposto do bônus" cents={r.bonusTaxCents || 0} sign="−" />
+            <DetailLine label="Líquido do bônus" cents={r.bonusNetCents || 0} strong />
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">Sem bônus pago no dia 1 deste mês.</p>
+        )}
+      </DetailCard>
+
+      <DetailCard title={`Balcão · ${r.balcaoOpsCount} ops`}>
+        {r.balcaoOpsCount ? (
+          <>
+            <DetailLine label="Lucro das emissões" cents={r.balcaoGrossCents} />
+            <DetailLine label="Imposto do balcão" cents={r.balcaoTaxCents} sign="−" />
+            <DetailLine label="Comissão (60%)" cents={r.balcaoCommissionCents} strong />
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">Nenhuma emissão no balcão.</p>
+        )}
+        <div className="mt-3 border-t border-dashed border-slate-200 pt-2">
+          <DetailLine label="Taxa de embarque (reembolso, fora do lucro)" cents={r.feeCents} muted />
         </div>
-        <div className="mt-1.5 text-sm font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
-      </div>
+      </DetailCard>
+
+      <DetailCard title="Resultado">
+        <DetailLine label="Líquido das vendas" cents={commissions - salesTax} />
+        <DetailLine label="Líquido do bônus" cents={r.bonusNetCents || 0} sign="+" />
+        <DetailLine label="Balcão (60%)" cents={r.balcaoCommissionCents} sign="+" />
+        <div className="my-1 rounded-lg bg-emerald-50 px-2 ring-1 ring-emerald-200">
+          <DetailLine label="Lucro do mês" cents={r.netNoFeeCents} strong />
+        </div>
+        {debts.length ? (
+          debts.map((d) => (
+            <div key={d.id} className="py-1">
+              <DetailLine label={`Dívida: ${d.title}`} cents={d.chargedCents} sign="−" />
+              <div className="text-[11px] text-slate-500">
+                {d.days} {d.days === 1 ? "dia" : "dias"} de desconto ·{" "}
+                {d.remainingCents > 0 ? `faltam ${fmtMoneyBR(d.remainingCents)}` : "quitada"}
+              </div>
+            </div>
+          ))
+        ) : r.debtDiscountCents ? (
+          <DetailLine label="Descontos" cents={r.debtDiscountCents} sign="−" />
+        ) : (
+          <p className="py-1 text-xs text-slate-500">Sem dívida abatida no mês.</p>
+        )}
+        {r.debtDiscountCents && debts.reduce((a, d) => a + d.chargedCents, 0) !== r.debtDiscountCents ? (
+          <DetailLine
+            label="Desconto manual"
+            cents={r.debtDiscountCents - debts.reduce((a, d) => a + d.chargedCents, 0)}
+            sign="−"
+          />
+        ) : null}
+        <DetailLine label="A receber" cents={r.netAfterDebtCents ?? r.netNoFeeCents} strong />
+      </DetailCard>
     </div>
   );
 }
@@ -790,6 +1019,7 @@ export default function LucrosFuncionariosMesClient() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [asUserId, setAsUserId] = useState("");
   const [teamUsers, setTeamUsers] = useState<SummaryResp["teamUsers"]>([]);
+  const [openRowId, setOpenRowId] = useState<string | null>(null);
 
   async function load(m = month) {
     setLoading(true);
@@ -1009,15 +1239,7 @@ export default function LucrosFuncionariosMesClient() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-        <KPI label="Líquido total (sem taxa)" value={fmtMoneyBR(data?.totals.netNoFee || 0)} emphasis="net" />
-        <KPI label="Comissão balcão (60%)" value={fmtMoneyBR(data?.totals.balcaoCommission || 0)} emphasis="profit" />
-        <KPI label="Imposto (milhas + balcão)" value={fmtMoneyBR(data?.totals.tax || 0)} />
-        <KPI label="Taxas (reembolso)" value={fmtMoneyBR(data?.totals.fee || 0)} emphasis="warn" />
-        <KPI label="Bruto (C1+C2+C3)" value={fmtMoneyBR(data?.totals.gross || 0)} />
-        <KPI label="Vendas (mês)" value={String(data?.totals.salesCount || 0)} />
-        <KPI label="Dias computados" value={String(data?.totals.days || 0)} />
-      </div>
+      <TeamProfitSummary totals={data?.totals} loading={loading} />
 
       {err ? (
         <div className="rounded-2xl border border-rose-200/90 bg-rose-50/90 px-4 py-3 text-sm text-rose-900">
@@ -1046,83 +1268,140 @@ export default function LucrosFuncionariosMesClient() {
       )}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
-        <div className="border-b border-slate-100 px-5 py-3.5">
-          <div className="text-sm font-semibold tracking-tight text-slate-900">Detalhamento por funcionário</div>
-          <div className="mt-0.5 text-xs text-slate-500">
-            {rows.length} funcionário{rows.length === 1 ? "" : "s"} · líquido sem taxa · R$/hora com horas da agenda
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div>
+            <div className="text-base font-semibold tracking-tight text-slate-900">Detalhamento por funcionário</div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              {rows.length} funcionário{rows.length === 1 ? "" : "s"} · clique na linha para abrir a conta completa ·
+              lucro = líquido sem taxa e sem dívida
+            </div>
           </div>
           {hourlyRank.length ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {hourlyRank.map((r) => (
+            <div className="flex flex-wrap gap-1.5">
+              {hourlyRank.map((r, i) => (
                 <span
                   key={r.user.id}
                   className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700"
                 >
-                  <span className="font-semibold text-slate-900">
-                    {firstName(r.user.name, r.user.login)}
-                  </span>
+                  <span className="text-slate-400">{i + 1}º</span>
+                  <span className="font-semibold text-slate-900">{firstName(r.user.name, r.user.login)}</span>
                   <span className="tabular-nums text-emerald-800">{fmtPerHour(r.centsPerHour)}</span>
                 </span>
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-xs text-slate-500">Sem horas na agenda neste mês — o R$/hora aparece quando houver turno lançado.</p>
+            <p className="text-xs text-slate-500">Sem horas na agenda neste mês.</p>
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[1100px] text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50/95 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3">Funcionário</th>
-                <th className="px-4 py-3 text-right">Dias</th>
-                <th className="px-4 py-3 text-right">Vendas</th>
-                <th className="px-4 py-3">C1 (1%)</th>
-                <th className="px-4 py-3">C2 (bônus)</th>
-                <th className="px-4 py-3">C3 (rateio)</th>
-                <th className="px-4 py-3">Imposto</th>
-                <th className="px-4 py-3">Taxa embarque</th>
-                <th className="px-4 py-3">Balcão (60%)</th>
-                <th className={`px-4 py-3 ${lucroCellCls}`}>Líquido (sem taxa)</th>
-                <th className="px-4 py-3 text-right">Horas agenda</th>
-                <th className="px-4 py-3 text-right">R$/hora</th>
+                <th className="w-8 px-3 py-3" />
+                <th className="px-3 py-3">Funcionário</th>
+                <th className="px-3 py-3 text-right">Dias</th>
+                <th className="px-3 py-3 text-right">Vendas</th>
+                <th className="px-3 py-3 text-right" title="C1 + C2 + C3">Comissões</th>
+                <th className="px-3 py-3 text-right" title="Bônus do dia 1, antes do imposto">+ Bônus</th>
+                <th className="px-3 py-3 text-right" title="Imposto das vendas e do bônus">− Imposto</th>
+                <th className="px-3 py-3 text-right" title="Comissão do balcão (60%), já líquida">+ Balcão</th>
+                <th className={cn("px-3 py-3 text-right", lucroCellCls)}>= Lucro</th>
+                <th className="px-3 py-3 text-right" title="Dívidas com a empresa abatidas no mês">Dívidas</th>
+                <th className="px-3 py-3 text-right" title="Lucro menos as dívidas abatidas">A receber</th>
+                <th className="px-3 py-3 text-right">Horas</th>
+                <th className="px-3 py-3 text-right">R$/hora</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((r) => {
-                const display = firstName(r.user.name, r.user.login);
+                const open = openRowId === r.user.id;
+                const commissions = r.commission1Cents + r.commission2Cents + r.commission3RateioCents;
                 return (
-                  <tr key={r.user.id} className="transition hover:bg-slate-50/80">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-900">{display}</div>
-                      <div className="text-xs text-slate-500">{r.user.login}</div>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.days}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.salesCount}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission1Cents)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission2Cents)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.commission3RateioCents)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.taxCents)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtMoneyBR(r.feeCents)}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium tabular-nums">{fmtMoneyBR(r.balcaoCommissionCents)}</div>
-                      <div className="text-xs text-slate-500">{r.balcaoOpsCount} ops</div>
-                    </td>
-                    <td className={cn("px-4 py-3 font-bold tabular-nums", lucroCellCls)}>
-                      {fmtMoneyBR(r.netNoFeeCents)}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">
-                      {fmtHours(r.agendaHours)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
-                      {fmtPerHour(r.centsPerHour)}
-                    </td>
-                  </tr>
+                  <Fragment key={r.user.id}>
+                    <tr
+                      onClick={() => setOpenRowId(open ? null : r.user.id)}
+                      className={cn("cursor-pointer transition hover:bg-slate-50/80", open && "bg-slate-50/80")}
+                    >
+                      <td className="px-3 py-3 text-slate-400">
+                        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-semibold text-slate-900">{firstName(r.user.name, r.user.login)}</div>
+                        <div className="text-xs text-slate-500">{r.user.login}</div>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-slate-700">{r.days}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-slate-700">{r.salesCount}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{fmtMoneyBR(commissions)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{fmtMoneyBR(r.bonusGrossCents || 0)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-rose-700">
+                        {fmtMoneyBR(r.payoutTaxCents)}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {fmtMoneyBR(r.balcaoCommissionCents)}
+                        {r.balcaoOpsCount ? (
+                          <div className="text-[11px] text-slate-500">{r.balcaoOpsCount} ops</div>
+                        ) : null}
+                      </td>
+                      <td className={cn("px-3 py-3 text-right font-bold tabular-nums", lucroCellCls)}>
+                        {fmtMoneyBR(r.netNoFeeCents)}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-3 py-3 text-right tabular-nums",
+                          r.debtDiscountCents ? "text-amber-700" : "text-slate-300"
+                        )}
+                      >
+                        {r.debtDiscountCents ? `− ${fmtMoneyBR(r.debtDiscountCents)}` : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {fmtMoneyBR(r.netAfterDebtCents ?? r.netNoFeeCents)}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-slate-700">{fmtHours(r.agendaHours)}</td>
+                      <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {fmtPerHour(r.centsPerHour)}
+                      </td>
+                    </tr>
+                    {open ? (
+                      <tr className="bg-slate-50/60">
+                        <td colSpan={13} className="px-4 pb-5 pt-1">
+                          <EmployeeDetail r={r} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
 
+              {rows.length ? (
+                <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
+                  <td />
+                  <td className="px-3 py-3 text-slate-900">Equipe</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{data?.totals.days || 0}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{data?.totals.salesCount || 0}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{fmtMoneyBR(data?.totals.gross || 0)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{fmtMoneyBR(data?.totals.bonusGross || 0)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-rose-700">
+                    {fmtMoneyBR(data?.totals.payoutTax || 0)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    {fmtMoneyBR(data?.totals.balcaoCommission || 0)}
+                  </td>
+                  <td className={cn("px-3 py-3 text-right font-bold tabular-nums", lucroCellCls)}>
+                    {fmtMoneyBR(data?.totals.netNoFee || 0)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-amber-700">
+                    {data?.totals.debtDiscount ? `− ${fmtMoneyBR(data.totals.debtDiscount)}` : "—"}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    {fmtMoneyBR(data?.totals.netAfterDebt ?? data?.totals.netNoFee ?? 0)}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              ) : null}
+
               {!rows.length ? (
                 <tr>
-                  <td className="px-4 py-0" colSpan={12}>
+                  <td className="px-4 py-0" colSpan={13}>
                     <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 ring-1 ring-slate-200/80">
                         <Users className="h-6 w-6" strokeWidth={1.75} aria-hidden />
