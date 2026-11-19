@@ -12,6 +12,8 @@ import { createContext, useContext, useEffect, useState, type CSSProperties, typ
 import { createPortal } from "react-dom";
 import { ChevronRight, LogOut, Settings, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { EXTENSION_SEEN_KEY, EXTENSION_VERSION } from "@/lib/extensaoLatam";
+import { useEmissorView } from "@/components/useEmissorView";
 import { getSession, setSession, signOut, type Session } from "@/lib/auth";
 import { useDashboardNav } from "@/components/DashboardNavContext";
 
@@ -131,6 +133,7 @@ export default function Sidebar() {
   const [session, setSessionState] = useState<Session | null>(() =>
     typeof window === "undefined" ? null : getSession()
   );
+  const { asEmissor } = useEmissorView();
 
   useEffect(() => {
     const fromStorage = getSession();
@@ -691,7 +694,7 @@ export default function Sidebar() {
     <>
       <div className="flex min-h-0 flex-1 flex-col">
         <NavScroll>
-        {session?.role === "emissor" ? (
+        {asEmissor ? (
           <Accordion
             title="Emissões"
             open
@@ -702,6 +705,8 @@ export default function Sidebar() {
             <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
             <NavLink href="/dashboard/painel-emissoes">Painel de emissões</NavLink>
             <NavLink href="/dashboard/agenda">Agenda</NavLink>
+            <NavLink href="/dashboard/telegram">Conectar Telegram</NavLink>
+            <ExtensaoNavLink />
           </Accordion>
         ) : session?.role === "socio" ? (
           <Accordion
@@ -1353,8 +1358,8 @@ export default function Sidebar() {
         <BrandMark />
       </div>
       <NavFooter
-        isAdmin={session?.role === "admin"}
-        isSocio={session?.role === "socio" || session?.role === "emissor"}
+        isSocio={session?.role === "socio" || asEmissor}
+        isAdmin={session?.role === "admin" && !asEmissor}
         onLogout={() => void doLogout()}
       />
     </>
@@ -1773,3 +1778,37 @@ function SubAccordion({
     </>
   );
 }
+
+/** Link da extensão de emissão com selo "nova" quando a versão publicada ainda não foi baixada neste navegador. */
+function ExtensaoNavLink() {
+  const [isNew, setIsNew] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      let seen = "";
+      try {
+        seen = localStorage.getItem(EXTENSION_SEEN_KEY) || "";
+      } catch {
+        seen = EXTENSION_VERSION;
+      }
+      setIsNew(seen !== EXTENSION_VERSION);
+    };
+    const t = window.setTimeout(check, 0);
+    window.addEventListener("tm:extensao-vista", check);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("tm:extensao-vista", check);
+    };
+  }, []);
+  return (
+    <NavLink href="/dashboard/extensao-latam">
+      <span className="inline-flex items-center gap-1.5">
+        Extensão de emissão
+        <span className="text-[10px] font-semibold text-slate-400">v{EXTENSION_VERSION}</span>
+        {isNew ? (
+          <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">nova</span>
+        ) : null}
+      </span>
+    </NavLink>
+  );
+}
+

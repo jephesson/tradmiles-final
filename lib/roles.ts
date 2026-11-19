@@ -54,7 +54,14 @@ export function isEmissor(role: unknown) {
 
 export const EMISSOR_HOME = "/dashboard/vendas/nova";
 
-const EMISSOR_PAGES = ["/dashboard/vendas/nova", "/dashboard/painel-emissoes", "/dashboard/agenda", "/dashboard/conta"];
+const EMISSOR_PAGES = [
+  "/dashboard/vendas/nova",
+  "/dashboard/painel-emissoes",
+  "/dashboard/agenda",
+  "/dashboard/extensao-latam",
+  "/dashboard/telegram",
+  "/dashboard/conta",
+];
 
 export function emissorCanVisit(pathname: string) {
   return EMISSOR_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

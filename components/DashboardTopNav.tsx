@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import EmailAlertasNav from "@/components/EmailAlertasNav";
+import { useEmissorView } from "@/components/useEmissorView";
+import { readViewAsEmissorClient, stopViewAsEmissor } from "@/lib/viewAsEmissor";
 import { getSession, type Session } from "@/lib/auth";
 import SessionIdleClock from "@/components/SessionIdleClock";
 import { useDashboardNav } from "@/components/DashboardNavContext";
@@ -138,7 +140,7 @@ export default function DashboardTopNav() {
 
     async function load() {
       // Emissor não vê o painel de vendas.
-      if (getSession()?.role === "emissor") return;
+      if (getSession()?.role === "emissor" || readViewAsEmissorClient()) return;
       try {
         const res = await fetch("/api/vendas/pending-count", { cache: "no-store" });
         const json = await res.json().catch(() => null);
@@ -162,6 +164,7 @@ export default function DashboardTopNav() {
   }, [pathname]);
 
   const isSocioUser = session?.role === "socio";
+  const { asEmissor, preview } = useEmissorView();
   const pending = pendingCount ?? 0;
   const hasPending = pending > 0;
   const painelActive = isPainelVendas(pathname);
@@ -196,7 +199,7 @@ export default function DashboardTopNav() {
           </div>
         </Link>
 
-        {session?.role === "emissor" ? (
+        {asEmissor ? (
           <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Atalhos do emissor">
             {[
               { href: "/dashboard/vendas/nova", label: "Efetuar venda" },
@@ -319,6 +322,23 @@ export default function DashboardTopNav() {
           <UserChip session={session} />
         </div>
       </div>
+      {preview ? (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-400 px-3 py-1.5 text-center text-[12.5px] font-semibold text-amber-950">
+          <span>
+            Você está vendo como <b>{preview.name}</b> (emissor). É só visualização: o que fizer aqui vale como você.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              stopViewAsEmissor();
+              window.location.href = "/dashboard/emissores";
+            }}
+            className="rounded-full bg-amber-950 px-3 py-0.5 text-[12px] font-bold text-amber-50 hover:bg-amber-900"
+          >
+            Sair da visualização
+          </button>
+        </div>
+      ) : null}
     </header>
   );
 }

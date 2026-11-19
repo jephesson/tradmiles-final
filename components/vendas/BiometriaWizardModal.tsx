@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { getSession } from "@/lib/auth";
+import { emissorViewNow } from "@/components/useEmissorView";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import { EmailNaoSincronizadoAviso } from "@/components/cedentes/EmailNaoSincronizadoAviso";
 import {
@@ -973,7 +974,11 @@ export default function BiometriaWizardModal({
     const me = getSession()?.id || "";
     if (!latamPaymentCardId) {
       try {
-        const res = await fetch("/api/funcionarios/payment-cards/default", { cache: "no-store" });
+        const prev = emissorViewNow().preview;
+        const res = await fetch(
+          `/api/funcionarios/payment-cards/default${prev ? `?emissorId=${encodeURIComponent(prev.id)}` : ""}`,
+          { cache: "no-store" }
+        );
         const json = await res.json().catch(() => null);
         const def = json?.ok ? json.data : null;
         if (def?.id) {
@@ -2549,7 +2554,7 @@ export default function BiometriaWizardModal({
                           </option>
                         ))}
                       </select>
-                      {getSession()?.role === "emissor" ? (
+                      {emissorViewNow().asEmissor ? (
                         <p className="mt-1 text-[11px] text-slate-500">
                           Abre com o cartão padrão do seu sócio. Você pode escolher outro sócio ou a Vias
                           Aéreas.
@@ -2574,7 +2579,7 @@ export default function BiometriaWizardModal({
                           Taxa de embarque desta emissão: Vias Aéreas
                         </p>
                       ) : null}
-                      {latamPaymentCards.length === 0 && getSession()?.role !== "emissor" ? (
+                      {latamPaymentCards.length === 0 && !emissorViewNow().asEmissor ? (
                         <p className="mt-1 text-[11px] text-slate-500">
                           Nenhum cartão cadastrado. Cadastre em{" "}
                           <Link

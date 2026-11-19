@@ -7,6 +7,7 @@ import DashboardPresencePing from "./DashboardPresencePing";
 import AgendaRemnantsModal from "@/components/AgendaRemnantsModal";
 import AgendaSwapPopup from "@/components/AgendaSwapRequests";
 import WelcomeIntro from "@/components/WelcomeIntro";
+import EmissorWelcome from "@/components/EmissorWelcome";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default function DashboardLayout({
       <AgendaRemnantsModal />
       <AgendaSwapPopup />
       <WelcomeIntro />
+      <EmissorWelcome />
       <DashboardNavProvider>
         <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-slate-100 text-slate-900">
           <DashboardTopNav />

@@ -11,20 +11,23 @@ function bad(error: string, status = 400) {
 }
 
 /** Cartão padrão da taxa de embarque do usuário logado (seu ou da empresa). */
-export async function GET() {
+export async function GET(req: Request) {
   let sess;
   try {
     sess = await requireSession();
   } catch {
     return bad("Não autenticado", 401);
   }
+  // Admin em "Ver como emissor" pede o padrão daquele emissor.
+  const previewId = sess.role === "admin" ? new URL(req.url).searchParams.get("emissorId") || "" : "";
   const user = await prisma.user.findFirst({
-    where: { id: sess.id, team: sess.team },
+    where: previewId ? { id: previewId, team: sess.team, role: "emissor" } : { id: sess.id, team: sess.team },
     select: { defaultFeeCardId: true, linkedSocioId: true },
   });
+  if (previewId && !user) return bad("Emissor não encontrado.", 404);
 
   // Emissor: cartão definido no cadastro (de sócio ou da empresa); sem ele, o padrão do sócio.
-  if (sess.role === "emissor") {
+  if (sess.role === "emissor" || previewId) {
     const chosen = user?.defaultFeeCardId
       ? await prisma.employeePaymentCard.findFirst({
           where: { id: user.defaultFeeCardId, team: sess.team },

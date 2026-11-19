@@ -10,6 +10,7 @@ import {
   socioCanVisit,
   socioHome,
 } from "@/lib/roles";
+import { VIEW_AS_EMISSOR_COOKIE, viewAsForRole } from "@/lib/viewAsEmissor";
 import { isSessionIdleExpired } from "@/lib/session-idle";
 import { verifySessionValueEdge } from "@/lib/session-token";
 
@@ -79,6 +80,14 @@ export async function middleware(req: NextRequest) {
       }
     }
     if (isEmissor(sess?.role) && !emissorCanVisit(url.pathname)) {
+      return NextResponse.redirect(new URL(EMISSOR_HOME, req.url));
+    }
+    // Admin em "Ver como emissor": mesmas telas do emissor (Emissores fica aberto para sair).
+    if (
+      viewAsForRole(sess?.role, req.cookies.get(VIEW_AS_EMISSOR_COOKIE)?.value) &&
+      !emissorCanVisit(url.pathname) &&
+      !url.pathname.startsWith("/dashboard/emissores")
+    ) {
       return NextResponse.redirect(new URL(EMISSOR_HOME, req.url));
     }
     return NextResponse.next();

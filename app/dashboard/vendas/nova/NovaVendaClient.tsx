@@ -408,8 +408,11 @@ export default function NovaVendaClient({
   initialMe,
   initialEmployeeCommission,
   isEmissor = false,
+  previewEmissorId = null,
 }: {
   isEmissor?: boolean;
+  /** Admin em "Ver como emissor": cartão padrão desse emissor. */
+  previewEmissorId?: string | null;
   initialMe: UserLite;
   initialEmployeeCommission: {
     employeeC1Bps: number;
@@ -952,7 +955,8 @@ export default function NovaVendaClient({
     if (!isEmissor) return;
     (async () => {
       try {
-        const res = await fetch("/api/funcionarios/payment-cards/default", { cache: "no-store" });
+        const qs = previewEmissorId ? `?emissorId=${encodeURIComponent(previewEmissorId)}` : "";
+        const res = await fetch(`/api/funcionarios/payment-cards/default${qs}`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         const def = json?.ok ? json.data : null;
         if (def?.isCompany) setFeeCardPreset("VIAS");
@@ -962,7 +966,7 @@ export default function NovaVendaClient({
         setFeeCardPreset("VIAS");
       }
     })();
-  }, [isEmissor]);
+  }, [isEmissor, previewEmissorId]);
 
   // carrega funcionários (preferência: /api/funcionarios)
   useEffect(() => {

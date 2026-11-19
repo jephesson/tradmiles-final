@@ -7,6 +7,7 @@ import {
   resolveEmployeeC1Bps,
 } from "@/lib/payouts/employeeCommissionRates";
 import { readSessionCookie } from "@/lib/session";
+import { VIEW_AS_EMISSOR_COOKIE, viewAsForRole } from "@/lib/viewAsEmissor";
 
 type UserLite = { id: string; name: string; login: string };
 
@@ -29,6 +30,8 @@ export default async function Page() {
     redirect("/login");
   }
 
+  const viewAs = viewAsForRole(sess.role, store.get(VIEW_AS_EMISSOR_COOKIE)?.value);
+
   const initialMe: UserLite = {
     id: sess.id,
     login: sess.login,
@@ -50,7 +53,8 @@ export default async function Page() {
     <NovaVendaClient
       initialMe={initialMe}
       initialEmployeeCommission={initialEmployeeCommission}
-      isEmissor={sess.role === "emissor"}
+      isEmissor={sess.role === "emissor" || Boolean(viewAs)}
+      previewEmissorId={viewAs?.id || null}
     />
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, CreditCard, KeyRound, Link2, Loader2, MessageCircle, Plus, ShieldCheck, UserPlus, Users, X } from "lucide-react";
+import { Check, Copy, CreditCard, Eye, KeyRound, Link2, Loader2, MessageCircle, Plus, ShieldCheck, UserPlus, Users, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { startViewAsEmissor } from "@/lib/viewAsEmissor";
 
 type Emissor = {
   id: string;
@@ -538,6 +539,17 @@ export default function EmissoresClient() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              startViewAsEmissor({ id: e.id, name: e.name });
+                              window.location.href = "/dashboard/vendas/nova";
+                            }}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-amber-400 px-2.5 text-xs font-bold text-amber-950 hover:bg-amber-300"
+                            title="Ver o sistema como este emissor vê (só visualização)"
+                          >
+                            <Eye size={13} /> Ver como
+                          </button>
                           <button
                             type="button"
                             onClick={() => resetPassword(e)}

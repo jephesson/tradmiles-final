@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import PainelEmissoesClient from "./PainelEmissoesClient";
 import { readSessionCookie } from "@/lib/session";
+import { VIEW_AS_EMISSOR_COOKIE, viewAsForRole } from "@/lib/viewAsEmissor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ function normalizeProgram(v: string) {
 
 export default async function Page({ searchParams }: { searchParams: SP }) {
   const program = normalizeProgram(getOne(searchParams, "programa"));
-  const sess = readSessionCookie((await cookies()).get("tm.session")?.value);
-  return <PainelEmissoesClient initialProgram={program} readOnly={sess?.role === "emissor"} />;
+  const store = await cookies();
+  const sess = readSessionCookie(store.get("tm.session")?.value);
+  const preview = viewAsForRole(sess?.role, store.get(VIEW_AS_EMISSOR_COOKIE)?.value);
+  return <PainelEmissoesClient initialProgram={program} readOnly={sess?.role === "emissor" || Boolean(preview)} />;
 }

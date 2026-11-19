@@ -3,12 +3,26 @@
 import { Download, Puzzle } from "lucide-react";
 import Link from "next/link";
 
-const ZIP_HREF = "/downloads/trademiles-latam-extension.zip?v=0.2.63";
-const ZIP_SAFARI_HREF = "/downloads/trademiles-latam-safari.zip?v=0.2.61";
-const EXTENSION_VERSION = "0.2.63";
-const EXTENSION_UPDATED_AT = "07/11/2026";
+import { useEffect } from "react";
+import {
+  EXTENSION_SAFARI_ZIP_HREF as ZIP_SAFARI_HREF,
+  EXTENSION_SEEN_KEY,
+  EXTENSION_UPDATED_AT,
+  EXTENSION_VERSION,
+  EXTENSION_ZIP_HREF as ZIP_HREF,
+} from "@/lib/extensaoLatam";
 
-export default function ExtensaoLatamClient() {
+export default function ExtensaoLatamClient({ isEmissor = false }: { isEmissor?: boolean }) {
+  // Abriu a página: some o selo "nova versão" do menu.
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXTENSION_SEEN_KEY, EXTENSION_VERSION);
+      window.dispatchEvent(new Event("tm:extensao-vista"));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
       <div>
@@ -120,6 +134,13 @@ export default function ExtensaoLatamClient() {
         </li>
       </ol>
 
+      {isEmissor ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          A taxa de embarque sai do cartão do seu sócio (ou da Vias Aéreas): ele já vem selecionado na venda.
+          Quando sair versão nova, baixe de novo por aqui, substitua a pasta e clique em ↻ na extensão em{" "}
+          <code className="rounded bg-white px-1">chrome://extensions</code>.
+        </div>
+      ) : (
       <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
         Cadastre cartões em{" "}
         <Link
@@ -130,6 +151,7 @@ export default function ExtensaoLatamClient() {
         </Link>
         . O cartão padrão de taxa já vem selecionado na venda.
       </div>
+      )}
     </div>
   );
 }
