@@ -57,6 +57,7 @@ export const EMISSOR_HOME = "/dashboard/vendas/nova";
 const EMISSOR_PAGES = [
   "/dashboard/vendas/nova",
   "/dashboard/painel-emissoes",
+  "/dashboard/meus-ganhos",
   "/dashboard/agenda",
   "/dashboard/extensao-latam",
   "/dashboard/telegram",
@@ -77,6 +78,7 @@ const EMISSOR_API: ApiRule[] = [
   { prefix: "/api/me" },
   { prefix: "/api/vendas", exact: true, methods: ["POST"] },
   { prefix: "/api/vendas/sugestoes", methods: ["GET"] },
+  { prefix: "/api/emissor/ganhos", methods: ["GET"] },
   { prefix: "/api/vendas/latam-receipt", methods: ["POST"] },
   { prefix: "/api/cedentes/credentials", methods: ["GET"] },
   { prefix: "/api/cedentes/whatsapp", methods: ["GET"] },

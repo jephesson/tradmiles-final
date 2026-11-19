@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, Download, LayoutGrid, MessageCircle, Plane, Puzzle } from "lucide-react";
+import { CalendarDays, Download, LayoutGrid, MessageCircle, Plane, Puzzle, Wallet } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { emissorViewNow } from "@/components/useEmissorView";
 import { EXTENSION_SEEN_KEY, EXTENSION_VERSION, EXTENSION_ZIP_HREF } from "@/lib/extensaoLatam";
@@ -142,6 +142,12 @@ export default function EmissorWelcome() {
                 <LayoutGrid size={16} className="mt-0.5 shrink-0 text-emerald-600" />
                 <span>
                   <b>Painel de emissões</b>: quantos CPFs cada conta ainda tem na LATAM.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <Wallet size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+                <span>
+                  <b>Meus ganhos</b>: suas comissões, o lucro de cada mês, o total vendido e cada venda.
                 </span>
               </li>
               <li className="flex gap-2">
