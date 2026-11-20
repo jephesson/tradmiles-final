@@ -1,3 +1,4 @@
+import { EMISSOR_REFERRAL_BONUS_CENTS } from "@/lib/emissorContrato";
 import { prisma } from "@/lib/prisma";
 
 export const DEFAULT_CEDENTE_REFERRAL_BONUS_CENTS = 2000;
@@ -25,6 +26,23 @@ export async function findApprovedReferrerByCode(code: unknown) {
       cpf: true,
     },
   });
+}
+
+/**
+ * Valor da indicação para quem indicou: emissor (mesmo CPF de um emissor ativo) ganha o valor do
+ * contrato do emissor; os demais, o padrão das Configurações.
+ */
+async function referralBonusCentsFor(referrerCedenteId: string) {
+  const referrer = await prisma.cedente.findUnique({ where: { id: referrerCedenteId }, select: { cpf: true } });
+  const cpf = String(referrer?.cpf || "").replace(/\D/g, "");
+  if (cpf.length === 11) {
+    const emissor = await prisma.user.findFirst({
+      where: { cpf, role: "emissor", isActive: true },
+      select: { id: true },
+    });
+    if (emissor) return EMISSOR_REFERRAL_BONUS_CENTS;
+  }
+  return getReferralBonusCents();
 }
 
 async function getReferralBonusCents() {
@@ -68,7 +86,7 @@ export async function processReferralOnApprove(referredCedenteId: string, review
 
   if (!referral || referral.status !== "PENDING") return null;
 
-  const amountCents = await getReferralBonusCents();
+  const amountCents = await referralBonusCentsFor(referral.referrerCedenteId);
 
   return prisma.$transaction(async (tx) => {
     const commission = await tx.cedenteCommission.create({

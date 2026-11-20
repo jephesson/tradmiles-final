@@ -4,6 +4,9 @@
  */
 export const EMISSOR_CONTRACT_VERSION = "emissor-v1-2026-11";
 
+/** Indicação de cedente feita por emissor (Cláusula 2.3): R$ 40,00, uma única vez por indicado aprovado. */
+export const EMISSOR_REFERRAL_BONUS_CENTS = 4000;
+
 export type ContratoDados = {
   nome: string;
   cpf: string;
