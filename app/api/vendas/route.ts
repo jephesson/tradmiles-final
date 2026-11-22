@@ -35,6 +35,7 @@ import {
 } from "@/lib/payouts/purchaseRateio";
 import { readSessionCookie } from "@/lib/session";
 import { loadValidatedHolidayISOs } from "@/lib/agenda/validatedHolidays";
+import { defaultCardForSocio, emissorMayUseCard } from "@/lib/emissores";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -318,7 +319,17 @@ export async function POST(req: Request) {
   // Emissor vende sempre em nome próprio (não atribui a outra pessoa).
   const sellerIdRaw = session?.role === "emissor" ? "" : String(body.sellerId || "").trim();
 
-  const feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
+  let feeCardLabel = body.feeCardLabel ? String(body.feeCardLabel) : null;
+  // Emissor só emite: taxa sempre no cartão do sócio vinculado ou da Vias Aéreas.
+  if (session?.role === "emissor" && sessionTeam) {
+    const ownLogin = String(session.login || "").toLowerCase();
+    const looksOwn =
+      !feeCardLabel ||
+      (ownLogin && feeCardLabel.toLowerCase().includes(`(@${ownLogin})`));
+    if (looksOwn) {
+      feeCardLabel = await emissorDefaultFeeCardLabel(sessionTeam, session.id);
+    }
+  }
   const locator = body.locator ? String(body.locator) : null;
   const purchaseCodeRaw = body.purchaseCode
     ? String(body.purchaseCode).trim()
@@ -830,4 +841,30 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+}
+
+
+/** Rótulo do cartão padrão da taxa de um emissor (do cadastro ou do sócio vinculado). */
+async function emissorDefaultFeeCardLabel(team: string, emissorId: string) {
+  const user = await prisma.user.findFirst({
+    where: { id: emissorId, team },
+    select: { defaultFeeCardId: true, linkedSocioId: true },
+  });
+  const chosen =
+    user?.defaultFeeCardId && (await emissorMayUseCard(team, user.defaultFeeCardId))
+      ? await prisma.employeePaymentCard.findFirst({
+          where: { id: user.defaultFeeCardId, team },
+          select: { id: true, userId: true, isCompany: true },
+        })
+      : null;
+  const card =
+    chosen ||
+    (user?.linkedSocioId ? await defaultCardForSocio(team, user.linkedSocioId) : null);
+  if (!card || card.isCompany || !card.userId) return "Cartão Vias Aéreas";
+  const owner = await prisma.user.findFirst({
+    where: { id: card.userId, team },
+    select: { name: true, login: true },
+  });
+  if (!owner) return "Cartão Vias Aéreas";
+  return owner.login ? `Cartão ${owner.name} (@${owner.login})` : `Cartão ${owner.name}`;
 }

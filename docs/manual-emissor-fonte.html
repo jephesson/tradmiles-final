@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Manual do Emissor · TradeMiles</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm; }
+  :root {
+    --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --soft: #f8fafc;
+    --em: #059669; --em-soft: #ecfdf5; --sky: #0284c7; --sky-soft: #f0f9ff;
+    --amber: #b45309; --amber-soft: #fffbeb; --rose: #be123c; --rose-soft: #fff1f2;
+    --brand: #0b2545;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink); font-size: 10.5pt; line-height: 1.5;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  h1, h2, h3 { line-height: 1.2; margin: 0; }
+  h2 { font-size: 20pt; letter-spacing: -0.02em; margin-bottom: 4mm; }
+  h3 { font-size: 12.5pt; margin: 6mm 0 2mm; }
+  p { margin: 0 0 2.5mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5.5mm; }
+  li { margin: 0.8mm 0; }
+  b { font-weight: 650; }
+  .page { page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .kicker { font-size: 8.5pt; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sky); margin-bottom: 1.5mm; }
+  .lead { font-size: 11.5pt; color: #334155; margin-bottom: 5mm; }
+  .muted { color: var(--muted); }
+  .small { font-size: 9pt; }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9pt; }
+  .avoid { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Capa */
+  .cover { height: 260mm; display: flex; flex-direction: column; justify-content: space-between;
+    background: linear-gradient(160deg, #0b2545 0%, #13315c 55%, #0284c7 130%); color: #fff;
+    border-radius: 6mm; padding: 18mm 16mm; }
+  .cover h1 { font-size: 34pt; letter-spacing: -0.03em; margin-top: 6mm; }
+  .cover .sub { font-size: 13pt; opacity: 0.85; margin-top: 4mm; max-width: 130mm; }
+  .cover .tag { display: inline-block; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25);
+    padding: 1.5mm 4mm; border-radius: 99px; font-size: 9pt; font-weight: 700; letter-spacing: 0.12em; }
+  .cover .toc { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 4mm; padding: 6mm 7mm; }
+  .cover .toc ol { margin: 0; padding-left: 5mm; columns: 2; column-gap: 10mm; font-size: 10.5pt; }
+  .cover .toc li { margin: 1.2mm 0; }
+  .plane { font-size: 42pt; }
+
+  /* Caixas */
+  .box { border-radius: 3.5mm; padding: 4mm 5mm; margin: 3mm 0; border: 1px solid var(--line); background: var(--soft); }
+  .box.em { background: var(--em-soft); border-color: #a7f3d0; }
+  .box.sky { background: var(--sky-soft); border-color: #bae6fd; }
+  .box.amber { background: var(--amber-soft); border-color: #fde68a; }
+  .box.rose { background: var(--rose-soft); border-color: #fecdd3; }
+  .box .t { font-weight: 700; margin-bottom: 1.5mm; display: flex; gap: 2mm; align-items: center; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3mm; }
+
+  /* Fluxo geral */
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin: 4mm 0; }
+  .flow .st { position: relative; border: 1px solid var(--line); border-radius: 3mm; padding: 3.5mm; background: #fff; min-height: 30mm; }
+  .flow .st .n { width: 7mm; height: 7mm; border-radius: 99px; background: var(--brand); color: #fff; font-weight: 700; font-size: 9pt;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 2mm; }
+  .flow .st .h { font-weight: 700; font-size: 10pt; }
+  .flow .st .d { font-size: 8.5pt; color: var(--muted); margin-top: 1mm; line-height: 1.35; }
+  .flow .st.hl { border-color: #a7f3d0; background: var(--em-soft); }
+
+  /* Telas ilustrativas */
+  .shot { border: 1px solid #cbd5e1; border-radius: 3mm; overflow: hidden; background: #f1f5f9; margin: 3mm 0 2mm; position: relative;
+    }
+  .shot .bar { height: 7mm; background: #e2e8f0; display: flex; align-items: center; gap: 1.5mm; padding: 0 3mm; }
+  .shot .bar i { width: 2.4mm; height: 2.4mm; border-radius: 99px; display: inline-block; }
+  .shot .bar .url { margin-left: 3mm; flex: 1; background: #fff; border-radius: 99px; height: 4.2mm; font-size: 7pt; color: #475569;
+    display: flex; align-items: center; padding: 0 3mm; }
+  .shot .body { padding: 4mm; background: #f8fafc; position: relative; }
+  .caption { font-size: 8.5pt; color: var(--muted); margin-bottom: 4mm; font-style: italic; }
+  .ui-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 2.5mm; padding: 3mm; }
+  .ui-title { font-weight: 700; font-size: 11pt; }
+  .ui-label { font-size: 6.8pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin-bottom: 0.8mm; }
+  .ui-input { border: 1px solid #cbd5e1; background: #fff; border-radius: 1.8mm; padding: 1.3mm 2mm; font-size: 8.5pt; min-height: 6mm; }
+  .ui-btn { display: inline-flex; align-items: center; gap: 1mm; border-radius: 1.8mm; padding: 1.4mm 3mm; font-size: 8pt; font-weight: 700;
+    border: 1px solid #cbd5e1; background: #fff; color: #0f172a; }
+  .ui-btn.dark { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .ui-btn.em { background: #059669; color: #fff; border-color: #059669; }
+  .ui-btn.sky { background: #0284c7; color: #fff; border-color: #0284c7; }
+  .ui-btn.rose { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+  .chip { display: inline-block; border-radius: 99px; padding: 0.4mm 2mm; font-size: 7pt; font-weight: 700; border: 1px solid #e2e8f0; background: #fff; }
+  .chip.em { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+  .chip.amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  .chip.rose { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+  .chip.sky { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+  .chip.dark { background: #0f172a; color: #fff; border-color: #0f172a; }
+  table.ui { width: 100%; border-collapse: collapse; font-size: 7.8pt; background: #fff; }
+  table.ui th { text-align: left; font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; background: #f8fafc;
+    padding: 1.5mm 2mm; border-bottom: 1px solid #e2e8f0; }
+  table.ui td { white-space: nowrap; padding: 1.8mm 2mm; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  table.ui tr.sel td { background: #ecfdf5; }
+  table.ui tr.bad td { background: #fff1f2; }
+  .steps-nav { display: flex; gap: 2mm; margin-bottom: 3mm; }
+  .steps-nav span { flex: 1; text-align: center; border-radius: 99px; padding: 1.2mm; font-size: 7.5pt; font-weight: 700; background: #fff; border: 1px solid #e2e8f0; color: #64748b; }
+  .steps-nav span.on { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .steps-nav span.done { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+
+  /* Marcadores numerados por cima das telas */
+  .pin { display: inline-flex; vertical-align: middle; width: 4.6mm; height: 4.6mm; border-radius: 99px; background: #e11d48; color: #fff;
+    font-weight: 800; font-size: 7pt; align-items: center; justify-content: center; margin: 0 1.2mm; flex: 0 0 auto;
+    outline: 0.7mm solid #fecdd3; }
+  .pins-legend { counter-reset: none; list-style: none; padding: 0; margin: 2mm 0 3mm; }
+  .pins-legend li { display: flex; gap: 2.5mm; align-items: flex-start; margin: 1.6mm 0; }
+  .pins-legend .p { flex: 0 0 5.6mm; height: 5.6mm; border-radius: 99px; background: #e11d48; color: #fff; font-weight: 800; font-size: 8pt;
+    display: flex; align-items: center; justify-content: center; margin-top: 0.3mm; }
+
+  /* Mensagens Telegram/WhatsApp */
+  .chat { background: #e7ecf0; border-radius: 3mm; padding: 3mm; display: flex; flex-direction: column; gap: 2mm; }
+  .msg { max-width: 82%; border-radius: 2.5mm; padding: 2mm 3mm; font-size: 8.8pt; line-height: 1.4; background: #fff; border: 1px solid #d7dde3; }
+  .msg.me { align-self: flex-end; background: #dcf8c6; }
+  .msg .who { font-size: 7pt; font-weight: 700; color: #0284c7; margin-bottom: 0.5mm; }
+
+  /* Checklist */
+  .check { list-style: none; padding: 0; }
+  .check li { display: flex; gap: 2.5mm; align-items: flex-start; padding: 1.6mm 0; border-bottom: 1px dashed #e2e8f0; }
+  .check li:last-child { border-bottom: 0; }
+  .check .bx { flex: 0 0 4.2mm; height: 4.2mm; border: 1.4px solid #94a3b8; border-radius: 1mm; margin-top: 0.6mm; }
+  .do-dont { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .do-dont .col { border-radius: 3mm; padding: 4mm; }
+  .do-dont .do { background: var(--em-soft); border: 1px solid #a7f3d0; }
+  .do-dont .dont { background: var(--rose-soft); border: 1px solid #fecdd3; }
+  .do-dont h4 { margin: 0 0 2mm; font-size: 10.5pt; }
+
+  /* Linha do tempo CPF */
+  .timeline { position: relative; height: 34mm; margin: 4mm 0 2mm; }
+  .timeline .axis { position: absolute; left: 0; right: 0; top: 17mm; height: 1.2mm; background: #cbd5e1; border-radius: 99px; }
+  .timeline .win { position: absolute; top: 12mm; height: 11mm; border-radius: 2mm; background: rgba(2,132,199,0.12); border: 1.4px dashed #0284c7; }
+  .timeline .ev { position: absolute; top: 14.5mm; width: 6mm; height: 6mm; border-radius: 99px; background: #059669; color: #fff; font-size: 7pt; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; transform: translateX(-50%); }
+  .timeline .ev.out { background: #94a3b8; }
+  .timeline .lab { position: absolute; font-size: 7.5pt; color: #475569; transform: translateX(-50%); white-space: nowrap; }
+  .meter { height: 5mm; background: #e2e8f0; border-radius: 99px; overflow: hidden; display: flex; }
+  .meter span { display: block; height: 100%; }
+  .footer-note { font-size: 8pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 2mm; margin-top: 5mm; }
+  .glossary dt { font-weight: 700; margin-top: 2.2mm; }
+  .glossary dd { margin: 0.3mm 0 0; color: #334155; }
+</style>
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<section class="page">
+  <div class="cover">
+    <div>
+      <span class="tag">VIAS AÉREAS · TRADEMILES</span>
+      <div class="plane" style="margin-top:14mm">✈︎</div>
+      <h1>Manual do Emissor</h1>
+      <div class="sub">Passo a passo da emissão de passagens com milhas: atendimento, cedentes, biometria, CPFs da LATAM, cancelamento e os cuidados do dia a dia.</div>
+    </div>
+    <div class="toc">
+      <div style="font-weight:700;margin-bottom:2mm;font-size:10pt;letter-spacing:.08em;text-transform:uppercase;opacity:.8">Conteúdo</div>
+      <ol>
+        <li>Visão geral do trabalho</li>
+        <li>Antes de começar</li>
+        <li>Atendimento ao cliente</li>
+        <li>Emissão passo a passo</li>
+        <li>Escolhendo o cedente</li>
+        <li>Biometria e site da LATAM</li>
+        <li>Fechando a venda</li>
+        <li>Voar Fácil (parceiro)</li>
+        <li>CPFs na LATAM</li>
+        <li>Cancelamento</li>
+        <li>O que prestar atenção</li>
+        <li>Glossário e checklist</li>
+      </ol>
+    </div>
+    <div class="small" style="opacity:.75">As telas deste manual são ilustrativas, com nomes e números fictícios. Use sempre o TradeMiles em www.trademiles.com.br.</div>
+  </div>
+</section>
+
+<!-- ============ 1. VISÃO GERAL ============ -->
+<section class="page">
+  <div class="kicker">1 · Visão geral</div>
+  <h2>O que o emissor faz</h2>
+  <p class="lead">O cliente pede a passagem pelo Telegram. Você confere os dados, escolhe de qual <b>cedente</b> (dono da conta de milhas) os pontos vão sair, faz a emissão no site da companhia com a <b>biometria</b> do cedente e registra tudo no TradeMiles. No fim, manda o localizador e o comprovante ao cliente.</p>
+
+  <div class="flow">
+    <div class="st"><div class="n">1</div><div class="h">Pedido no Telegram</div><div class="d">Cliente manda trecho, datas e passageiros. Você confere tudo com ele.</div></div>
+    <div class="st"><div class="n">2</div><div class="h">Nova venda</div><div class="d">Programa, trecho, pontos e passageiros no TradeMiles.</div></div>
+    <div class="st"><div class="n">3</div><div class="h">Escolher cedente</div><div class="d">Conta com pontos, CPFs livres e sem prejuízo.</div></div>
+    <div class="st"><div class="n">4</div><div class="h">Biometria</div><div class="d">Credenciais, código do e-mail, extensão e link da biometria.</div></div>
+    <div class="st"><div class="n">5</div><div class="h">Emitir na LATAM</div><div class="d">Busca em milhas, extensão preenche passageiros e cartão.</div></div>
+    <div class="st"><div class="n">6</div><div class="h">Comprovante</div><div class="d">Cole o link do comprovante: localizador e taxas entram sozinhos.</div></div>
+    <div class="st"><div class="n">7</div><div class="h">Fechar venda</div><div class="d">Confere cliente, valores e dados. Salva.</div></div>
+    <div class="st hl"><div class="n" style="background:#059669">8</div><div class="h">Enviar ao cliente</div><div class="d">Localizador + comprovante pelo Telegram.</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="box sky">
+      <div class="t">ⓘ Duas formas de venda</div>
+      <p class="small" style="margin:0"><b>Venda final</b> (padrão): o pedido chega pelo Telegram.<br/><b>Voar Fácil</b>: o pedido vem do parceiro por um link. Veja a seção 8.</p>
+    </div>
+    <div class="box amber">
+      <div class="t">⚠︎ Regra de ouro</div>
+      <p class="small" style="margin:0">Na dúvida, <b>pare e pergunte</b> antes de emitir. Erro em nome, data ou conta custa multa, CPF da LATAM e às vezes bloqueio da conta do cedente.</p>
+    </div>
+  </div>
+
+  <h3>Onde fica cada coisa no TradeMiles</h3>
+  <table class="ui" style="font-size:9pt">
+    <tr><th>Preciso…</th><th>Vou em…</th></tr>
+    <tr><td>Fazer uma emissão</td><td><b>Vender</b> (botão no topo) → Nova venda</td></tr>
+    <tr><td>Achar uma passagem já emitida, ver credenciais ou cancelar</td><td><b>Localizadores</b> (menu lateral)</td></tr>
+    <tr><td>Conferir se o voo mudou (alteração da companhia)</td><td>Gestão de pontos → <b>Check localizador</b></td></tr>
+    <tr><td>Avisar um problema com conta ou emissão</td><td><b>Relato de problemas</b> (menu lateral)</td></tr>
+    <tr><td>Ver vendas do dia</td><td><b>Painel de vendas</b> (botão no topo)</td></tr>
+  </table>
+</section>
+
+<!-- ============ 2. ANTES DE COMEÇAR ============ -->
+<section class="page">
+  <div class="kicker">2 · Antes de começar</div>
+  <h2>Deixe tudo pronto</h2>
+
+  <ol class="check" style="margin-bottom:5mm">
+    <li><span class="bx"></span><div><b>Acesso ao TradeMiles.</b> Você recebe um login. Entre em <span class="mono">www.trademiles.com.br</span>. Não compartilhe sua senha.</div></li>
+    <li><span class="bx"></span><div><b>Telegram da empresa.</b> Todo atendimento ao cliente acontece por lá.</div></li>
+    <li><span class="bx"></span><div><b>WhatsApp</b> para falar com os cedentes (pedir biometria). O TradeMiles abre a conversa já com a mensagem pronta.</div></li>
+    <li><span class="bx"></span><div><b>Extensão TradeMiles LATAM</b> no Google Chrome. Ela preenche passageiros e cartão no site da LATAM.</div></li>
+  </ol>
+
+  <h3>Instalando a extensão no Chrome</h3>
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/extensao-latam</div></div>
+    <div class="body">
+      <div class="ui-card" style="max-width:120mm">
+        <div class="ui-title">🧩 Extensão LATAM</div>
+        <div class="small muted" style="margin:1mm 0 3mm">Preenche passageiros e cartão no site da LATAM.</div>
+        <span class="pin">1</span><span class="ui-btn dark">⬇ Baixar para Chrome</span>
+        <span class="ui-btn" style="margin-left:2mm">⬇ Baixar para Safari</span>
+        <div style="margin-top:3mm"><span class="pin">2</span><span class="small muted">Passos de instalação</span></div><ol class="small" style="margin-top:1mm;background:#f8fafc;border:1px solid #e2e8f0;border-radius:2mm;padding:2.5mm 2.5mm 2.5mm 7mm">
+          <li>Descompacte o arquivo baixado.</li>
+          <li>Abra <span class="mono">chrome://extensions</span>.</li>
+          <li>Ligue o <b>Modo do desenvolvedor</b> (canto superior direito).</li>
+          <li>Clique em <b>Carregar sem compactação</b> e escolha a pasta.</li>
+          <li>Entre no TradeMiles uma vez com o Chrome para a extensão conectar.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div>A página fica em <b>Outros → Automação → Extensão LATAM</b> (ou peça o link). Baixe a versão do Chrome.</div></li>
+    <li><span class="p">2</span><div>Siga os 5 passos da tela. No site da LATAM vai aparecer o painel <b>“Preencher TradeMiles”</b>.</div></li>
+  </ol>
+
+  <div class="box amber avoid">
+    <div class="t">⚠︎ Quando o sistema avisar que há versão nova da extensão</div>
+    <p class="small" style="margin:0">Baixe de novo, substitua a pasta e clique em ↻ (recarregar) na extensão em <span class="mono">chrome://extensions</span>. Versão velha pode preencher errado.</p>
+  </div>
+</section>
+
+<!-- ============ 3. ATENDIMENTO ============ -->
+<section class="page">
+  <div class="kicker">3 · Atendimento ao cliente</div>
+  <h2>Como atender</h2>
+  <p class="lead">O atendimento é <b>só pelo Telegram</b> da empresa: pedido, conferência e envio da passagem. Isso deixa tudo registrado e qualquer pessoa da equipe consegue continuar o atendimento.</p>
+
+  <div class="grid2">
+    <div>
+      <h3 style="margin-top:0">Antes de emitir: confira com o cliente</h3>
+      <ul class="check">
+        <li><span class="bx"></span><div><b>Nome completo</b> de cada passageiro, igual ao documento (sem apelido, sem abreviar).</div></li>
+        <li><span class="bx"></span><div><b>CPF</b> e <b>data de nascimento</b> de cada passageiro. A data de nascimento é obrigatória.</div></li>
+        <li><span class="bx"></span><div><b>Trecho</b>: aeroportos de ida e volta (ex.: REC → GRU).</div></li>
+        <li><span class="bx"></span><div><b>Datas e horários</b> dos voos escolhidos.</div></li>
+        <li><span class="bx"></span><div>Quantos <b>adultos, crianças e bebês</b>.</div></li>
+        <li><span class="bx"></span><div><b>Bagagem</b> despachada, se o cliente quiser.</div></li>
+        <li><span class="bx"></span><div><b>E-mail e telefone</b> de contato.</div></li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Exemplo de conversa</h3>
+      <div class="chat avoid">
+        <div class="msg"><div class="who">Cliente</div>Oi! Quero 2 passagens Recife → São Paulo dia 12/12, volta 20/12.</div>
+        <div class="msg me">Oi, Carlos! Me manda, por favor, de cada passageiro: <b>nome completo como no documento, CPF e data de nascimento</b>. Vai ter bagagem despachada?</div>
+        <div class="msg"><div class="who">Cliente</div>Carlos Eduardo Lima · 123.456.789-00 · 03/04/1990<br/>Marina Costa Lima · 987.654.321-00 · 21/09/1992<br/>Uma mala.</div>
+        <div class="msg me">Perfeito! Confirmando: <b>REC → GRU 12/12 às 06:10</b> e <b>GRU → REC 20/12 às 18:40</b>, 2 adultos, 1 mala. Posso emitir?</div>
+        <div class="msg"><div class="who">Cliente</div>Pode!</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Depois de emitir</h3>
+  <div class="grid2">
+    <div class="chat avoid">
+      <div class="msg me">Pronto, Carlos! Passagens emitidas ✅<br/><b>Localizador: ABC123</b><br/>Segue o comprovante da LATAM. Qualquer dúvida é só chamar aqui.</div>
+    </div>
+    <div class="box em" style="margin:0">
+      <div class="t">✓ Sempre mande</div>
+      <ul class="small" style="margin:0">
+        <li>O <b>localizador</b> (código de 6 letras/números).</li>
+        <li>O <b>comprovante</b> da LATAM (PDF ou link).</li>
+        <li>Resumo: trecho, datas, horários e passageiros.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="do-dont" style="margin-top:4mm">
+    <div class="col do">
+      <h4>✓ Faça</h4>
+      <ul class="small" style="margin:0">
+        <li>Responda rápido e com educação, chamando pelo nome.</li>
+        <li>Repita os dados e peça um “ok” antes de emitir.</li>
+        <li>Avise se o preço ou o voo mudou antes de emitir.</li>
+        <li>Se o cliente pedir cancelamento, explique a multa antes (seção 10).</li>
+      </ul>
+    </div>
+    <div class="col dont">
+      <h4>✕ Não faça</h4>
+      <ul class="small" style="margin:0">
+        <li>Atender por outro canal (WhatsApp pessoal, Instagram…).</li>
+        <li>Falar do cedente ou da conta usada com o cliente.</li>
+        <li>Emitir com dado faltando ou “mais ou menos”.</li>
+        <li>Prometer o que depende da companhia (troca de voo, reembolso imediato).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4. EMISSÃO: TELA INICIAL + PASSO 1 ============ -->
+<section class="page">
+  <div class="kicker">4 · Emissão passo a passo</div>
+  <h2>Começando a venda</h2>
+  <p>Clique em <b>Vender</b> no topo do TradeMiles. A primeira tela pergunta para quem é a emissão.</p>
+
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body" style="text-align:center">
+      <div class="small muted" style="letter-spacing:.2em;text-transform:uppercase;font-weight:700">Nova venda</div>
+      <div style="font-size:15pt;font-weight:800;margin:1mm 0 1mm">Para quem é esta emissão?</div>
+      <div class="small muted" style="margin-bottom:3mm">Escolha certo: cada fluxo cobra e registra de um jeito.</div>
+      <div class="grid2" style="text-align:left">
+        <div class="ui-card" style="border:2px solid #059669">
+          <span class="chip em" style="float:right">PADRÃO</span>
+          <div style="font-size:12pt;font-weight:800">Venda final</div>
+          <div class="small" style="color:#047857;font-weight:700">Cliente pelo Telegram</div>
+          <ul class="small" style="margin:1.5mm 0 2mm"><li>Demanda chega no Telegram</li><li>Cedente, biometria e extensão LATAM</li><li>Cobrança enviada ao cliente</li></ul>
+          <span class="ui-btn em">Fazer venda normal ›</span><span class="pin">1</span>
+        </div>
+        <div class="ui-card">
+          <span class="chip sky" style="float:right">PARCEIRO</span>
+          <div style="font-size:12pt;font-weight:800">Voar Fácil</div>
+          <div class="small" style="color:#0369a1;font-weight:700">Pedido do parceiro pelo link</div>
+          <ul class="small" style="margin:1.5mm 0 2mm"><li>Só quando o pedido veio do Voar Fácil</li><li>Cole o link: voos e passageiros entram sozinhos</li><li>No fim, preenche o formulário do parceiro</li></ul>
+          <span class="ui-btn sky">Fazer venda Voar Fácil ›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend"><li><span class="p">1</span><div>Pedido do Telegram = <b>Venda final</b>. Só use Voar Fácil quando o pedido veio do parceiro.</div></li></ol>
+
+  <h3>Passo 1 · Dados da venda</h3>
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body">
+      <div class="steps-nav"><span class="on">1 · Dados da venda</span><span>2 · Cedentes</span><span>3 · Emissão</span></div>
+      <div class="ui-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div><div class="ui-title">Dados da venda</div><div class="small muted">Defina programa, trecho, pontos e passageiros para buscar cedentes.</div></div>
+          <div style="background:#0f172a;color:#fff;border-radius:2mm;padding:1.5mm 3mm;text-align:right"><div style="font-size:6pt;opacity:.7;font-weight:700">TOTAL DA EMISSÃO</div><div style="font-weight:800">92.400 <span style="font-size:7pt;opacity:.7">pts</span></div></div>
+        </div>
+        <div class="grid3" style="margin-top:3mm">
+          <div><div class="ui-label"><span class="pin">1</span>CIA / programa</div><div class="ui-input">✈ LATAM</div></div>
+          <div><div class="ui-label">Trecho</div><div class="ui-input">REC → GRU</div></div>
+          <div><div class="ui-label"><span class="pin">4</span>Milheiro de venda</div><div class="ui-input">R$ 26,00</div></div>
+          <div><div class="ui-label"><span class="pin">2</span>Pontos · ida (por passageiro)</div><div class="ui-input">23.100</div></div>
+          <div><div class="ui-label">Pontos · volta (por passageiro)</div><div class="ui-input">23.100</div></div>
+          <div><div class="ui-label"><span class="pin">3</span>Passageiros</div><div class="ui-input">Adultos 2 · Crianças 0 · Bebês 0</div></div>
+        </div>
+        <div style="text-align:right;margin-top:3mm"><span class="ui-btn dark">Buscar cedentes ›</span></div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div><b>Programa</b> da companhia (LATAM na maioria das vezes) e <b>trecho</b>.</div></li>
+    <li><span class="p">2</span><div><b>Pontos de ida e volta por passageiro</b>, como aparecem na busca em milhas. O total é calculado sozinho.</div></li>
+    <li><span class="p">3</span><div><b>Passageiros</b>: adultos, crianças e bebês. Isso define quantos CPFs da LATAM serão usados (seção 9).</div></li>
+    <li><span class="p">4</span><div><b>Milheiro de venda</b>: preço por mil pontos, sem taxa. Ele marca em vermelho os cedentes que dariam prejuízo.</div></li>
+  </ol>
+</section>
+
+<!-- ============ 5. CEDENTES ============ -->
+<section class="page">
+  <div class="kicker">5 · Escolhendo o cedente</div>
+  <h2>Passo 2 · Cedentes</h2>
+  <p>O TradeMiles lista as contas que têm pontos para essa emissão, já com os CPFs livres e o lucro. As contas bloqueadas não aparecem.</p>
+
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body">
+      <div class="steps-nav"><span class="done">✓ Dados da venda</span><span class="on">2 · Cedentes</span><span>3 · Emissão</span></div>
+      <table class="ui">
+        <tr><th>Cedente</th><th>Pontos</th><th>Sobra</th><th><span class="pin">2</span>Prioridade</th><th><span class="pin">3</span>Milheiro resid.</th><th><span class="pin">1</span>PAX disp. (após)</th><th><span class="pin">5</span></th></tr>
+        <tr class="sel"><td><b>Ana Paula Souza</b><br/><span class="muted">ANA-101 · resp. Lucas</span></td><td>93.800</td><td>1.400</td><td><span class="chip dark">MAX</span></td><td><span class="chip em">R$ 17,10</span></td><td><b>14</b> <span class="muted">(16 − 2)</span></td><td><span class="ui-btn em">💬</span> <span class="ui-btn dark">Usar</span></td></tr>
+        <tr><td><b>Bruno Henrique Dias</b><br/><span class="muted">BRU-207 · resp. Eduarda</span></td><td>140.200</td><td>47.800</td><td><span class="chip em">OK</span></td><td><span class="chip em">R$ 18,40</span></td><td><b>6</b> <span class="muted">(8 − 2)</span></td><td><span class="ui-btn em">💬</span> <span class="ui-btn">Usar</span></td></tr>
+        <tr><td><b>Camila Rocha Melo</b><br/><span class="muted">CAM-033 · resp. Rian</span></td><td>98.000</td><td>5.600</td><td><span class="chip amber">BAIXA</span></td><td><span class="chip rose">R$ 27,90 · prejuízo</span></td><td><b>9</b> <span class="muted">(11 − 2)</span></td><td><span class="ui-btn em">💬</span> <span class="ui-btn">Usar</span></td></tr>
+        <tr class="bad"><td><b>Diego Alves Nunes</b><br/><span class="muted">DIE-412 · resp. Lucas</span></td><td>210.000</td><td>117.600</td><td><span class="chip em">OK</span></td><td><span class="chip em">R$ 16,20</span></td><td><b style="color:#be123c">0</b> <span class="muted">(1 − 2)</span> <span class="chip rose">⚠ PAX</span><span class="pin">4</span></td><td><span class="ui-btn em">💬</span> <span class="ui-btn">Usar</span></td></tr>
+      </table>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div><b>PAX disponível (após)</b>: quantos CPFs da LATAM sobram na conta depois desta venda. Precisa ser 0 ou mais.</div></li>
+    <li><span class="p">2</span><div><b>Prioridade</b>: <span class="chip dark">MAX</span> usa quase todos os pontos da conta (o melhor, porque não deixa sobra parada). <span class="chip em">OK</span> sobra bastante. <span class="chip amber">BAIXA</span>/<span class="chip">MEIO</span> deixam uma sobra pequena, difícil de vender depois.</div></li>
+    <li><span class="p">3</span><div><b>Milheiro residual em vermelho = prejuízo</b>: os pontos dessa conta custaram mais do que você está vendendo. Evite.</div></li>
+    <li><span class="p">4</span><div><b>Alerta de PAX</b> (linha vermelha): a venda passa do limite de CPFs e <b>pode bloquear a conta nas próximas 12h</b>. Não use.</div></li>
+    <li><span class="p">5</span><div><b>💬 WhatsApp</b>: abre a conversa com o cedente já perguntando se ele está disponível para a biometria. Só clique em <b>Usar</b> depois que ele responder.</div></li>
+  </ol>
+
+<div class="grid2 avoid">
+  <div class="box em" style="margin:0">
+    <div class="t">✓ Como escolher, na ordem</div>
+    <ol class="small" style="margin:0">
+      <li>Tem pontos suficientes e <b>PAX disponível</b> depois da venda.</li>
+      <li><b>Sem prejuízo</b> (milheiro residual não está vermelho).</li>
+      <li>Prefira <b>MAX</b>, depois <b>OK</b>.</li>
+      <li>O cedente <b>respondeu que pode fazer a biometria agora</b>.</li>
+    </ol>
+  </div>
+  <div><div class="chat">
+    <div class="msg me">Olá, Ana! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio</div>
+    <div class="msg"><div class="who">Cedente</div>Oi! Posso sim 👍</div>
+  </div>
+  <div class="caption">Mensagem que o botão 💬 já deixa pronta no WhatsApp.</div></div>
+  </div>
+</section>
+
+<!-- ============ 6. BIOMETRIA ============ -->
+<section class="page">
+  <div class="kicker">6 · Biometria e site da LATAM</div>
+  <h2>O fluxo de biometria</h2>
+  <p>Ao escolher o cedente, abre o assistente <b>Biometria LATAM</b>. Siga as etapas na ordem. Você pode deixar a janela do TradeMiles de um lado e o site da LATAM do outro.</p>
+
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body">
+      <div class="ui-card" style="max-width:150mm;margin:0 auto">
+        <div style="display:flex;justify-content:space-between"><div><div class="ui-title">Biometria LATAM</div><div class="small muted">Passo 2 de 6 • Ana Paula Souza • (81) 9••••-1234</div></div><span class="ui-btn">Escolher outro cedente</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2mm;margin-top:3mm">
+          <div class="ui-card" style="background:#f8fafc"><div style="font-weight:700;font-size:9pt"><span class="pin">1</span>Credenciais da conta LATAM</div><div class="small muted">CPF (login) <span class="mono">•••.•••.•••-••</span> 📋 · Senha <span class="mono">••••••</span> 📋</div><div class="small muted">Entre no site da LATAM com a conta do cedente.</div></div>
+          <div class="ui-card" style="border:2px solid #0284c7"><div style="font-weight:700;font-size:9pt"><span class="pin">2</span>Código de verificação</div><div class="mono" style="font-size:17pt;font-weight:800;letter-spacing:.2em">482 913</div><div class="small muted">Buscado sozinho no e-mail do cedente.</div></div>
+          <div class="ui-card" style="background:#f8fafc"><div style="font-weight:700;font-size:9pt"><span class="pin">3</span>Link de pesquisa (milhas)</div><div class="small muted">Abre a busca da LATAM já em milhas, com o trecho e os passageiros.</div></div>
+          <div class="ui-card" style="background:#f8fafc"><div style="font-weight:700;font-size:9pt"><span class="pin">4</span>Extensão LATAM</div><div class="small muted">Cole a foto/print/texto dos documentos: o sistema lê nome, CPF e nascimento e prepara a extensão.</div></div>
+          <div class="ui-card" style="background:#f8fafc"><div style="font-weight:700;font-size:9pt"><span class="pin">5</span>Order ID e link de pagamento</div><div class="small muted">Cole o link da reserva ou o Order ID (LA…).</div></div>
+          <div class="ui-card" style="background:#f8fafc"><div style="font-weight:700;font-size:9pt"><span class="pin">6</span>Link da biometria (Unico)</div><div class="small muted">Cole o link e envie ao cedente pelo WhatsApp.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div><b>Credenciais</b>: copie CPF e senha (📋) e entre no site da LATAM com a conta do cedente.</div></li>
+    <li><span class="p">2</span><div><b>Código de verificação</b>: a LATAM manda um código para o e-mail do cedente; o TradeMiles busca sozinho. Se não vier, peça ao cedente.</div></li>
+    <li><span class="p">3</span><div><b>Link de pesquisa</b>: abre a busca já em milhas. Escolha os voos que o cliente confirmou.</div></li>
+    <li><span class="p">4</span><div><b>Extensão</b>: cole os dados dos passageiros (foto do documento, print ou texto). <b>Confira</b> nome, CPF e data de nascimento lidos.</div></li>
+    <li><span class="p">5</span><div><b>Order ID</b>: depois de montar a reserva, cole o link ou o código <span class="mono">LA…</span>.</div></li>
+    <li><span class="p">6</span><div><b>Biometria</b>: cole o link da Unico e envie ao cedente. Ele faz a biometria pelo celular e a compra é liberada.</div></li>
+  </ol>
+
+</section>
+<section class="page">
+  <div class="kicker">6 · Biometria e site da LATAM</div>
+  <h2>Emitindo no site da LATAM</h2>
+  <ol class="check" style="margin-bottom:4mm">
+    <li><span class="bx"></span><div>Entre no site da LATAM com a conta <b>do cedente escolhido</b> (etapas 1 e 2 do assistente).</div></li>
+    <li><span class="bx"></span><div>Abra o <b>link de pesquisa</b> e escolha exatamente os voos que o cliente confirmou (data, horário, trecho).</div></li>
+    <li><span class="bx"></span><div>Na tela de passageiros, clique em <b>Preencher TradeMiles</b> e <b>confira</b> cada campo com o que o cliente mandou.</div></li>
+    <li><span class="bx"></span><div>Confira o total em milhas e a taxa antes de pagar.</div></li>
+    <li><span class="bx"></span><div>Cole o <b>Order ID</b> no assistente e mande o <b>link da biometria</b> ao cedente pelo WhatsApp.</div></li>
+    <li><span class="bx"></span><div>Com a biometria feita e a compra confirmada, copie o <b>link do comprovante</b> e volte ao TradeMiles (seção 7).</div></li>
+  </ol>
+  <div class="avoid">
+  <h3>O painel da extensão</h3>
+  <div class="shot">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">latamairlines.com · passageiros</div></div>
+    <div class="body" style="display:grid;grid-template-columns:1.4fr 1fr;gap:3mm">
+      <div class="ui-card">
+        <div class="ui-title" style="font-size:9.5pt">Dados dos passageiros</div>
+        <div class="grid2" style="gap:2mm;margin-top:2mm">
+          <div><div class="ui-label">Nome</div><div class="ui-input">Carlos Eduardo</div></div>
+          <div><div class="ui-label">Sobrenome</div><div class="ui-input">Lima</div></div>
+          <div><div class="ui-label">Nascimento</div><div class="ui-input">03/04/1990</div></div>
+          <div><div class="ui-label">CPF</div><div class="ui-input">123.456.789-00</div></div>
+        </div>
+      </div>
+      <div class="ui-card" style="border:2px solid #0f172a">
+        <div style="font-weight:800;font-size:9pt">TradeMiles</div>
+        <div class="small muted" style="margin-bottom:2mm">Venda preparada · 2 passageiros · cartão da taxa</div>
+        <div style="display:flex;align-items:center"><span class="pin">1</span><span class="ui-btn dark" style="flex:1;justify-content:center">Preencher TradeMiles</span></div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend"><li><span class="p">1</span><div>Clique em <b>Preencher TradeMiles</b>: passageiros e cartão da taxa são preenchidos. <b>Confira campo por campo</b> antes de pagar.</div></li></ol>
+  </div>
+</section>
+
+<!-- ============ 7. FECHAR VENDA ============ -->
+<section class="page">
+  <div class="kicker">7 · Fechando a venda</div>
+  <h2>Passo 3 · Emissão</h2>
+  <p>Com a passagem emitida na LATAM, volte ao TradeMiles para registrar a venda.</p>
+
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body">
+      <div class="steps-nav"><span class="done">✓ Dados da venda</span><span class="done">✓ Cedentes</span><span class="on">3 · Emissão</span></div>
+      <div class="ui-card">
+        <div class="ui-title">Cliente, compra liberada e dados da emissão</div>
+        <div class="grid3" style="margin-top:2.5mm">
+          <div><div class="ui-label"><span class="pin">1</span>Cliente</div><div class="ui-input">Carlos Eduardo Lima ▾</div></div>
+          <div><div class="ui-label">Compra liberada</div><div class="ui-input">ID01164 · LATAM ▾</div></div>
+          <div><div class="ui-label">Cartão da taxa</div><div class="ui-input">Cartão Vias Aéreas ▾</div></div>
+        </div>
+        <div style="margin-top:2.5mm"><div class="ui-label"><span class="pin">2</span>Comprovante LATAM</div><div class="ui-input" style="display:flex;justify-content:space-between"><span class="muted">Link do PDF (LATAM, Google Storage…) ou Order ID LA…</span><span class="chip em">✓ Preenchido: localizador, taxa, datas</span></div></div>
+        <div class="grid3" style="margin-top:2.5mm">
+          <div><div class="ui-label"><span class="pin">3</span>Localizador</div><div class="ui-input">ABC123</div></div>
+          <div><div class="ui-label">Código compra</div><div class="ui-input">LA1234567890</div></div>
+          <div><div class="ui-label">Sobrenome (1º pax)</div><div class="ui-input">LIMA</div></div>
+          <div><div class="ui-label">Data ida / volta</div><div class="ui-input">12/12 · 20/12</div></div>
+          <div><div class="ui-label">Aeroporto ida</div><div class="ui-input">REC</div></div>
+          <div><div class="ui-label">Taxa de embarque (R$)</div><div class="ui-input">143,00</div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3mm;background:#f8fafc;border-radius:2mm;padding:2mm">
+          <div class="small">Total <b>R$ 2.545,40</b> · Lucro desta venda <b style="color:#047857">R$ 812,60</b></div>
+          <span><span class="pin">4</span><span class="ui-btn em">Fechar venda</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div><b>Cliente</b>: busque pelo nome, CPF ou telefone. Se não existir, use <b>Cadastrar cliente</b> (nome, CPF/CNPJ, telefone e a origem). Escolha a <b>compra liberada</b> do cedente e o <b>cartão</b> que pagou a taxa.</div></li>
+    <li><span class="p">2</span><div><b>Cole o link do comprovante</b> da LATAM: localizador, Order ID, sobrenome, datas e taxa entram sozinhos. Se não ler, preencha à mão.</div></li>
+    <li><span class="p">3</span><div><b>Confira</b>: localizador, código <span class="mono">LA…</span>, sobrenome do 1º passageiro, data de ida, aeroporto com 3 letras (ex.: GRU) e taxa.</div></li>
+    <li><span class="p">4</span><div><b>Fechar venda</b>. Aparece o resumo (vendedor, cliente, cedente, pontos e milheiro): confira e confirme.</div></li>
+  </ol>
+
+  <div class="grid2">
+    <div class="box amber avoid" style="margin:0">
+      <div class="t">⚠︎ Taxa de embarque zerada</div>
+      <p class="small" style="margin:0">Se a taxa ficar R$ 0, o sistema pede confirmação. Só confirme se a venda <b>realmente</b> não tem taxa.</p>
+    </div>
+    <div class="box rose avoid" style="margin:0">
+      <div class="t">⛔ “Fechar venda (assumo o risco)”</div>
+      <p class="small" style="margin:0">Aparece quando a venda passa do limite de CPFs. Não use sem autorização do responsável.</p>
+    </div>
+  </div>
+
+  <h3>Depois de salvar</h3>
+  <ul>
+    <li>Mande ao cliente, pelo Telegram, o <b>localizador</b> e o <b>comprovante</b> (seção 3).</li>
+    <li>A venda aparece em <b>Localizadores</b> e no <b>Painel de vendas</b>.</li>
+    <li>Antes da viagem, use <b>Check localizador</b> para ver se a companhia mudou o voo. Se mudou, avise o cliente.</li>
+  </ul>
+</section>
+
+<!-- ============ 8. VOAR FÁCIL ============ -->
+<section class="page">
+  <div class="kicker">8 · Voar Fácil (parceiro)</div>
+  <h2>Pedido que vem do parceiro</h2>
+  <p class="lead">Quando o pedido chega pelo <b>Voar Fácil</b>, os voos e passageiros já vêm no link. O resto do fluxo (cedente, biometria, emissão) é igual.</p>
+
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/vendas/nova</div></div>
+    <div class="body">
+      <div class="ui-card" style="border:2px solid #0284c7">
+        <div style="font-weight:800;color:#0369a1">✈ Pedido do parceiro · Voar Fácil</div>
+        <div class="small muted" style="margin:1mm 0 2mm">Cole o link do pedido: lê voos, milhas e passageiros (adulto, criança, bebê).</div>
+        <div style="display:flex;align-items:center"><span class="pin">1</span><div class="ui-input muted" style="flex:1">https://emissao-externa.voarfacil.net/…</div></div>
+        <div class="ui-card" style="margin-top:2mm;background:#f0f9ff">
+          <div class="small"><span class="pin">2</span><b>REC → GRU</b> · 12/12 06:10 · 23.100 pts/pax</div>
+          <div class="small muted">2 adulto(s) · 0 criança(s) · 0 bebê(s)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div>Escolha <b>Fazer venda Voar Fácil</b> e cole o link do pedido.</div></li>
+    <li><span class="p">2</span><div>Confira os voos e passageiros lidos. Siga com cedente, biometria e emissão como na venda normal.</div></li>
+  </ol>
+
+  <div class="box sky avoid">
+    <div class="t">ⓘ No fim: formulário do parceiro</div>
+    <ol class="small" style="margin:0">
+      <li>Depois de fechar a venda, o TradeMiles abre o Voar Fácil.</li>
+      <li>Clique em <b>Preencher</b> no painel da extensão: localizador e e-tickets entram sozinhos (se você colou o link do comprovante).</li>
+      <li><b>Confira</b> tudo e clique em <b>Enviar</b> no formulário do parceiro.</li>
+    </ol>
+  </div>
+  <div class="box amber avoid">
+    <div class="t">⚠︎ Atenção no Voar Fácil</div>
+    <ul class="small" style="margin:0">
+      <li>Se aparecer <b>“a taxa da venda passa do limite do pedido”</b>, pare e fale com o responsável antes de enviar.</li>
+      <li>Sem o link do comprovante, os e-tickets ficam para preencher à mão.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 9. CPFs LATAM ============ -->
+<section class="page">
+  <div class="kicker">9 · CPFs na LATAM</div>
+  <h2>Como funciona o limite de CPFs</h2>
+  <p class="lead">Cada conta LATAM Pass pode emitir para <b>no máximo 25 passageiros (CPFs) em 365 dias</b>. Passou disso, a LATAM pode <b>bloquear a conta</b> do cedente. Por isso o TradeMiles controla o “PAX disponível” de cada conta.</p>
+
+  <div class="grid3">
+    <div class="box em" style="margin:0"><div class="t">Conta</div><p class="small" style="margin:0">Adulto e criança <b>contam</b> 1 CPF cada.</p></div>
+    <div class="box sky" style="margin:0"><div class="t">Não conta</div><p class="small" style="margin:0">Bebê de colo <b>não conta</b>.</p></div>
+    <div class="box rose" style="margin:0"><div class="t">Não volta</div><p class="small" style="margin:0">Cancelou? O CPF <b>continua usado</b>.</p></div>
+  </div>
+
+  <h3>A janela é móvel: 365 dias para trás, contando de hoje</h3>
+  <div class="timeline avoid">
+    <div class="axis"></div>
+    <div class="win" style="left:22%;right:0"></div>
+    <div class="ev out" style="left:8%">2</div>
+    <div class="ev" style="left:30%">3</div>
+    <div class="ev" style="left:48%">4</div>
+    <div class="ev" style="left:66%">2</div>
+    <div class="ev" style="left:84%">5</div>
+    <div class="ev" style="left:97%;background:#0284c7">2</div>
+    <div class="lab" style="left:8%;top:24mm">nov/2025<br/>já saiu</div>
+    <div class="lab" style="left:61%;top:3mm;color:#0284c7;font-weight:700">← 365 dias →</div>
+    <div class="lab" style="left:100%;top:24mm;color:#0284c7;font-weight:700;transform:translateX(-100%);text-align:right">hoje<br/>(nova venda)</div>
+  </div>
+  <p class="small muted">Exemplo: as emissões verdes estão dentro da janela (3 + 4 + 2 + 5 = 14 CPFs). Com a nova venda de 2 passageiros, a conta vai a 16 de 25: sobram <b>9</b>. A de novembro do ano passado (cinza) já saiu da janela e liberou 2 CPFs.</p>
+
+  <h3>Onde ver na emissão</h3>
+  <div class="ui-card avoid" style="display:flex;gap:3mm;align-items:center;flex-wrap:wrap">
+    <span class="chip">PAX após: <b>9</b> (agora 11 • usados 14/25 • 365d • consome 2)</span>
+    <span class="chip em">Sobra: 1.400 pts</span>
+    <span class="chip dark">MAX</span>
+  </div>
+  <div style="margin-top:3mm">
+    <div class="meter"><span style="width:56%;background:#059669"></span><span style="width:8%;background:#0284c7"></span><span style="width:36%;background:#e2e8f0"></span></div>
+    <div class="small muted" style="display:flex;justify-content:space-between;margin-top:1mm"><span>■ usados na janela (14)</span><span style="color:#0284c7">■ esta venda (2)</span><span>livres depois (9)</span></div>
+  </div>
+
+  <div class="box rose avoid" style="margin-top:5mm">
+    <div class="t">⛔ Alerta de PAX</div>
+    <p class="small" style="margin:0">Se aparecer <b>“Alerta: esta venda excede o PAX disponível e pode gerar bloqueio nas próximas 12h”</b>, troque de cedente. Contas marcadas como <b>Impedir bloqueio</b> nem aparecem quando a venda estoura o limite.</p>
+  </div>
+  <div class="box amber avoid">
+    <div class="t">⚠︎ Média de pontos por passageiro</div>
+    <p class="small" style="margin:0">O sistema sugere quantos pontos por passageiro a conta deveria vender (estoque ÷ CPFs livres). Se a venda ficar <b>abaixo da média sugerida</b>, a conta pode acabar com pontos e sem CPFs para usar. Prefira outra conta, ou fale com o responsável.</p>
+  </div>
+</section>
+
+<!-- ============ 10. CANCELAMENTO ============ -->
+<section class="page">
+  <div class="kicker">10 · Cancelamento</div>
+  <h2>Quando o cliente quer cancelar</h2>
+
+  <div class="grid2">
+    <div>
+      <h3 style="margin-top:0">Regra para o cliente</h3>
+      <ul>
+        <li><b>Multa por passageiro</b>: R$ 150 na LATAM (R$ 100 na Smiles).</li>
+        <li>O cliente <b>recebe de volta o restante</b> do que pagou, incluindo a taxa de embarque.</li>
+        <li>Explique a multa e o valor que volta <b>antes</b> de cancelar e peça o “ok” dele no Telegram.</li>
+      </ul>
+      <div class="box sky" style="margin-top:2mm">
+        <div class="t">Exemplo</div>
+        <p class="small" style="margin:0">2 passageiros pagaram R$ 2.545,40.<br/>Multa: 2 × R$ 150 = <b>R$ 300,00</b>.<br/>Volta ao cliente: <b>R$ 2.245,40</b>.</p>
+      </div>
+    </div>
+    <div>
+      <h3 style="margin-top:0">O que acontece no sistema</h3>
+      <ul class="check">
+        <li><span class="bx" style="background:#ecfdf5;border-color:#059669"></span><div><b>Pontos voltam</b> ao cedente.</div></li>
+        <li><span class="bx" style="background:#fff1f2;border-color:#be123c"></span><div><b>CPF continua usado</b>: não libera vaga dos 25.</div></li>
+        <li><span class="bx"></span><div>Se a comissão já foi paga, ela fica e os pontos voltam numa compra nova.</div></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Passo a passo no TradeMiles</h3>
+  <div class="shot avoid">
+    <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><div class="url">trademiles.com.br/dashboard/localizadores</div></div>
+    <div class="body" style="display:grid;grid-template-columns:1fr 1.1fr;gap:3mm">
+      <div class="ui-card">
+        <div style="display:flex;align-items:center;margin-bottom:2mm"><span class="pin">1</span><div class="ui-input muted" style="flex:1">🔍 Localizador, cliente, CPF, Order ID…</div></div>
+        <div class="ui-card" style="border:2px solid #0f172a;padding:2mm"><b>ABC123</b> · LATAM<br/><span class="small muted">Carlos Eduardo Lima · REC → GRU · 12/12</span></div>
+        <div class="ui-card" style="padding:2mm;margin-top:1.5mm"><b>XYZ789</b> · LATAM<br/><span class="small muted">Outro cliente · SSA → CGH</span></div>
+        <div style="margin-top:3mm"><span class="pin">2</span><span class="ui-btn rose">Cancelar localizador</span></div>
+      </div>
+      <div class="ui-card" style="border:1.5px solid #94a3b8">
+        <div class="ui-title">Cancelar ABC123?</div>
+        <div class="small muted" style="margin:1mm 0 2mm">Pontos voltam ao cedente. CPF permanece usado.</div>
+        <label class="small" style="display:flex;gap:1.5mm;align-items:center"><span class="bx" style="width:3.6mm;height:3.6mm;border:1.4px solid #0f172a;border-radius:.8mm;background:#0f172a"></span> Cobrar multa<span class="pin">3</span></label>
+        <div class="grid2" style="gap:2mm;margin-top:2mm">
+          <div><div class="ui-label">Multa por passageiro</div><div class="ui-input">R$ 150,00</div></div>
+          <div><div class="ui-label">Total da multa (2 pax)</div><div class="ui-input"><b>R$ 300,00</b></div></div>
+        </div>
+        <div style="text-align:right;margin-top:3mm"><span class="ui-btn">Voltar</span> <span class="pin">4</span><span class="ui-btn rose" style="background:#be123c;color:#fff">Confirmar cancelamento</span></div>
+      </div>
+    </div>
+  </div>
+  <ol class="pins-legend">
+    <li><span class="p">1</span><div>Em <b>Localizadores</b>, busque pelo localizador, nome do cliente, CPF ou Order ID.</div></li>
+    <li><span class="p">2</span><div>Abra a passagem e clique em <b>Cancelar localizador</b>. Ali também ficam as credenciais da conta, se precisar entrar na LATAM.</div></li>
+    <li><span class="p">3</span><div><b>Cobrar multa</b> já vem marcado com o valor padrão. Só desmarque (multa isenta) com autorização do responsável.</div></li>
+    <li><span class="p">4</span><div><b>Confirmar cancelamento</b>. A passagem fica como “Localizador cancelado”, com a multa e o reembolso.</div></li>
+  </ol>
+  <div class="box amber avoid">
+    <div class="t">⚠︎ Ordem certa</div>
+    <p class="small" style="margin:0">Faça o cancelamento <b>no site da companhia</b> (com a conta do cedente) e só depois registre no TradeMiles. Avise o cliente pelo Telegram quando estiver concluído e informe o valor que volta para ele.</p>
+  </div>
+</section>
+
+<!-- ============ 11. ATENÇÃO ============ -->
+<section class="page">
+  <div class="kicker">11 · O que prestar atenção</div>
+  <h2>Erros que custam caro</h2>
+
+  <div class="grid2">
+    <div class="box rose avoid" style="margin:0">
+      <div class="t">✕ Nome ou data errada</div>
+      <p class="small" style="margin:0">Nome diferente do documento pode impedir o embarque. Corrigir quase sempre exige cancelar (multa + CPF perdido). <b>Confira com o cliente antes.</b></p>
+    </div>
+    <div class="box rose avoid" style="margin:0">
+      <div class="t">✕ Passar do limite de CPFs</div>
+      <p class="small" style="margin:0">Pode bloquear a conta do cedente em até 12h. Respeite o <b>PAX disponível</b> e o alerta vermelho.</p>
+    </div>
+    <div class="box amber avoid" style="margin:0">
+      <div class="t">⚠︎ Vender com prejuízo</div>
+      <p class="small" style="margin:0">Milheiro residual vermelho = a conta custou mais que o preço de venda. Escolha outra.</p>
+    </div>
+    <div class="box amber avoid" style="margin:0">
+      <div class="t">⚠︎ Conta errada no site</div>
+      <p class="small" style="margin:0">Antes de pagar na LATAM, veja se está logado na conta do <b>cedente escolhido</b> no TradeMiles.</p>
+    </div>
+    <div class="box amber avoid" style="margin:0">
+      <div class="t">⚠︎ Extensão desatualizada</div>
+      <p class="small" style="margin:0">Atualize quando o sistema pedir e sempre confira o que ela preencheu.</p>
+    </div>
+    <div class="box amber avoid" style="margin:0">
+      <div class="t">⚠︎ Dados que o sistema exige</div>
+      <p class="small" style="margin:0">Localizador, sobrenome do 1º passageiro, data de ida, Order ID começando com <span class="mono">LA</span> e aeroporto com 3 letras.</p>
+    </div>
+  </div>
+
+  <h3>Cuidado com os dados do cedente</h3>
+  <ul>
+    <li>Credenciais (CPF, senhas, e-mail) do cedente são <b>só para a emissão</b>. Não copie para outro lugar e não mande para ninguém.</li>
+    <li>Não troque senha, e-mail ou dados da conta do cedente.</li>
+    <li>Fale com o cedente só pelo WhatsApp que o TradeMiles abre, e só sobre a biometria.</li>
+    <li>Nunca diga ao cliente de quem é a conta usada.</li>
+  </ul>
+
+  <h3>Deu problema? Registre</h3>
+  <p>Conta travada, biometria que não passa, código que não chega, cobrança estranha: abra um <b>Relato de problemas</b> no menu lateral com a data, a conta e a descrição. Assim o responsável acompanha e nada se perde.</p>
+
+  <div class="box sky avoid">
+    <div class="t">ⓘ Na dúvida</div>
+    <p class="small" style="margin:0">Pergunte antes de emitir. Uma pergunta leva um minuto; um erro de emissão pode levar dias para resolver.</p>
+  </div>
+</section>
+
+<!-- ============ 12. GLOSSÁRIO + CHECKLIST ============ -->
+<section class="page">
+  <div class="kicker">12 · Glossário e checklist</div>
+  <div class="grid2">
+    <div>
+      <h2 style="font-size:15pt">Palavras do dia a dia</h2>
+      <dl class="glossary small">
+        <dt>Cedente</dt><dd>Pessoa dona da conta de milhas usada na emissão.</dd>
+        <dt>PAX</dt><dd>Passageiro. “PAX disponível” = CPFs livres na conta LATAM.</dd>
+        <dt>Milheiro</dt><dd>Preço por mil pontos (sem taxa).</dd>
+        <dt>Milheiro residual</dt><dd>Quanto custaram os pontos que sobram na conta. Acima do preço de venda = prejuízo.</dd>
+        <dt>Localizador</dt><dd>Código da reserva com 6 letras/números (ex.: ABC123).</dd>
+        <dt>Order ID</dt><dd>Código da compra na LATAM, começa com <span class="mono">LA</span>.</dd>
+        <dt>Biometria</dt><dd>Confirmação de identidade que o cedente faz pelo celular (Unico) para liberar a compra.</dd>
+        <dt>Compra liberada</dt><dd>Lote de pontos já comprado e liberado para vender (ex.: ID01164).</dd>
+        <dt>Taxa de embarque</dt><dd>Valor em reais pago no cartão junto com as milhas.</dd>
+        <dt>Check localizador</dt><dd>Tela para conferir se o voo foi alterado pela companhia.</dd>
+      </dl>
+    </div>
+    <div>
+      <h2 style="font-size:15pt">Checklist de cada emissão</h2>
+      <ul class="check small">
+        <li><span class="bx"></span><div>Dados conferidos com o cliente no Telegram (nome, CPF, nascimento, trecho, datas, horários)</div></li>
+        <li><span class="bx"></span><div>Nova venda → <b>Venda final</b> (ou Voar Fácil)</div></li>
+        <li><span class="bx"></span><div>Programa, trecho, pontos e passageiros certos</div></li>
+        <li><span class="bx"></span><div>Cedente com <b>PAX disponível</b>, sem prejuízo, de preferência MAX</div></li>
+        <li><span class="bx"></span><div>Cedente confirmou a biometria pelo WhatsApp</div></li>
+        <li><span class="bx"></span><div>Logado na conta certa na LATAM</div></li>
+        <li><span class="bx"></span><div>Extensão preencheu e eu <b>conferi</b> cada passageiro</div></li>
+        <li><span class="bx"></span><div>Biometria feita, passagem emitida</div></li>
+        <li><span class="bx"></span><div>Link do comprovante colado; localizador, Order ID e taxa conferidos</div></li>
+        <li><span class="bx"></span><div>Cliente e compra liberada escolhidos → <b>Fechar venda</b></div></li>
+        <li><span class="bx"></span><div>Localizador e comprovante enviados ao cliente pelo Telegram</div></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-note">Manual do Emissor · Vias Aéreas / TradeMiles · novembro de 2026. As telas são ilustrativas, com dados fictícios; os botões e nomes seguem o sistema.</div>
+</section>
+
+</body>
+</html>

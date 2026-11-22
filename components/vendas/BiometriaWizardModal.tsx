@@ -342,6 +342,8 @@ type Props = {
     skippedOrder: boolean;
     /** Cartão da taxa na venda: SELF | VIAS | USER:id */
     feeCardPreset?: string | null;
+    /** PAX usados no link de pesquisa (só quando houve pesquisa). Vale para a venda. */
+    searchPax?: { adt: number; chd: number; inf: number } | null;
   }) => void;
 };
 
@@ -830,12 +832,18 @@ export default function BiometriaWizardModal({
     const selected = latamPaymentCards.find((c) => c.id === latamPaymentCardId);
     if (!latamPaymentCardId || !selected) return null;
     if (selected.isCompany || latamCardOwnerId === VIAS_OWNER_ID) return "VIAS";
-    const me = getSession()?.id || "";
-    if (latamCardOwnerId && latamCardOwnerId === me) return "SELF";
-    if (latamCardOwnerId && latamCardOwnerId !== VIAS_OWNER_ID) {
-      return `USER:${latamCardOwnerId}`;
+    const sess = getSession();
+    const me = sess?.id || "";
+    // Dono real é o do cartão escolhido (o seletor de dono pode ter ficado em "você").
+    const owner =
+      selected.userId ||
+      (latamCardOwnerId && latamCardOwnerId !== VIAS_OWNER_ID ? latamCardOwnerId : "");
+    // Emissor só emite: o cartão é sempre do sócio vinculado ou da Vias Aéreas.
+    if (sess?.role === "emissor" || emissorViewNow().preview) {
+      return owner && owner !== me ? `USER:${owner}` : null;
     }
-    return "SELF";
+    if (!owner || owner === me) return "SELF";
+    return `USER:${owner}`;
   }
 
   function finish(opts: { purchaseCode: string | null; skippedOrder: boolean }) {
@@ -851,6 +859,9 @@ export default function BiometriaWizardModal({
         searchTrip === "IDA_VOLTA" && searchInbound ? searchInbound : null,
       skippedOrder: opts.skippedOrder,
       feeCardPreset: resolveFeeCardPreset(),
+      searchPax: searchLink
+        ? { adt: searchAdt, chd: searchChd, inf: searchInf }
+        : null,
     });
   }
 

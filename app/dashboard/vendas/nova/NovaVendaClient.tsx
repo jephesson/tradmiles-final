@@ -186,14 +186,32 @@ function buildWhatsAppUrlFromContact(
   return `${base}${sep}text=${encodeURIComponent(message)}`;
 }
 
+function paxLabel(adt: number, chd: number, inf: number) {
+  const parts = [`${adt} ad`];
+  if (chd > 0) parts.push(`${chd} chd`);
+  if (inf > 0) parts.push(`${inf} bb`);
+  return parts.join(" + ");
+}
+
 /** Mensagem padrão ao perguntar disponibilidade de biometria na lista de cedentes. */
-function biometriaDisponivelWaMsg(nomeCompleto?: string | null) {
-  const first = String(nomeCompleto || "")
+function firstName(nome?: string | null) {
+  return String(nome || "")
     .trim()
     .split(/\s+/)
     .filter(Boolean)[0];
-  if (first) return `Olá, ${first}! Tudo bem? Ta disponível para biometria?`;
-  return "Olá, tudo bem? Ta disponível para biometria?";
+}
+
+function biometriaDisponivelWaMsg(
+  nomeCompleto?: string | null,
+  emissorNome?: string | null
+) {
+  const first = firstName(nomeCompleto);
+  const emissor = firstName(emissorNome);
+  const saudacao = first ? `Olá, ${first}` : "Olá";
+  const apresentacao = emissor
+    ? `, aqui é o ${emissor} do Vias Aéreas`
+    : ", aqui é do Vias Aéreas";
+  return `${saudacao}${apresentacao}. Está disponível para a facial? Estou fazendo o link e mando em instantes, lembrando que o LINK tem duração de apenas 3 minutos. Consegue fazer?`;
 }
 
 function normStr(v?: string) {
@@ -512,6 +530,18 @@ export default function NovaVendaClient({
   const [childPassengers, setChildPassengers] = useState(0);
   const [infantPassengers, setInfantPassengers] = useState(0);
   const passengers = Math.max(1, adultPassengers + childPassengers);
+  /** PAX do link de pesquisa (biometria). Quando existe, é o que vale para a venda. */
+  const [searchPax, setSearchPax] = useState<
+    { adt: number; chd: number; inf: number } | null
+  >(null);
+  /** Aviso quando a pesquisa alterou o PAX da venda. */
+  const [searchPaxNotice, setSearchPaxNotice] = useState<string | null>(null);
+  const [editPaxOpen, setEditPaxOpen] = useState(false);
+  const paxDiffersFromSearch =
+    !!searchPax &&
+    (searchPax.adt !== adultPassengers ||
+      searchPax.chd !== childPassengers ||
+      searchPax.inf !== infantPassengers);
 
   // ✅ total efetivo por trecho
   const idaTotalPoints = useMemo(() => {
@@ -598,6 +628,8 @@ export default function NovaVendaClient({
   // cartão da taxa (dropdown único)
   // SELF | VIAS | USER:<id> | MANUAL
   const [feeCardPreset, setFeeCardPreset] = useState<string>("SELF");
+  /** Cartão já escolhido no fluxo de biometria — o padrão do emissor não sobrescreve. */
+  const feeCardFromWizardRef = useRef(false);
   const [feeCardManual, setFeeCardManual] = useState<string>("");
 
   const employeeC1Bps = initialEmployeeCommission.employeeC1Bps;
@@ -959,11 +991,12 @@ export default function NovaVendaClient({
         const res = await fetch(`/api/funcionarios/payment-cards/default${qs}`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         const def = json?.ok ? json.data : null;
+        if (feeCardFromWizardRef.current) return;
         if (def?.isCompany) setFeeCardPreset("VIAS");
         else if (def?.userId) setFeeCardPreset(`USER:${def.userId}`);
         else setFeeCardPreset("VIAS");
       } catch {
-        setFeeCardPreset("VIAS");
+        if (!feeCardFromWizardRef.current) setFeeCardPreset("VIAS");
       }
     })();
   }, [isEmissor, previewEmissorId]);
@@ -1002,6 +1035,8 @@ export default function NovaVendaClient({
   // label final do cartão (vai no payload)
   const feeCardLabel = useMemo(() => {
     if (feeCardPreset === "VIAS") return "Cartão Vias Aéreas";
+    // Emissor não usa o próprio cartão: sem escolha válida, o servidor aplica o padrão.
+    if (isEmissor && (feeCardPreset === "SELF" || feeCardPreset === "MANUAL")) return "";
     if (feeCardPreset === "MANUAL") return (feeCardManual || "").trim() || "";
     if (feeCardPreset.startsWith("USER:")) {
       const id = feeCardPreset.slice("USER:".length);
@@ -1013,7 +1048,7 @@ export default function NovaVendaClient({
       return me.login ? `Cartão ${me.name} (@${me.login})` : `Cartão ${me.name}`;
     }
     return "Cartão do vendedor";
-  }, [feeCardPreset, feeCardManual, users, me?.name, me?.login]);
+  }, [feeCardPreset, feeCardManual, users, me?.name, me?.login, isEmissor]);
 
   const effectiveSeller = useMemo(() => {
     if (!assignedSellerId) return me;
@@ -1767,8 +1802,8 @@ export default function NovaVendaClient({
   const selWhatsAppMessage = useMemo(() => {
     const nome = sel?.cedente?.nomeCompleto?.trim();
     if (!nome) return "";
-    return `Olá, ${nome}! Tudo bem? Está disponível para fazer uma biometria agora? Logo mais eu te envio`;
-  }, [sel?.cedente?.nomeCompleto]);
+    return biometriaDisponivelWaMsg(nome, me?.name);
+  }, [sel?.cedente?.nomeCompleto, me?.name]);
 
   const selWhatsAppOpenUrl = useMemo(
     () => buildWhatsAppUrlFromContact(selWhatsApp, selWhatsAppMessage),
@@ -1800,7 +1835,32 @@ export default function NovaVendaClient({
     returnDate: string | null;
     skippedOrder: boolean;
     feeCardPreset?: string | null;
+    searchPax?: { adt: number; chd: number; inf: number } | null;
   }) {
+    if (result.searchPax) {
+      const sp = {
+        adt: Math.max(1, Math.min(9, Math.floor(result.searchPax.adt) || 1)),
+        chd: Math.max(0, Math.min(9, Math.floor(result.searchPax.chd) || 0)),
+        inf: Math.max(0, Math.min(9, Math.floor(result.searchPax.inf) || 0)),
+      };
+      const changed =
+        sp.adt !== adultPassengers ||
+        sp.chd !== childPassengers ||
+        sp.inf !== infantPassengers;
+      setSearchPax(sp);
+      setAdultPassengers(sp.adt);
+      setChildPassengers(sp.chd);
+      setInfantPassengers(sp.inf);
+      setSearchPaxNotice(
+        changed
+          ? `PAX ajustado pela pesquisa: era ${paxLabel(
+              adultPassengers,
+              childPassengers,
+              infantPassengers
+            )}, agora ${paxLabel(sp.adt, sp.chd, sp.inf)}.`
+          : null
+      );
+    }
     if (result.purchaseCode) {
       setPurchaseCode(result.purchaseCode);
     }
@@ -1808,7 +1868,11 @@ export default function NovaVendaClient({
     setSearchLinkReady(result.searchLink);
     if (result.departureDate) setDepartureDate(result.departureDate);
     if (result.returnDate) setReturnDate(result.returnDate);
-    if (result.feeCardPreset) {
+    if (
+      result.feeCardPreset &&
+      !(isEmissor && result.feeCardPreset === "SELF")
+    ) {
+      feeCardFromWizardRef.current = true;
       setFeeCardPreset(result.feeCardPreset);
     }
     setLatamEmissionUnlocked(true);
@@ -3103,7 +3167,7 @@ export default function NovaVendaClient({
                     const waContact = waMap[s.cedente.id] || null;
                     const waHref = buildWhatsAppUrlFromContact(
                       waContact,
-                      biometriaDisponivelWaMsg(s.cedente.nomeCompleto)
+                      biometriaDisponivelWaMsg(s.cedente.nomeCompleto, me?.name)
                     );
                     const sugPts =
                       s.suggestedPtsPerPax ??
@@ -4048,6 +4112,75 @@ export default function NovaVendaClient({
                   </span>
                 </b>
               </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEditPaxOpen((v) => !v)}
+                  className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-800 hover:underline"
+                >
+                  {editPaxOpen ? "Fechar edição de PAX" : "Editar PAX"}
+                </button>
+              </div>
+              {editPaxOpen ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      {
+                        key: "adt",
+                        label: "Adultos",
+                        value: adultPassengers,
+                        min: 1,
+                        set: setAdultPassengers,
+                      },
+                      {
+                        key: "chd",
+                        label: "Crianças",
+                        value: childPassengers,
+                        min: 0,
+                        set: setChildPassengers,
+                      },
+                      {
+                        key: "inf",
+                        label: "Bebês",
+                        value: infantPassengers,
+                        min: 0,
+                        set: setInfantPassengers,
+                      },
+                    ] as const
+                  ).map((row) => (
+                    <label key={row.key} className="block">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                        {row.label}
+                      </span>
+                      <input
+                        type="number"
+                        min={row.min}
+                        max={9}
+                        className={cn(CONTROL_INPUT_MONO, "mt-1 bg-white text-center")}
+                        value={row.value}
+                        onChange={(e) =>
+                          row.set(
+                            Math.max(row.min, Math.min(9, clampInt(e.target.value)))
+                          )
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              {searchPaxNotice && !paxDiffersFromSearch ? (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                  {searchPaxNotice}
+                </div>
+              ) : null}
+              {paxDiffersFromSearch && searchPax ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  PAX editado manualmente: a pesquisa foi feita com{" "}
+                  <b>{paxLabel(searchPax.adt, searchPax.chd, searchPax.inf)}</b>, a venda está com{" "}
+                  <b>{paxLabel(adultPassengers, childPassengers, infantPassengers)}</b>. Confira
+                  pontos e passageiros da emissão antes de salvar.
+                </div>
+              ) : null}
 
               <div className="h-px bg-slate-200 my-2" />
 
