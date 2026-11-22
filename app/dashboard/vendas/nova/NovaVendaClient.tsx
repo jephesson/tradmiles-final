@@ -194,11 +194,14 @@ function paxLabel(adt: number, chd: number, inf: number) {
 }
 
 /** Mensagem padrão ao perguntar disponibilidade de biometria na lista de cedentes. */
+/** Primeiro nome com inicial maiúscula ("jephesson" → "Jephesson"). */
 function firstName(nome?: string | null) {
-  return String(nome || "")
+  const first = String(nome || "")
     .trim()
     .split(/\s+/)
     .filter(Boolean)[0];
+  if (!first) return first;
+  return first.charAt(0).toLocaleUpperCase("pt-BR") + first.slice(1).toLocaleLowerCase("pt-BR");
 }
 
 function biometriaDisponivelWaMsg(
