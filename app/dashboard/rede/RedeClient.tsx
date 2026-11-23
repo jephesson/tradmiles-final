@@ -53,6 +53,9 @@ function statusClass(status: string) {
   return "bg-slate-50 text-slate-600 ring-slate-200";
 }
 
+/** Limite anual de PAX LATAM por cedente (igual a passengerLimit no servidor). */
+const LATAM_PAX_LIMIT = 25;
+
 function statusLabel(status: string) {
   const s = String(status || "").toUpperCase();
   if (s === "APPROVED") return "Aprovado";
@@ -153,6 +156,60 @@ export default function RedeClient() {
       cancelled = true;
     };
   }, []);
+
+  // PAX LATAM usados por cedente (janela 365d, mesmo cálculo da tela de venda).
+  const [latamPaxUsed, setLatamPaxUsed] = useState<Map<string, number> | null>(null);
+  useEffect(() => {
+    const ids = (graph?.nodes || [])
+      .filter((n) => n.status !== "EXCLUIDO")
+      .map((n) => n.id);
+    if (!ids.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/emissions/panel", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ programa: "latam", months: 13, cedenteIds: ids }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok || cancelled) return;
+        const map = new Map<string, number>();
+        for (const r of json.rows || []) map.set(String(r.cedenteId), Number(r.total || 0));
+        setLatamPaxUsed(map);
+      } catch {
+        /* sem PAX: os cards seguem sem o selo */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [graph]);
+
+  const paxBadge = (node: RedeNode, size: "sm" | "md" = "sm") => {
+    if (!latamPaxUsed || node.status === "EXCLUIDO") return null;
+    const free = Math.max(0, LATAM_PAX_LIMIT - (latamPaxUsed.get(node.id) || 0));
+    const tone =
+      free <= 0
+        ? "bg-rose-50 text-rose-700 ring-rose-200"
+        : free <= 3
+          ? "bg-amber-50 text-amber-800 ring-amber-200"
+          : "bg-sky-50 text-sky-800 ring-sky-200";
+    return (
+      <span
+        title={`LATAM: ${free} de ${LATAM_PAX_LIMIT} PAX livres nos últimos 365 dias`}
+        className={cn(
+          "rounded-full font-medium ring-1",
+          size === "md" ? "px-2 py-0.5 text-[11px]" : "px-1.5 py-0.5 text-[10px]",
+          tone
+        )}
+      >
+        {free} PAX LATAM
+      </span>
+    );
+  };
 
   const byId = useMemo(() => new Map((graph?.nodes || []).map((n) => [n.id, n])), [graph]);
   const kids = useMemo(() => childrenMap(graph?.nodes || []), [graph]);
@@ -438,6 +495,7 @@ export default function RedeClient() {
                             <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1", statusClass(root.status))}>
                               {statusLabel(root.status)}
                             </span>
+                            {paxBadge(root)}
                             <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800">
                               {direct} direto{direct === 1 ? "" : "s"}
                             </span>
@@ -531,6 +589,7 @@ export default function RedeClient() {
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                           Gestor: {selected.ownerName}
                         </span>
+                        {paxBadge(selected, "md")}
                       </div>
                     </div>
                     <Link
@@ -599,6 +658,7 @@ export default function RedeClient() {
                               <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1", statusClass(child.status))}>
                                 {statusLabel(child.status)}
                               </span>
+                              {paxBadge(child)}
                               {direct ? (
                                 <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800">
                                   {direct} direto{direct === 1 ? "" : "s"}
