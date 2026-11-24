@@ -473,11 +473,18 @@ export async function GET(req: NextRequest) {
 
     const notCanceled: Prisma.SaleWhereInput = { paymentStatus: { not: "CANCELED" as any } };
 
-    const teamUsers = await prisma.user.findMany({
-      where: { team, role: { in: ["admin", "staff"] } },
-      select: { id: true, name: true, login: true },
-      orderBy: { name: "asc" },
-    });
+    // Emissores também aparecem (linha própria, marcada), para acompanhar o que vendem.
+    const teamUsers = (
+      await prisma.user.findMany({
+        where: { team, role: { in: ["admin", "staff", "emissor"] } },
+        select: { id: true, name: true, login: true, role: true },
+        orderBy: { name: "asc" },
+      })
+    ).map((u) => ({
+      id: u.id,
+      name: u.role === "emissor" ? `${u.name} (emissor)` : u.name,
+      login: u.login,
+    }));
     const teamUsersById = new Map(teamUsers.map((u) => [u.id, u] as const));
     const isOperatingUser = (id?: string | null) => Boolean(id && teamUsersById.has(id));
 
