@@ -323,9 +323,30 @@ export function parseLatamReceiptText(rawText: string): LatamReceiptParsed {
 
   const totalCents = totalPagoM?.[1] ? parseBrMoneyToCents(totalPagoM[1]) : null;
   const taxLineCents = taxLineM?.[1] ? parseBrMoneyToCents(taxLineM[1]) : null;
-  if (totalCents != null && totalCents > 0) {
+
+  // Compra com milhas: "Total pago BRL" soma a tarifa convertida em R$ (não é dinheiro).
+  // O que saiu do bolso são as linhas de pagamento em cartão (taxas + adicionais).
+  const cardPaidCents = Array.from(
+    compact.matchAll(/X{4,}\s*\d{4}\s*BRL\s*([\d.]+,\d{2})/gi)
+  )
+    .map((m) => parseBrMoneyToCents(m[1]!) || 0)
+    .reduce((a, b) => a + b, 0);
+  const taxFootnoteM = compact.match(/\(2\)\s*BR\s*:\s*BRL\s*([\d.]+,\d{2})/i);
+  const taxFootnoteCents = taxFootnoteM?.[1] ? parseBrMoneyToCents(taxFootnoteM[1]) : null;
+  const paidWithMiles = /LATAM\s*Pass\s*CP\s*:[\s\S]{0,80}?Millas\s+\d/i.test(compact);
+
+  if (cardPaidCents > 0) {
+    taxReaisCents = cardPaidCents;
+    hints.push("tax_card_paid");
+  } else if (paidWithMiles && taxFootnoteCents != null && taxFootnoteCents > 0) {
+    taxReaisCents = taxFootnoteCents;
+    hints.push("tax_footnote");
+  } else if (!paidWithMiles && totalCents != null && totalCents > 0) {
     taxReaisCents = totalCents;
     hints.push("tax_total_pago");
+  } else if (taxFootnoteCents != null && taxFootnoteCents > 0) {
+    taxReaisCents = taxFootnoteCents;
+    hints.push("tax_footnote");
   } else if (taxLineCents != null) {
     taxReaisCents = taxLineCents;
     hints.push("tax");

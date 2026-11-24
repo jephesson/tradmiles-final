@@ -28,7 +28,9 @@ const SYSTEM = `Você lê o comprovante de compra da LATAM (texto extraído do P
 Regras:
 - milesTotal = TOTAL de milhas pagas na compra (linha "Total pago … Millas" ou o pagamento "LATAM Pass … Millas").
   Inclui voo + adicionais (bagagem, assento). NÃO use só a linha do voo.
-- totalPaidBRL = total pago em reais (ex.: "Total pago BRL 71,50" → 71.5).
+- totalPaidBRL = valor pago em DINHEIRO (cartão/Pix): taxas + adicionais. Em compra com milhas, o
+  "Total pago BRL" soma a tarifa convertida em reais — NÃO use; use a linha do cartão (ex.: "XXXX2637 BRL 227,12")
+  ou "(2)BR: BRL …".
 - locator = código da reserva de 6 caracteres (não começa com LA). orderId = código LA… da ordem.
 - departureDate = data do primeiro voo; returnDate = data do voo de volta, se houver.
 - Se não tiver certeza de um campo, use null. Não invente.`;
