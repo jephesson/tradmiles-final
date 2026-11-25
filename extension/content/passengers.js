@@ -1845,6 +1845,8 @@ function findCpfInputForPax(i) {
     ) ||
     document.querySelector(`input[data-testid*="passenger-${i}_cpf" i]`);
   if (named && isVisible(named)) return named;
+  // Campo do pax existe (acordeão ainda animando): usa ele, nunca o de outro pax.
+  if (named && document.querySelector(`input[name^="passenger-${i}_"]`)) return named;
 
   const root =
     (named && passengerRoot(i)) ||
@@ -1882,9 +1884,25 @@ function findCpfInputForPax(i) {
   return null;
 }
 
+function cpfNamedInputForPax(i) {
+  return (
+    document.querySelector(`input[name="passenger-${i}_taxDocument"]`) ||
+    document.querySelector(`input[data-testid="passenger-${i}_taxDocument--text-field"]`) ||
+    document.querySelector(`input[data-testid*="passenger-${i}_taxDocument" i]`)
+  );
+}
+
 async function fillCpfForPax(i, pax) {
   const cpf = cpfDigitsOnly(pax.cpf);
   if (!cpf) return 0;
+  // Acordeão do pax 2+ demora a abrir: espera o CPF DELE ficar visível
+  if (getPassengerFormKind() !== "confirm") {
+    for (let t = 0; t < 15; t++) {
+      const named = cpfNamedInputForPax(i);
+      if (named && isVisible(named)) break;
+      await sleep(200);
+    }
+  }
   const el = findCpfInputForPax(i);
   if (!el) {
     console.warn("[TradeMiles] CPF não achado pax", i);
@@ -4297,6 +4315,24 @@ async function fillAllAccordion(passengers) {
     total += await fillContactFields(titularEmail, titularPhone, {
       passengerIndex: 0,
     });
+  }
+
+  // Conferência final do CPF de cada pax (2º+ às vezes não gruda com o acordeão abrindo).
+  for (let i = 0; i < max; i++) {
+    const pax = enriched[i];
+    const cpf = cpfDigitsOnly(pax.cpf);
+    if (!cpf) continue;
+    const docField = document.querySelector(`input[name="passenger-${i}_documentNumber"]`);
+    if (docField && isVisible(docField) && pax.cpfGenerated && !paxIsMinor(pax)) continue;
+    let el = cpfNamedInputForPax(i);
+    if (el && String(el.value || "").replace(/\D/g, "") === cpf) continue;
+    console.warn("[TradeMiles] CPF pax", i, "vazio/errado na conferência — preenchendo de novo");
+    if (!el || !isVisible(el)) {
+      await ensurePassengerExpanded(i);
+      await sleep(400);
+    }
+    total += await fillCpfForPax(i, pax);
+    await sleep(250);
   }
 
   // Conferência final da data: o contato re-renderiza o formulário e a máscara
