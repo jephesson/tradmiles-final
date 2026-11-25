@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Search, TrendingDown } from "lucide-react";
+import { Plus, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Program = "LATAM" | "SMILES" | "LIVELO" | "ESFERA" | "IBERIA";
@@ -51,15 +50,6 @@ type ApiResp = {
   };
 };
 
-type ExpenseRow = {
-  id: string;
-  title: string;
-  description: string | null;
-  amountCents: number;
-  category: string;
-  status: string;
-};
-
 function fmtMoneyBR(cents: number) {
   const v = (cents || 0) / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -86,20 +76,6 @@ function monthLabel(ym: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(d);
-}
-
-function currentMonthISO() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Recife",
-    year: "numeric",
-    month: "2-digit",
-  })
-    .formatToParts(new Date())
-    .reduce((acc: Record<string, string>, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-  return `${parts.year}-${parts.month}`;
 }
 
 function todayISO() {
@@ -208,16 +184,11 @@ export default function PrejuizoPage() {
     listProfitCents: 0,
   });
 
-  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
-  const [expensesTotal, setExpensesTotal] = useState(0);
-
   const [openManual, setOpenManual] = useState(false);
   const [manualDesc, setManualDesc] = useState("");
   const [manualAmount, setManualAmount] = useState("");
   const [manualDate, setManualDate] = useState(todayISO);
   const [saving, setSaving] = useState(false);
-
-  const expenseMonth = month === "ALL" ? currentMonthISO() : month;
 
   async function load() {
     setLoading(true);
@@ -236,15 +207,6 @@ export default function PrejuizoPage() {
       setMonths(Array.isArray(json.months) ? json.months : []);
       setTotals(json.totals);
 
-      const expRes = await fetch(`/api/despesas?month=${expenseMonth}`, { cache: "no-store" });
-      const expJson = await expRes.json().catch(() => null);
-      if (expJson?.ok) {
-        setExpenses((expJson.rows || []).filter((r: ExpenseRow) => r.status !== "CANCELED"));
-        setExpensesTotal(expJson.summary?.totalCents || 0);
-      } else {
-        setExpenses([]);
-        setExpensesTotal(0);
-      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Erro ao carregar.");
       setRows([]);
@@ -424,15 +386,10 @@ export default function PrejuizoPage() {
           </div>
         ) : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <Kpi label="Contas (filtro atual)" value={fmtInt(rows.length)} />
           <Kpi label="Prejuízo total (filtro atual)" value={fmtMoneyBR(listTotals.sumProfit)} tone="rose" />
           <Kpi label="Média por conta" value={fmtMoneyBR(listTotals.avg)} />
-          <Kpi
-            label={`Despesas (${monthLabel(expenseMonth)})`}
-            value={fmtMoneyBR(expensesTotal)}
-            tone="amber"
-          />
         </div>
 
         {err ? <div className="mt-3 text-sm text-red-600">{err}</div> : null}
@@ -499,55 +456,6 @@ export default function PrejuizoPage() {
               </table>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40">
-        <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-amber-600" />
-            <div>
-              <div className="text-sm font-semibold text-slate-900">Despesas de {monthLabel(expenseMonth)}</div>
-              <div className="text-xs text-slate-500">Mesmo mês do filtro (ou mês atual, se “todos”).</div>
-            </div>
-          </div>
-          <Link
-            href="/dashboard/despesas"
-            className="inline-flex h-9 items-center rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Gerenciar despesas
-          </Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-5 py-3">Título</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-5 py-6 text-slate-500">
-                    Nenhuma despesa neste mês.
-                  </td>
-                </tr>
-              ) : (
-                expenses.map((e) => (
-                  <tr key={e.id} className="border-t border-slate-100">
-                    <td className="px-5 py-3">
-                      <div className="font-medium text-slate-900">{e.title}</div>
-                      {e.description ? <div className="text-xs text-slate-500">{e.description}</div> : null}
-                    </td>
-                    <td className="px-5 py-3 text-xs text-slate-500">{e.status === "PAID" ? "Paga" : "Pendente"}</td>
-                    <td className="px-5 py-3 text-right font-semibold tabular-nums">{fmtMoneyBR(e.amountCents)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
         </div>
       </div>
 
