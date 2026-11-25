@@ -411,7 +411,29 @@ function isVisible(el) {
   try {
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return false;
-    if (r.bottom < 0 || r.top > (window.innerHeight || 800) + 50) return false;
+    // Fora da área da tela continua visível: a LATAM rola a página sozinha ao abrir
+    // os acordeões e, se exigíssemos estar na tela, o pax 2+ era pulado/fechado.
+    // Só descarta se estiver dentro de um bloco fechado (altura ~0) ou escondido.
+    let anc = el.parentElement;
+    for (let k = 0; k < 20 && anc && anc !== document.body; k++) {
+      if (anc.hidden || anc.getAttribute?.("aria-hidden") === "true") return false;
+      const ar = anc.getBoundingClientRect();
+      if (ar.height < 2 || ar.width < 2) {
+        // Só bloco que corta o conteúdo (acordeão fechado). Wrapper 0px com
+        // display:contents / overflow visível não esconde nada.
+        let clips = false;
+        try {
+          const cs = getComputedStyle(anc);
+          clips =
+            cs.display !== "contents" &&
+            /hidden|clip/.test(`${cs.overflow} ${cs.overflowY} ${cs.overflowX}`);
+        } catch {
+          clips = false;
+        }
+        if (clips) return false;
+      }
+      anc = anc.parentElement;
+    }
     return true;
   } catch {
     // pattern inválido: getBoundingClientRect estoura — para inputs de formulário
@@ -1910,7 +1932,7 @@ async function fillCpfForPax(i, pax) {
   }
   console.info("[TradeMiles] CPF pax", i, "→", el.name || el.id || el.getAttribute("data-testid"));
   try {
-    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.scrollIntoView({ block: "center", behavior: "auto" });
   } catch {
     el.scrollIntoView?.({ block: "center" });
   }
@@ -1952,7 +1974,7 @@ async function fillOneDocField(el, cpf) {
   const cur = String(el.value || "").replace(/\D/g, "");
   if (cur === cpf) return true;
   try {
-    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.scrollIntoView({ block: "center", behavior: "auto" });
   } catch {
     el.scrollIntoView?.({ block: "center" });
   }
@@ -2821,7 +2843,7 @@ async function ensurePassengerExpanded(idx) {
       toggle.scrollIntoView({
         block: "center",
         inline: "nearest",
-        behavior: "smooth",
+        behavior: "auto",
       });
     } catch {
       toggle.scrollIntoView?.({ block: "center" });
@@ -3843,7 +3865,7 @@ async function fillTravelDocumentV2(i, pax) {
   const el = document.querySelector(numberSel);
   if (el) {
     try {
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.scrollIntoView({ block: "center", behavior: "auto" });
     } catch {
       el.scrollIntoView?.({ block: "center" });
     }
@@ -3873,13 +3895,13 @@ async function fillOnePassengerAccordion(i, pax) {
       try {
         trigger.scrollIntoView({
           block: "center",
-          behavior: "smooth",
+          behavior: "auto",
         });
       } catch {
         trigger.scrollIntoView?.({ block: "center" });
       }
     } else {
-      window.scrollBy?.({ top: 200 + i * 120, behavior: "smooth" });
+      window.scrollBy?.({ top: 200 + i * 120, behavior: "auto" });
     }
     await sleep(500);
   }
@@ -3905,7 +3927,7 @@ async function fillOnePassengerAccordion(i, pax) {
     );
     if (!el) return false;
     try {
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.scrollIntoView({ block: "center", behavior: "auto" });
     } catch {
       el.scrollIntoView?.({ block: "center" });
     }
