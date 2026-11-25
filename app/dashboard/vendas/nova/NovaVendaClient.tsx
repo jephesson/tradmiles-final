@@ -69,6 +69,8 @@ type Suggestion = {
     owner: Owner;
     impedirBloqueioPax?: boolean;
     minSellPtsPerPax?: number | null;
+    /** Já teve bloqueio nesse programa (aberto ou resolvido). */
+    historicoBloqueio?: boolean;
   };
   program: Program;
   pointsNeeded: number;
@@ -3218,7 +3220,18 @@ export default function NovaVendaClient({
                               </span>
                             )}
                             <div className="min-w-0">
-                              <div className="font-medium">{s.cedente.nomeCompleto}</div>
+                              <div className="flex items-center gap-2 font-medium">
+                                <span className="min-w-0">{s.cedente.nomeCompleto}</span>
+                                {s.cedente.historicoBloqueio ? (
+                                  <span
+                                    className="shrink-0 text-base font-bold leading-none text-red-600"
+                                    title={`Histórico de bloqueio na ${s.program}`}
+                                    aria-label={`Letra B: histórico de bloqueio na ${s.program}`}
+                                  >
+                                    B
+                                  </span>
+                                ) : null}
+                              </div>
                               <div className="text-xs text-slate-500">{s.cedente.identificador}</div>
                               {s.alerts.includes("PASSAGEIROS_ESTOURADOS_COM_PONTOS") ? (
                                 <div className="mt-1 text-[11px] text-rose-600">

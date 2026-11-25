@@ -52,6 +52,13 @@ export async function GET(req: Request) {
   });
   const blockedSet = new Set(blocked.map((b) => b.cedenteId));
 
+  // cedentes com histórico de bloqueio nesse programa (aberto ou já resolvido)
+  const blockHistory = await prisma.blockedAccount.groupBy({
+    by: ["cedenteId"],
+    where: { program },
+  });
+  const blockHistorySet = new Set(blockHistory.map((b) => b.cedenteId));
+
   // contagem anual de passageiros (soma passengersCount)
   const usage = await prisma.emissionEvent.groupBy({
     by: ["cedenteId"],
@@ -143,6 +150,7 @@ export async function GET(req: Request) {
           owner: c.owner,
           impedirBloqueioPax: Boolean(c.impedirBloqueioPax),
           minSellPtsPerPax: c.minSellPtsPerPax ?? null,
+          historicoBloqueio: blockHistorySet.has(c.id),
         },
         program,
         pointsNeeded,
