@@ -515,6 +515,64 @@ export function mergeParsedFlights(
   return finishFlight({ origin, destination, outbound, inbound, passengers });
 }
 
+/** O IATA (ou uma cidade que vira esse IATA) aparece no texto? */
+function iataInText(iata: string, text: string) {
+  if (!iata) return false;
+  if (new RegExp(`\\b${iata}\\b`).test(text.toUpperCase())) return true;
+  const norm = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return Object.entries(CITY_TO_IATA).some(
+    ([city, code]) =>
+      code === iata &&
+      norm.includes(city.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))
+  );
+}
+
+const PT_MONTH_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/** A data (YYYY-MM-DD) aparece no texto como DD/MM ou "DD de mês"? */
+function dateInText(iso: string, text: string) {
+  const m = String(iso || "").match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const mm = Number(m[1]);
+  const dd = Number(m[2]);
+  if (new RegExp(`\\b0?${dd}[\\/\\-.]0?${mm}\\b`).test(text)) return true;
+  const norm = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return new RegExp(`\\b0?${dd}\\s*(?:de\\s+)?${PT_MONTH_ABBR[mm - 1]}`).test(norm);
+}
+
+/**
+ * A leitura só do texto às vezes inventa trecho/datas (o voo estava só no print).
+ * Mantém rota e datas apenas se estiverem escritas no texto; passageiros ficam.
+ */
+export function keepOnlyWhatTextSays(
+  parsed: TelegramParsedFlight | null,
+  text: string
+): TelegramParsedFlight | null {
+  if (!parsed) return parsed;
+  const routeOk = iataInText(parsed.origin, text) && iataInText(parsed.destination, text);
+  const outboundOk = dateInText(parsed.outbound, text);
+  const inboundOk = !parsed.inbound || dateInText(parsed.inbound, text);
+  if (routeOk && outboundOk && inboundOk) return parsed;
+  if (parsed.origin || parsed.outbound) {
+    console.warn("telegram texto: trecho sem apoio no texto, descartado", {
+      origin: parsed.origin,
+      destination: parsed.destination,
+      outbound: parsed.outbound,
+      inbound: parsed.inbound,
+    });
+  }
+  return finishFlight({
+    origin: routeOk ? parsed.origin : "",
+    destination: routeOk ? parsed.destination : "",
+    outbound: outboundOk ? parsed.outbound : "",
+    inbound: outboundOk && inboundOk ? parsed.inbound : "",
+    passengers: parsed.passengers,
+    adt: parsed.adt,
+    chd: parsed.chd,
+    inf: parsed.inf,
+  });
+}
+
 export async function parseTelegramEmission(
   rawText: string,
   hint?: TelegramEmission | null
@@ -582,7 +640,8 @@ Regras:
     const json = await res.json().catch(() => null);
     try {
       const data = JSON.parse(String(json?.choices?.[0]?.message?.content || "{}"));
-      return fromModelData(data, finishFlight({ origin, destination, outbound, inbound, passengers }));
+      const parsed = fromModelData(data, finishFlight({ origin, destination, outbound, inbound, passengers }));
+      return keepOnlyWhatTextSays(parsed, text);
     } catch {
       /* cai no regex */
     }
