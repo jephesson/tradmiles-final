@@ -783,33 +783,40 @@ export default function CotacaoPassagensClient() {
     setCiaQuotes((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
 
+  // Trecho de cada sentido (para abrir a busca em milhas já com origem, destino e data).
+  const idaRoute = bestIda || (job?.searches || []).find((x) => x.direction !== "VOLTA") || null;
+  const voltaRoute = bestVolta || (job?.searches || []).find((x) => x.direction === "VOLTA") || null;
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Cabeçalho */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
-            <Plane className="h-5 w-5 text-slate-400" />
-            Cotação
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900">
+            <Plane className="h-6 w-6 text-slate-400" />
+            Cotação de passagens
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Google Flights no à vista. Na cia, use milhas ou o preço em reais com a extensão.
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Em 4 passos: busque o preço à vista, veja quantas milhas custa em cada cia, confira quanto o cliente paga e
+            mande a proposta.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={cn(
               "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-              extOk ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"
+              extOk ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"
             )}
+            title="A extensão de cotação faz a busca no Google Flights e lê as milhas nos sites das cias."
           >
-            {extOk ? "Extensão ok" : "Sem extensão"}
+            {extOk ? "Extensão de cotação ok" : "Extensão de cotação não detectada"}
           </span>
           <button
             type="button"
             role="switch"
             aria-checked={captureOn}
             disabled={!extOk}
-            title="Desliga sozinha após 10 min sem usar"
+            title="Ligada: ao abrir a busca na LATAM, Smiles ou Azul, as milhas do voo escolhido entram sozinhas no passo 3. Desliga sozinha após 10 min sem usar."
             onClick={() => {
               const on = !captureOn;
               setCaptureOn(on);
@@ -821,42 +828,46 @@ export default function CotacaoPassagensClient() {
             )}
           >
             <span className={cn("h-2.5 w-2.5 rounded-full", captureOn ? "bg-emerald-500" : "bg-slate-300")} />
-            Captura {captureOn ? "ligada" : "off"}
+            Ler milhas sozinho: {captureOn ? "ligado" : "desligado"}
           </button>
           <a
             href={ZIP_HREF}
             download
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 px-3 text-xs font-semibold text-slate-700"
+            title="Instale no Chrome: descompacte, chrome://extensions, Modo do desenvolvedor, Carregar sem compactação."
           >
             <Download className="h-3.5 w-3.5" />
-            Extensão
+            Baixar extensão
           </a>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      {/* PASSO 1 */}
+      <StepCard n={1} title="Para onde e quando?" hint="Use o código de 3 letras dos aeroportos. Pode colocar vários, separados por vírgula: o sistema pega o mais barato.">
         <div className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className={FIELD}>Origem</label>
+            <label className={FIELD}>Saindo de</label>
             <input
               value={origins}
               onChange={(e) => setOrigins(fmtIataField(e.target.value))}
               className={cn(INPUT, "uppercase")}
               autoCapitalize="characters"
               spellCheck={false}
-              placeholder="GRU, CGH, VCP"
+              placeholder="Ex.: GRU, CGH, VCP"
             />
+            <p className="mt-1 text-[11px] text-slate-400">São Paulo = GRU, CGH, VCP · Rio = GIG, SDU · Recife = REC</p>
           </div>
           <div>
-            <label className={FIELD}>Destino</label>
+            <label className={FIELD}>Indo para</label>
             <input
               value={destinations}
               onChange={(e) => setDestinations(fmtIataField(e.target.value))}
               className={cn(INPUT, "uppercase")}
               autoCapitalize="characters"
               spellCheck={false}
-              placeholder="SSA, REC"
+              placeholder="Ex.: SSA, REC"
             />
+            <p className="mt-1 text-[11px] text-slate-400">João Pessoa = JPA · Salvador = SSA · Fortaleza = FOR</p>
           </div>
           <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
             <Segmented
@@ -871,20 +882,20 @@ export default function CotacaoPassagensClient() {
               value={dateKind}
               onChange={setDateKind}
               options={[
-                { id: "exact", label: "Data exata" },
-                { id: "range", label: "Intervalo" },
+                { id: "exact", label: "Data certa" },
+                { id: "range", label: "Entre datas (mais barato)" },
               ]}
             />
           </div>
           {dateKind === "exact" ? (
             <>
               <div className={tripKind === "ow" ? "md:col-span-2" : ""}>
-                <label className={FIELD}>Ida</label>
+                <label className={FIELD}>Data da ida</label>
                 <input type="date" value={outboundFrom} onChange={(e) => setOutboundFrom(e.target.value)} className={INPUT} />
               </div>
               {tripKind === "rt" ? (
                 <div>
-                  <label className={FIELD}>Volta</label>
+                  <label className={FIELD}>Data da volta</label>
                   <input type="date" value={returnFrom} onChange={(e) => setReturnFrom(e.target.value)} className={INPUT} />
                 </div>
               ) : null}
@@ -892,7 +903,7 @@ export default function CotacaoPassagensClient() {
           ) : (
             <>
               <div>
-                <label className={FIELD}>Ida de</label>
+                <label className={FIELD}>Ida a partir de</label>
                 <input type="date" value={outboundFrom} onChange={(e) => setOutboundFrom(e.target.value)} className={INPUT} />
               </div>
               <div>
@@ -902,7 +913,7 @@ export default function CotacaoPassagensClient() {
               {tripKind === "rt" ? (
                 <>
                   <div>
-                    <label className={FIELD}>Volta de</label>
+                    <label className={FIELD}>Volta a partir de</label>
                     <input type="date" value={returnFrom} onChange={(e) => setReturnFrom(e.target.value)} className={INPUT} />
                   </div>
                   <div>
@@ -915,23 +926,25 @@ export default function CotacaoPassagensClient() {
           )}
         </div>
         <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-semibold text-slate-500">Filtros opcionais</summary>
+          <summary className="cursor-pointer text-xs font-semibold text-slate-500">
+            Preferências do cliente (opcional): horário, duração, só voo direto
+          </summary>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <div>
-              <label className={FIELD}>Duração máx. (h)</label>
+              <label className={FIELD}>Duração máxima (horas)</label>
               <input
                 value={filterMaxHours}
                 onChange={(e) => setFilterMaxHours(e.target.value)}
                 className={INPUT}
-                placeholder="2,5"
+                placeholder="Ex.: 2,5"
               />
             </div>
             <div>
-              <label className={FIELD}>Sai a partir de</label>
+              <label className={FIELD}>Sair a partir de</label>
               <input type="time" value={filterDepFrom} onChange={(e) => setFilterDepFrom(e.target.value)} className={INPUT} />
             </div>
             <div>
-              <label className={FIELD}>Sai até</label>
+              <label className={FIELD}>Sair até</label>
               <input type="time" value={filterDepTo} onChange={(e) => setFilterDepTo(e.target.value)} className={INPUT} />
             </div>
             <label className="flex items-center gap-2 text-sm sm:col-span-3">
@@ -945,16 +958,16 @@ export default function CotacaoPassagensClient() {
             type="button"
             onClick={start}
             disabled={loading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white disabled:opacity-50"
           >
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            {loading ? "Montando..." : "Buscar à vista"}
+            {loading ? "Montando..." : "Buscar preço à vista"}
           </button>
           {job?.status === "RUNNING" ? (
             <button
               type="button"
               onClick={stop}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-rose-200 px-4 text-sm font-semibold text-rose-800"
+              className="inline-flex h-11 items-center gap-2 rounded-xl border border-rose-200 px-4 text-sm font-semibold text-rose-800"
             >
               <Square className="h-3.5 w-3.5" />
               Parar
@@ -964,10 +977,10 @@ export default function CotacaoPassagensClient() {
             <button
               type="button"
               onClick={() => void clearQuoteData()}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+              className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
             >
               <Eraser className="h-4 w-4" />
-              Limpar dados
+              Começar outra cotação
             </button>
           ) : null}
         </div>
@@ -979,27 +992,20 @@ export default function CotacaoPassagensClient() {
             Recarregue a página (⌘R) e busque de novo — a extensão perdeu o contato.
           </div>
         ) : null}
-        {job?.status === "RUNNING" ? (
-          <p className="mt-3 text-sm text-slate-500">
-            Google Flights {progress.done}/{progress.total}
-            {cashPrice ? ` · ${cashLabel} ${fmtMoney(cashPrice)}` : ""}
-          </p>
-        ) : null}
-      </div>
+      </StepCard>
 
-      {job ? (
-        <div className="space-y-3">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              À vista · {cashSiteLabel}
-            </div>
-            <div className="text-sm font-semibold text-slate-900">
-              {job.origins} → {job.destinations}
-              {job.includeReturn ? " · ida e volta" : " · só ida"}
-            </div>
-          </div>
-          {cashPrice > 0 ? (
-            <>
+      {/* PASSO 2 */}
+      <StepCard
+        n={2}
+        title="Preço à vista"
+        hint="É quanto o cliente pagaria comprando direto. Serve de referência: a proposta em milhas precisa sair mais barata."
+        muted={!job}
+      >
+        {!job ? (
+          <p className="text-sm text-slate-500">Faça a busca do passo 1.</p>
+        ) : cashPrice > 0 ? (
+          <div className="space-y-3">
+            <div className={cn("grid gap-3", job.includeReturn && "md:grid-cols-2")}>
               <CashFlightCard
                 title={job.includeReturn ? "Ida" : "Menor tarifa"}
                 row={bestIda}
@@ -1016,63 +1022,33 @@ export default function CotacaoPassagensClient() {
                   onUseGoogle={isCashAirline(bestVolta?.airline || "") ? () => dropCashCia("VOLTA") : undefined}
                 />
               ) : null}
-              <div className="rounded-2xl bg-slate-900 px-4 py-3 text-white">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{cashLabel}</div>
-                <div className="text-2xl font-bold tabular-nums">{fmtMoney(cashPrice)}</div>
-              </div>
-            </>
-          ) : (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">
-              {job.status === "RUNNING"
-                ? "Consultando o Google Flights…"
-                : googleError || "Ainda sem tarifa à vista nesta busca."}
             </div>
-          )}
-          {shareModel ? (
-            <div className="space-y-3">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Para o cliente</div>
-              <div className="overflow-hidden rounded-[28px] border border-slate-200 shadow-sm">
-                <CotacaoShareCard model={shareModel} fluid />
-              </div>
-              <CotacaoShareActions model={shareModel} />
+            <div className="rounded-2xl bg-slate-900 px-4 py-3 text-white">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">{cashLabel}</div>
+              <div className="text-2xl font-bold tabular-nums">{fmtMoney(cashPrice)}</div>
             </div>
-          ) : cashPrice > 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-              {rt
-                ? "Leia a ida e a volta. O combo junta a melhor ida com a melhor volta, mesmo de cias diferentes."
-                : "Preencha milhas e taxa em uma cia para montar a proposta."}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold">Números das cias</div>
-            <p className="text-xs text-slate-500">
-              {rt
-                ? "Ida e volta: o combo junta a melhor ida com a melhor volta. Cada trecho respeita o milheiro mínimo da cia. "
-                : ""}
-              {cashPrice
-                ? `À vista de referência: ${fmtMoney(cashPrice)}. O milheiro fica ~5% abaixo, sem passar do mínimo em `
-                : "Digite as milhas reais. Mínimo em "}
-              <Link href="/dashboard/configuracoes" className="font-semibold text-slate-800 underline">
-                Configurações
-              </Link>
-              .
-            </p>
           </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            {job.status === "RUNNING"
+              ? `Consultando o Google Flights… (${progress.done}/${progress.total})`
+              : googleError || "Ainda sem tarifa à vista nesta busca."}
+          </p>
+        )}
+      </StepCard>
+
+      {/* PASSO 3 */}
+      <StepCard
+        n={3}
+        title="Milhas nas cias"
+        hint={
+          rt
+            ? "Para cada cia: abra a busca da ida e da volta, escolha o voo e copie aqui as milhas e a taxa. Com “Ler milhas sozinho” ligado, elas entram automaticamente. Pode misturar cias: o sistema junta a melhor ida com a melhor volta."
+            : "Para cada cia: abra a busca, escolha o voo e copie aqui as milhas e a taxa. Com “Ler milhas sozinho” ligado, elas entram automaticamente."
+        }
+        muted={!job}
+        action={
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void clearQuoteData()}
-              disabled={!job}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-50"
-            >
-              <Eraser className="h-3.5 w-3.5" />
-              Limpar dados
-            </button>
             <button
               type="button"
               onClick={saveQuote}
@@ -1082,187 +1058,241 @@ export default function CotacaoPassagensClient() {
               Salvar
             </button>
           </div>
+        }
+      >
+        <div className="mb-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2.5 text-xs leading-relaxed text-sky-950">
+          <b>Milheiro</b> é quanto cobramos por cada 1.000 milhas. O sistema já sugere um valor que deixa a proposta
+          ~5% abaixo do à vista, sem passar do <b>mínimo da cia</b> (definido em{" "}
+          <Link href="/dashboard/configuracoes" className="font-semibold underline">
+            Configurações
+          </Link>
+          ). Conta: <b>milhas ÷ 1.000 × milheiro + taxa = quanto o cliente paga</b>.
         </div>
+
         {mix ? (
-          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
+          <div
+            className={cn(
+              "mb-3 rounded-xl border px-3 py-3 text-sm",
+              cashPrice && mix.priced.total > cashPrice
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-emerald-200 bg-emerald-50 text-emerald-950"
+            )}
+          >
             <div className="font-semibold">
-              Combo {mix.priced.ciaLabel}: {fmtMoney(mix.priced.total)}
-            </div>
-            <p className="mt-0.5 text-xs text-emerald-900/80">
-              Ida {mix.ida.label} {fmtMiles(mix.ida.idaMiles)} milhas · milheiro {fmtMoney(mix.priced.idaRate)}
-              {mix.volta
-                ? ` · volta ${mix.volta.label} ${fmtMiles(mix.volta.voltaMiles)} milhas · milheiro ${fmtMoney(mix.priced.voltaRate)}`
-                : ""}
+              Melhor opção: {mix.priced.ciaLabel} · cliente paga {fmtMoney(mix.priced.total)}
               {cashPrice
-                ? ` · ${mix.priced.total <= cashPrice ? `${Math.round(((cashPrice - mix.priced.total) / cashPrice) * 1000) / 10}% abaixo` : "acima"} do à vista`
+                ? mix.priced.total <= cashPrice
+                  ? ` · ${Math.round(((cashPrice - mix.priced.total) / cashPrice) * 1000) / 10}% mais barato que o à vista`
+                  : ` · ${fmtMoney(mix.priced.total - cashPrice)} mais caro que o à vista`
                 : ""}
-              {mix.priced.usedFloor ? " · no piso das cias" : ""}
+            </div>
+            <p className="mt-0.5 text-xs opacity-80">
+              Ida {mix.ida.label}: {fmtMiles(mix.ida.idaMiles)} milhas a {fmtMoney(mix.priced.idaRate)} o milheiro
+              {mix.volta
+                ? ` · Volta ${mix.volta.label}: ${fmtMiles(mix.volta.voltaMiles)} milhas a ${fmtMoney(mix.priced.voltaRate)} o milheiro`
+                : ""}
+              {mix.priced.usedFloor ? " · já no mínimo das cias" : ""}
             </p>
-            {mixAdvice ? <p className="mt-1 text-xs text-amber-950">{mixAdvice}</p> : null}
+            {cashPrice && mix.priced.total > cashPrice ? (
+              <p className="mt-1 text-xs font-semibold">
+                Mesmo no mínimo, com milhas fica mais caro que comprar à vista. Melhor não emitir com milhas nesse caso.
+              </p>
+            ) : null}
+            {mixAdvice ? <p className="mt-1 text-xs">{mixAdvice}</p> : null}
           </div>
         ) : null}
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[780px] text-sm">
-            <thead className="text-left text-[11px] font-semibold uppercase text-slate-400">
-              <tr>
-                <th className="pb-2 pr-2">Cia</th>
-                <th className="pb-2 pr-2">Ida</th>
-                {rt ? <th className="pb-2 pr-2">Volta</th> : null}
-                <th className="pb-2 pr-2">Total</th>
-                <th className="pb-2 pr-2">Milheiro</th>
-                <th className="pb-2 pr-2">Cliente paga</th>
-                <th className="pb-2">vs à vista</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ciaRows.map((r) => (
-                <tr key={r.key} className="border-t border-slate-100 align-top">
-                  <td className="py-3 pr-2 font-semibold">
-                    {r.label}
-                    {bestCia?.key === r.key ? (
-                      <div className="text-[10px] font-bold uppercase text-emerald-700">melhor combo</div>
-                    ) : null}
-                  </td>
-                  <td className="py-3 pr-2">
-                    <input
-                      value={r.q.idaMiles}
-                      onChange={(e) => patchCia(r.key, { idaMiles: e.target.value, milheiroManual: false })}
-                      className="h-9 w-24 rounded-lg border border-slate-200 px-2"
-                      placeholder="milhas"
-                      inputMode="numeric"
-                    />
-                    <input
-                      value={r.q.idaFee}
-                      onChange={(e) => patchCia(r.key, { idaFee: e.target.value, milheiroManual: false })}
-                      className="mt-1 h-8 w-24 rounded-lg border border-slate-200 px-2 text-xs"
-                      placeholder="taxa"
-                    />
-                    <div className="mt-1 text-[10px] text-slate-500">
-                      {r.idaTimes.depTime && r.idaTimes.arrTime
-                        ? `${r.idaTimes.depTime} → ${r.idaTimes.arrTime}`
-                        : r.idaMiles
-                          ? "sem horário"
-                          : "leia a ida"}
-                      {bestIdaCia?.key === r.key && r.idaMiles ? (
-                        <span className="ml-1 font-bold uppercase text-emerald-700">melhor ida</span>
-                      ) : null}
-                    </div>
-                    {r.ready && r.idaTotal ? (
-                      <div className="text-[10px] text-slate-600">{fmtMoney(r.idaTotal)}</div>
-                    ) : null}
-                  </td>
-                  {rt ? (
-                    <td className="py-3 pr-2">
-                      <input
-                        value={r.q.voltaMiles}
-                        onChange={(e) => patchCia(r.key, { voltaMiles: e.target.value, milheiroManual: false })}
-                        className="h-9 w-24 rounded-lg border border-slate-200 px-2"
-                        placeholder="milhas"
-                        inputMode="numeric"
-                      />
-                      <input
-                        value={r.q.voltaFee}
-                        onChange={(e) => patchCia(r.key, { voltaFee: e.target.value, milheiroManual: false })}
-                        className="mt-1 h-8 w-24 rounded-lg border border-slate-200 px-2 text-xs"
-                        placeholder="taxa"
-                      />
-                      <div className="mt-1 text-[10px] text-slate-500">
-                        {r.voltaTimes.depTime && r.voltaTimes.arrTime
-                          ? `${r.voltaTimes.depTime} → ${r.voltaTimes.arrTime}`
-                          : r.voltaMiles
-                            ? "sem horário"
-                            : "leia a volta"}
-                        {bestVoltaCia?.key === r.key && r.voltaMiles ? (
-                          <span className="ml-1 font-bold uppercase text-emerald-700">melhor volta</span>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          {ciaRows.map((r) => {
+            const mixPay =
+              (mix?.ida.key === r.key ? mix.priced.idaTotal : 0) + (mix?.volta?.key === r.key ? mix.priced.voltaTotal : 0);
+            const pays = r.ready && r.milheiroCents > 0 ? r.total : mixPay;
+            const milheiroShown = r.q.milheiroManual
+              ? r.q.milheiro
+              : mix?.ida.key === r.key
+                ? fromCents(mix.priced.idaRate)
+                : mix?.volta?.key === r.key
+                  ? fromCents(mix.priced.voltaRate)
+                  : r.ready && r.suggested
+                    ? fromCents(r.suggested)
+                    : r.milesN && r.minCents
+                      ? fromCents(r.minCents)
+                      : "";
+            const legs: { dir: "IDA" | "VOLTA"; label: string; route: SearchRow | null }[] = [
+              { dir: "IDA", label: "Ida", route: idaRoute },
+              ...(rt ? [{ dir: "VOLTA" as const, label: "Volta", route: voltaRoute }] : []),
+            ];
+            return (
+              <div
+                key={r.key}
+                className={cn(
+                  "rounded-2xl border p-4",
+                  bestCia?.key === r.key ? "border-emerald-300 bg-emerald-50/40" : "border-slate-200 bg-white"
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-bold text-slate-900">{r.label}</div>
+                  {bestCia?.key === r.key ? (
+                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                      melhor
+                    </span>
+                  ) : null}
+                </div>
+
+                {legs.map((leg) => {
+                  const isIda = leg.dir === "IDA";
+                  const href = leg.route ? milesHref(r.key, leg.route.originIata, leg.route.destIata, leg.route.date) : "";
+                  const times = isIda ? r.idaTimes : r.voltaTimes;
+                  const best = isIda ? bestIdaCia?.key === r.key && r.idaMiles : bestVoltaCia?.key === r.key && r.voltaMiles;
+                  return (
+                    <div key={leg.dir} className="mt-3 rounded-xl border border-slate-100 bg-white p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-slate-700">
+                          {leg.label}
+                          {leg.route ? (
+                            <span className="ml-1 font-normal text-slate-400">
+                              {leg.route.originIata} → {leg.route.destIata} · {dateBr(leg.route.date)}
+                            </span>
+                          ) : null}
+                        </span>
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-slate-900 px-2 text-[11px] font-semibold text-white hover:bg-slate-800"
+                          >
+                            Abrir busca <ExternalLink className="h-3 w-3" />
+                          </a>
                         ) : null}
                       </div>
-                      {r.ready && r.voltaTotal ? (
-                        <div className="text-[10px] text-slate-600">{fmtMoney(r.voltaTotal)}</div>
-                      ) : null}
-                    </td>
-                  ) : null}
-                  <td className="py-3 pr-2 text-xs tabular-nums text-slate-700">
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <label className="block">
+                          <span className="text-[10px] font-semibold uppercase text-slate-400">Milhas</span>
+                          <input
+                            value={isIda ? r.q.idaMiles : r.q.voltaMiles}
+                            onChange={(e) =>
+                              patchCia(r.key, isIda ? { idaMiles: e.target.value, milheiroManual: false } : { voltaMiles: e.target.value, milheiroManual: false })
+                            }
+                            className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
+                            placeholder="Ex.: 60200"
+                            inputMode="numeric"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[10px] font-semibold uppercase text-slate-400">Taxa (R$)</span>
+                          <input
+                            value={isIda ? r.q.idaFee : r.q.voltaFee}
+                            onChange={(e) =>
+                              patchCia(r.key, isIda ? { idaFee: e.target.value, milheiroManual: false } : { voltaFee: e.target.value, milheiroManual: false })
+                            }
+                            className="h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
+                            placeholder="Ex.: 35,00"
+                          />
+                        </label>
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-500">
+                        {times.depTime && times.arrTime ? `Voo ${times.depTime} → ${times.arrTime}` : ""}
+                        {best ? <span className="ml-1 font-bold uppercase text-emerald-700">melhor {leg.label.toLowerCase()}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="flex items-end justify-between gap-2">
+                    <label className="block">
+                      <span className="text-[10px] font-semibold uppercase text-slate-400">Milheiro (R$ por mil)</span>
+                      <input
+                        value={milheiroShown}
+                        onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
+                        className="mt-0.5 h-9 w-24 rounded-lg border border-slate-200 px-2 text-sm disabled:bg-slate-50"
+                        placeholder={r.minCents ? fromCents(r.minCents) : "0,00"}
+                        disabled={!r.milesN}
+                      />
+                    </label>
+                    <div className="text-right">
+                      <div className="text-[10px] font-semibold uppercase text-slate-400">Cliente paga</div>
+                      <div className="text-lg font-bold tabular-nums text-slate-900">{pays > 0 ? fmtMoney(pays) : "—"}</div>
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">
                     {r.milesN ? (
                       <>
-                        <div className="font-semibold">{fmtMiles(r.milesN)} milhas</div>
-                        <div>taxa {fmtMoney(r.feeCents)}</div>
-                        {rt && !r.ready ? (
-                          <div className="mt-1 font-semibold text-amber-800">falta {r.idaMiles ? "a volta" : "a ida"}</div>
-                        ) : null}
+                        {fmtMiles(r.milesN)} milhas + taxa {fmtMoney(r.feeCents)} · mínimo da cia{" "}
+                        {r.minCents ? fmtMoney(r.minCents) : "—"}
+                        {r.q.milheiroManual ? (
+                          <button
+                            type="button"
+                            className="ml-1 font-semibold underline"
+                            onClick={() => patchCia(r.key, { milheiroManual: false, milheiro: "" })}
+                          >
+                            voltar ao sugerido
+                          </button>
+                        ) : (
+                          " · sugerido automático"
+                        )}
                       </>
                     ) : (
-                      "—"
+                      "Preencha as milhas para calcular."
                     )}
-                  </td>
-                  <td className="py-3 pr-2">
-                    <input
-                      value={
-                        r.q.milheiroManual
-                          ? r.q.milheiro
-                          : mix?.ida.key === r.key
-                            ? fromCents(mix.priced.idaRate)
-                            : mix?.volta?.key === r.key
-                              ? fromCents(mix.priced.voltaRate)
-                              : r.ready && r.suggested
-                                ? fromCents(r.suggested)
-                                : r.milesN && r.minCents
-                                  ? fromCents(r.minCents)
-                                  : ""
-                      }
-                      onChange={(e) => patchCia(r.key, { milheiro: e.target.value, milheiroManual: true })}
-                      className="h-9 w-20 rounded-lg border border-slate-200 px-2 disabled:bg-slate-50"
-                      placeholder={r.minCents ? fromCents(r.minCents) : "0,00"}
-                      disabled={!r.milesN}
-                    />
-                    <div className="mt-1 text-[10px] text-slate-400">
-                      {r.milesN ? `mín ${r.minCents ? fmtMoney(r.minCents) : "—"}` : "—"}
-                      {r.q.milheiroManual ? (
-                        <button
-                          type="button"
-                          className="ml-1 underline"
-                          onClick={() => patchCia(r.key, { milheiroManual: false, milheiro: "" })}
-                        >
-                          auto
-                        </button>
-                      ) : null}
+                  </div>
+                  {rt && r.milesN && !r.ready ? (
+                    <div className="mt-1 text-[11px] font-semibold text-amber-800">Falta {r.idaMiles ? "a volta" : "a ida"} nesta cia.</div>
+                  ) : null}
+                  {r.belowMin ? (
+                    <div className="mt-1 text-[11px] font-semibold text-amber-800">Abaixo do mínimo da cia.</div>
+                  ) : null}
+                  {r.ready && r.milheiroCents > 0 && cashPrice ? (
+                    <div
+                      className={cn(
+                        "mt-1 text-[11px] font-semibold",
+                        r.discount >= 0 ? "text-emerald-700" : "text-rose-700"
+                      )}
+                    >
+                      {r.discount >= 0
+                        ? `${fmtMoney(r.discount)} mais barato que o à vista (${r.discountPct}%)`
+                        : `${fmtMoney(Math.abs(r.discount))} mais caro que o à vista`}
                     </div>
-                    {r.belowMin ? <div className="text-[10px] font-semibold text-amber-800">abaixo do mínimo</div> : null}
-                  </td>
-                  <td className="py-3 pr-2 font-semibold tabular-nums">
-                    {(() => {
-                      const mixPay =
-                        (mix?.ida.key === r.key ? mix.priced.idaTotal : 0) +
-                        (mix?.volta?.key === r.key ? mix.priced.voltaTotal : 0);
-                      if (r.ready && r.milheiroCents > 0) return fmtMoney(r.total);
-                      if (mixPay > 0) return fmtMoney(mixPay);
-                      return "—";
-                    })()}
-                  </td>
-                  <td
-                    className={cn(
-                      "py-3 text-xs font-semibold tabular-nums",
-                      r.discount > 0 ? "text-emerald-700" : r.discount < 0 ? "text-rose-700" : "text-slate-400"
-                    )}
-                  >
-                    {r.ready && r.milheiroCents > 0 && cashPrice
-                      ? r.discount >= 0
-                        ? `− ${fmtMoney(r.discount)} (${r.discountPct}%)`
-                        : `+ ${fmtMoney(Math.abs(r.discount))}`
-                      : r.ready && r.milheiroCents > 0
-                        ? "sem à vista"
-                        : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      </StepCard>
+
+      {/* PASSO 4 */}
+      <StepCard
+        n={4}
+        title="Proposta para o cliente"
+        hint="Copie a imagem e mande no Telegram do cliente. Ela compara o à vista com a nossa proposta."
+        muted={!shareModel}
+      >
+        {shareModel ? (
+          <div className="space-y-3">
+            <div className="overflow-hidden rounded-[28px] border border-slate-200 shadow-sm">
+              <CotacaoShareCard model={shareModel} fluid />
+            </div>
+            <CotacaoShareActions model={shareModel} />
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            {!job
+              ? "Aparece depois da busca e das milhas."
+              : !cashPrice
+                ? "Precisa do preço à vista (passo 2)."
+                : rt
+                  ? "Preencha milhas e taxa da ida e da volta em pelo menos uma cia (passo 3)."
+                  : "Preencha milhas e taxa em pelo menos uma cia (passo 3)."}
+          </p>
+        )}
+      </StepCard>
 
       {job?.searches?.length ? (
         <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <summary className="cursor-pointer p-4 text-sm font-semibold text-slate-800">
-            Pesquisas
+            Detalhes das buscas
             <span className="ml-2 text-xs font-normal text-slate-500">
               {progress.done}/{progress.total}
             </span>
@@ -1298,6 +1328,40 @@ export default function CotacaoPassagensClient() {
         </details>
       ) : null}
     </div>
+  );
+}
+
+function StepCard({
+  n,
+  title,
+  hint,
+  muted,
+  action,
+  children,
+}: {
+  n: number;
+  title: string;
+  hint?: string;
+  muted?: boolean;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={cn("rounded-2xl border border-slate-200 bg-white p-4 sm:p-5", muted && "opacity-70")}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">
+            {n}
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+            {hint ? <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{hint}</p> : null}
+          </div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -1358,7 +1422,7 @@ function CashFlightCard({
       </div>
       <div className="mt-3 border-t border-slate-100 pt-3">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          À vista na cia
+          Conferir o à vista direto na cia
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {cashLinks.map((cia) => (
@@ -1374,38 +1438,16 @@ function CashFlightCard({
           ))}
         </div>
       </div>
-      <div className="mt-3 border-t border-slate-100 pt-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Buscar milhas deste trecho
-        </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {googleHref ? (
-            <a
-              href={googleHref}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-700"
-            >
-              Google <ExternalLink className="h-3 w-3" />
-            </a>
-          ) : null}
-          {CIA_META.map(({ key, label }) => {
-            const href = milesHref(key, row.originIata, row.destIata, row.date);
-            if (!href) return null;
-            return (
-              <a
-                key={key}
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-800"
-              >
-                {label}
-              </a>
-            );
-          })}
-        </div>
-      </div>
+      {googleHref ? (
+        <a
+          href={googleHref}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
+        >
+          Ver no Google Flights <ExternalLink className="h-3 w-3" />
+        </a>
+      ) : null}
     </div>
   );
 }
