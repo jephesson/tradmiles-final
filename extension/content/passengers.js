@@ -4347,6 +4347,13 @@ function tmFmtDate(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || "");
 }
 
+/** Nascimento no formato brasileiro (DD/MM/AAAA) para a conferência. */
+function tmBirthBR(p) {
+  const parts = p ? birthParts(p) : null;
+  if (parts) return `${parts.day}/${parts.month}/${parts.year}`;
+  return p?.birthDate || p?.birthDateBR || "—";
+}
+
 function tmMaskCpf(cpf) {
   const d = String(cpf || "").replace(/\D/g, "");
   return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : d || "—";
@@ -4368,7 +4375,7 @@ function confirmFillPanel(data, passengers) {
     const rows = passengers
       .map((p, i) => {
         const name = [p.firstName, p.lastName].filter(Boolean).join(" ") || p.fullName || "—";
-        return `<tr><td style="padding:4px 6px;color:#64748b">${i + 1}</td><td style="padding:4px 6px;font-weight:600">${tmEsc(name)}</td><td style="padding:4px 6px;font-family:ui-monospace,monospace">${tmEsc(tmMaskCpf(p.cpf))}</td><td style="padding:4px 6px">${tmEsc(p.birthDate || "—")}</td></tr>`;
+        return `<tr><td style="padding:4px 6px;color:#64748b">${i + 1}</td><td style="padding:4px 6px;font-weight:600">${tmEsc(name)}</td><td style="padding:4px 6px;font-family:ui-monospace,monospace">${tmEsc(tmMaskCpf(p.cpf))}</td><td style="padding:4px 6px">${tmEsc(tmBirthBR(p))}</td></tr>`;
       })
       .join("");
 
