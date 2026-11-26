@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LoyaltyProgram } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSessionServer as getSession } from "@/lib/auth-server";
-import { latamClubAtivoByCedenteIds } from "@/lib/clubes/latamClubAtivo";
+import { isLatamClubAtivoAgora, latamClubAtivoByCedenteIds } from "@/lib/clubes/latamClubAtivo";
 import { loadEmissionsPanel } from "@/lib/emissions/panelData";
 
 export const runtime = "nodejs";
@@ -24,6 +24,70 @@ function parseProgram(v: string | null): LoyaltyProgram | null {
   if (l === "iberia") return LoyaltyProgram.IBERIA;
 
   return null;
+}
+
+type HoverClub = {
+  program: "LATAM" | "LIVELO";
+  status: string;
+  tierK: number;
+  subscribedAt: string;
+  renewalDay: number;
+  ativoAgora: boolean;
+};
+
+/** Dados do pop-up ao passar o mouse: saldo Livelo e último clube LATAM/Livelo de cada cedente. */
+async function loadHoverInfo(team: string, cedenteIds: string[]) {
+  const pontosLivelo = new Map<string, number>();
+  const clubes = new Map<string, HoverClub[]>();
+  if (cedenteIds.length === 0) return { pontosLivelo, clubes };
+
+  const [cedentes, subs] = await Promise.all([
+    prisma.cedente.findMany({
+      where: { id: { in: cedenteIds } },
+      select: { id: true, pontosLivelo: true },
+    }),
+    prisma.clubSubscription.findMany({
+      where: {
+        team,
+        cedenteId: { in: cedenteIds },
+        program: { in: [LoyaltyProgram.LATAM, LoyaltyProgram.LIVELO] },
+      },
+      select: {
+        cedenteId: true,
+        program: true,
+        status: true,
+        tierK: true,
+        subscribedAt: true,
+        renewalDay: true,
+        lastRenewedAt: true,
+      },
+      orderBy: [{ subscribedAt: "desc" }, { createdAt: "desc" }],
+    }),
+  ]);
+
+  for (const c of cedentes) pontosLivelo.set(c.id, Number(c.pontosLivelo || 0));
+
+  const seen = new Set<string>();
+  for (const sub of subs) {
+    const key = `${sub.cedenteId}:${sub.program}`;
+    if (seen.has(key)) continue; // só o mais recente de cada programa
+    seen.add(key);
+    const list = clubes.get(sub.cedenteId) ?? [];
+    list.push({
+      program: sub.program as "LATAM" | "LIVELO",
+      status: sub.status,
+      tierK: sub.tierK,
+      subscribedAt: sub.subscribedAt.toISOString(),
+      renewalDay: sub.renewalDay,
+      ativoAgora:
+        sub.program === LoyaltyProgram.LATAM
+          ? isLatamClubAtivoAgora(sub)
+          : sub.status !== "CANCELED",
+    });
+    clubes.set(sub.cedenteId, list);
+  }
+
+  return { pontosLivelo, clubes };
 }
 
 export async function POST(req: NextRequest) {
@@ -52,34 +116,39 @@ export async function POST(req: NextRequest) {
       cedenteIds,
     });
 
-    if (program === LoyaltyProgram.LATAM) {
-      const ids = data.rows.map((r) => r.cedenteId);
-      const [clubAtivo, openFila] = await Promise.all([
-        latamClubAtivoByCedenteIds(session.team, ids),
-        ids.length
-          ? prisma.filaAssinatura.findMany({
-              where: {
-                team: session.team,
-                cedenteId: { in: ids },
-                concludedAt: null,
-              },
-              select: { cedenteId: true },
-            })
-          : Promise.resolve([]),
-      ]);
-      const inFila = new Set(openFila.map((r) => r.cedenteId));
-      return NextResponse.json({
-        ok: true,
-        ...data,
-        rows: data.rows.map((r) => ({
-          ...r,
-          latamClubAtivoAgora: clubAtivo.has(r.cedenteId),
-          inFilaAssinatura: inFila.has(r.cedenteId),
-        })),
-      });
-    }
+    const ids = data.rows.map((r) => r.cedenteId);
+    const isLatam = program === LoyaltyProgram.LATAM;
+    const [info, clubAtivo, openFila] = await Promise.all([
+      loadHoverInfo(session.team, ids),
+      isLatam ? latamClubAtivoByCedenteIds(session.team, ids) : Promise.resolve(null),
+      isLatam && ids.length
+        ? prisma.filaAssinatura.findMany({
+            where: {
+              team: session.team,
+              cedenteId: { in: ids },
+              concludedAt: null,
+            },
+            select: { cedenteId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const inFila = new Set(openFila.map((r) => r.cedenteId));
 
-    return NextResponse.json({ ok: true, ...data });
+    return NextResponse.json({
+      ok: true,
+      ...data,
+      rows: data.rows.map((r) => ({
+        ...r,
+        ...(isLatam
+          ? {
+              latamClubAtivoAgora: Boolean(clubAtivo?.has(r.cedenteId)),
+              inFilaAssinatura: inFila.has(r.cedenteId),
+            }
+          : {}),
+        pontosLivelo: info.pontosLivelo.get(r.cedenteId) ?? 0,
+        clubes: info.clubes.get(r.cedenteId) ?? [],
+      })),
+    });
   } catch (err: unknown) {
     console.error("EMISSIONS PANEL ERROR:", err);
     const message = err instanceof Error ? err.message : "Erro inesperado";

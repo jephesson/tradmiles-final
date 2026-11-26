@@ -33,9 +33,22 @@
       perMonth: Record<string, number>;
       latamClubAtivoAgora?: boolean;
       inFilaAssinatura?: boolean;
+      pontosLivelo?: number;
+      clubes?: HoverClub[];
     }>;
     totals: { total: number; manual: number; renewEndOfMonth: number };
   };
+
+  type HoverClub = {
+    program: "LATAM" | "LIVELO";
+    status: string;
+    tierK: number;
+    subscribedAt: string;
+    renewalDay: number;
+    ativoAgora: boolean;
+  };
+
+  type HoverState = { cedenteId: string; top: number; left: number };
 
   function cn(...xs: Array<string | false | null | undefined>) {
     return xs.filter(Boolean).join(" ");
@@ -110,6 +123,15 @@
     const [filaBusy, setFilaBusy] = useState(false);
     const [filaRowBusyId, setFilaRowBusyId] = useState("");
     const [filaToast, setFilaToast] = useState("");
+    const [hover, setHover] = useState<HoverState | null>(null);
+
+    // pop-up é "fixed": ao rolar a página/tabela ele ficaria fora do lugar, então some
+    useEffect(() => {
+      if (!hover) return;
+      const clear = () => setHover(null);
+      window.addEventListener("scroll", clear, true);
+      return () => window.removeEventListener("scroll", clear, true);
+    }, [hover]);
 
     function closeCredentials() {
       setCredentials(null);
@@ -714,9 +736,26 @@
                     const naFila = Boolean(r.inFilaAssinatura);
 
                     return (
-                      <tr key={r.cedenteId} className="text-sm">
+                      <tr
+                        key={r.cedenteId}
+                        className="group text-sm"
+                        onMouseEnter={(e) => {
+                          const first = e.currentTarget.cells[0];
+                          const rect = (first ?? e.currentTarget).getBoundingClientRect();
+                          setHover({
+                            cedenteId: r.cedenteId,
+                            top: rect.top,
+                            left: rect.right + 8,
+                          });
+                        }}
+                        onMouseLeave={() =>
+                          setHover((curr) =>
+                            curr?.cedenteId === r.cedenteId ? null : curr
+                          )
+                        }
+                      >
                         {/* Sticky: Nome + Total */}
-                        <td className="sticky left-0 z-10 border-b border-zinc-100 bg-white p-2">
+                        <td className="sticky left-0 z-10 border-b border-zinc-100 bg-white p-2 transition-colors group-hover:bg-sky-100">
                           <div className="min-w-[360px]">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -830,9 +869,12 @@
                             <td
                               key={m.key}
                               className={cn(
-                                "border-b border-zinc-100 p-2 text-center",
-                                isCurrent && "bg-emerald-100",
-                                !isCurrent && isRenew && "bg-rose-50"
+                                "border-b border-zinc-100 p-2 text-center transition-colors",
+                                isCurrent
+                                  ? "bg-emerald-100 group-hover:bg-emerald-200"
+                                  : isRenew
+                                  ? "bg-rose-50 group-hover:bg-rose-200"
+                                  : "group-hover:bg-sky-100"
                               )}
                             >
                               {v > 0 ? fmtInt(v) : ""}
@@ -852,6 +894,13 @@
             <b>{panel?.renewMonthKey || "—"}</b>) em vermelho claro.
           </div>
         </div>
+
+        {hover && !credentials ? (
+          <HoverPopup
+            state={hover}
+            row={rowsMerged.find((x) => x.cedenteId === hover.cedenteId)}
+          />
+        ) : null}
 
         {credentials ? (
           <div className="fixed inset-0 z-50">
@@ -968,6 +1017,88 @@
             </div>
           </div>
         ) : null}
+      </div>
+    );
+  }
+
+  const POPUP_W = 280;
+
+  function clubStatusLabel(c: HoverClub) {
+    if (c.status === "CANCELED" || !c.ativoAgora) return { text: "Cancelado", cls: "bg-zinc-100 text-zinc-600" };
+    if (c.status === "PAUSED") return { text: "Pausado", cls: "bg-amber-100 text-amber-800" };
+    return { text: "Ativo", cls: "bg-emerald-100 text-emerald-800" };
+  }
+
+  function fmtDateBR(iso: string) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  }
+
+  function HoverPopup({
+    state,
+    row,
+  }: {
+    state: HoverState;
+    row?: { nomeCompleto: string; pontosLivelo?: number; clubes?: HoverClub[] };
+  }) {
+    if (!row) return null;
+    const clubes = row.clubes ?? [];
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1600;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 900;
+    const left = Math.min(state.left, vw - POPUP_W - 12);
+    const top = Math.max(8, Math.min(state.top, vh - 230));
+
+    return (
+      <div
+        className="pointer-events-none fixed z-40 rounded-xl border border-sky-200 bg-white p-3 text-sm shadow-xl shadow-sky-900/10"
+        style={{ top, left, width: POPUP_W }}
+      >
+        <div className="truncate text-xs font-semibold text-zinc-500">
+          {row.nomeCompleto}
+        </div>
+
+        <div className="mt-2 flex items-baseline justify-between rounded-lg bg-fuchsia-50 px-2.5 py-2">
+          <span className="text-xs font-medium text-fuchsia-800">Livelo</span>
+          <span className="font-semibold text-fuchsia-950">
+            {fmtInt(row.pontosLivelo ?? 0)} pts
+          </span>
+        </div>
+
+        <div className="mt-2 space-y-1.5">
+          {(["LATAM", "LIVELO"] as const).map((prog) => {
+            const c = clubes.find((x) => x.program === prog);
+            const nome = prog === "LATAM" ? "Clube LATAM" : "Clube Livelo";
+            if (!c) {
+              return (
+                <div
+                  key={prog}
+                  className="flex items-center justify-between rounded-lg border border-zinc-100 px-2.5 py-1.5"
+                >
+                  <span className="text-xs text-zinc-600">{nome}</span>
+                  <span className="text-xs text-zinc-400">Sem clube</span>
+                </div>
+              );
+            }
+            const st = clubStatusLabel(c);
+            return (
+              <div key={prog} className="rounded-lg border border-zinc-100 px-2.5 py-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-600">
+                    {nome}
+                    {c.tierK > 0 ? ` · ${fmtInt(c.tierK)}k` : ""}
+                  </span>
+                  <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-semibold", st.cls)}>
+                    {st.text}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-500">
+                  Assinado em {fmtDateBR(c.subscribedAt)} · renova dia {c.renewalDay}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }
