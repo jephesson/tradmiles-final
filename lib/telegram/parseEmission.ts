@@ -374,17 +374,31 @@ export function legsFromTableRows(raw: unknown): { ida: TableLeg[]; volta: Table
         date = parseFlightDate(emb) || "";
         ts = date ? Date.parse(`${date}T00:00:00Z`) : NaN;
       }
+      // Hora do embarque ("01/05/2027, 10:15") e do desembarque (coluna Desembarque).
+      const dep = m && m[4] ? normClock(`${m[4]}:${m[5]}`) : "";
+      const desemb = String(r?.desembarque || r?.chegada || r?.arr || "").trim();
+      const arrM = desemb.match(/(\d{1,2})[:h](\d{2})(?!.*\d{1,2}[:h]\d{2})/);
+      const arr = arrM ? normClock(`${arrM[1]}:${arrM[2]}`) : "";
       return {
         volta: false,
         from: toIata(String(r?.origem || r?.origin || "")),
         to: toIata(String(r?.destino || r?.destination || "")),
         date,
         ts,
+        dep,
+        arr,
       };
     })
     .filter((r) => r.from && r.to && r.from !== r.to);
   if (!rows.length) return null;
-  const strip = (r: (typeof rows)[number]): TableLeg => ({ volta: r.volta, from: r.from, to: r.to, date: r.date });
+  const strip = (r: (typeof rows)[number]): TableLeg => ({
+    volta: r.volta,
+    from: r.from,
+    to: r.to,
+    date: r.date,
+    dep: r.dep,
+    arr: r.arr,
+  });
   const origin = rows[0].from;
   // Termina onde começou com mais de um trecho → ida e volta; corta no maior intervalo entre embarques.
   if (rows.length > 1 && rows[rows.length - 1].to === origin) {
@@ -485,8 +499,10 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
     });
   }
   // Horário: o que o modelo leu direto, senão o 1º trecho (saída) e o último (chegada) de cada sentido.
-  const legsIda = legs.filter((l) => !l.volta);
-  const legsVolta = legs.filter((l) => l.volta);
+  // Trechos já resolvidos (a tabela tem prioridade) e, se faltar horário neles, os trechos do modelo.
+  const withTime = (a: TableLeg[], b: TableLeg[]) => (a.some((l) => l.dep || l.arr) ? a : b);
+  const legsIda = withTime(idaLegs, legs.filter((l) => !l.volta));
+  const legsVolta = withTime(voltaLegs, legs.filter((l) => l.volta));
   const times: FlightTimes = {
     outboundDep: normClock(data.outboundDep) || legsIda[0]?.dep || "",
     outboundArr: normClock(data.outboundArr) || legsIda[legsIda.length - 1]?.arr || "",
@@ -746,7 +762,7 @@ JSON:
   "outboundDep": "HH:MM ou null", "outboundArr": "HH:MM ou null",
   "inboundDep": "HH:MM ou null", "inboundArr": "HH:MM ou null",
   "legs": [{ "direction": "IDA ou VOLTA", "from": "IATA", "to": "IATA", "date": "YYYY-MM-DD", "dep": "HH:MM", "arr": "HH:MM" }],
-  "tableRows": [{ "voo": "LA3134", "embarque": "DD/MM/AAAA HH:MM", "origem": "IATA da coluna Origem", "destino": "IATA da coluna Destino" }],
+  "tableRows": [{ "voo": "LA3134", "embarque": "DD/MM/AAAA HH:MM", "desembarque": "DD/MM/AAAA HH:MM", "origem": "IATA da coluna Origem", "destino": "IATA da coluna Destino" }],
   "adt": 1,
   "chd": 0,
   "inf": 0,
