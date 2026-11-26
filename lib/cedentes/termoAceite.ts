@@ -27,6 +27,12 @@ export function mensagemInicioAtendimento(args: {
     "3️⃣ Quando houver emissões, vamos te pedir algumas *biometrias faciais* (em média 8 por bloco).",
     "4️⃣ Você recebe *R$ 80,00 por bloco* via PIX, na sua conta, geralmente entre 24h e 72h após a assinatura do clube e a compra dos pontos. Em média são R$ 80,00 por mês, por pelo menos 4 meses.",
     "",
+    "⚠️ *ATENÇÃO, é muito importante:*",
+    "• Depois que você der o aceite, *não pode sumir*. Precisamos que você responda e faça as biometrias sempre que solicitado.",
+    "• Como já teremos investido na sua conta (clube e pontos), *o descumprimento causa prejuízo à empresa e leva à exclusão definitiva* da parceria.",
+    "• Em caso de quebra de contrato, *a pessoa que te indicou também será suspensa*.",
+    "• Por isso, *só dê ciência se tiver certeza* de que pode cumprir o combinado até o fim.",
+    "",
     "Qualquer dúvida, é só me chamar por aqui! 🙌",
   ].join("\n");
 }
@@ -43,17 +49,19 @@ Ao aceitar esta parceria com a *VIAS AÉREAS VIAGENS E TURISMO LTDA*, declaro es
 
 4️⃣ *PRAZO E MÉDIA MENSAL:* A parceria terá duração mínima de 4 (quatro) meses, com ganho médio de R$ 80,00 por mês durante esse período.
 
-5️⃣ *DISPONIBILIDADE:* Comprometo-me a acompanhar as solicitações e não desaparecer ou abandonar operações após o investimento da empresa. Caso necessário, poderemos combinar previamente turnos ou horários específicos para a realização das biometrias.
+5️⃣ *DISPONIBILIDADE:* Comprometo-me a acompanhar as solicitações e *não desaparecer* ou abandonar operações após o investimento da empresa. Caso necessário, poderemos combinar previamente turnos ou horários específicos para a realização das biometrias.
 
 6️⃣ *INVESTIMENTO:* Todos os custos com compra de pontos, clubes e operações serão de responsabilidade exclusiva da Vias Aéreas. Não precisarei realizar PIX, depósitos ou qualquer investimento financeiro.
 
-7️⃣ *RESPONSABILIDADE:* Estou ciente de que, caso eu não cumpra as condições deste termo (biometrias, disponibilidade e colaboração), poderei ser retirado da parceria, com o encerramento das operações e a suspensão de futuras oportunidades.
+7️⃣ *DESCUMPRIMENTO:* Estou ciente de que a Vias Aéreas investe previamente na minha conta (clube e pontos). Por isso, o descumprimento das condições deste termo (biometrias, disponibilidade e colaboração) causa prejuízo à empresa e resulta na minha *exclusão definitiva* da parceria, com o encerramento das operações.
 
-8️⃣ *ACEITE:* Declaro que compreendi as condições acima e que minha participação é voluntária, estando ciente de que as operações também dependem das regras e validações da LATAM Pass.
+8️⃣ *QUEM INDICOU:* Estou ciente de que, em caso de quebra deste termo, *a pessoa que me indicou também será suspensa* das atividades com a Vias Aéreas.
+
+9️⃣ *ACEITE:* Declaro que compreendi as condições acima, que *só estou dando ciência por ter certeza de que posso cumpri-las até o fim* e que minha participação é voluntária, estando ciente de que as operações também dependem das regras e validações da LATAM Pass.
 
 ✅ *Para confirmar sua concordância, responda a esta mensagem com:*
 
-"LI E ACEITO as condições do Termo Resumido de Ciência e Aceite da Vias Aéreas. Estou ciente do pagamento de R$ 80,00 por bloco operacional, da média de R$ 80,00 por mês durante pelo menos 4 meses, da média de 8 biometrias e das minhas responsabilidades de disponibilidade e colaboração, podendo ser retirado da parceria caso não as cumpra."
+"LI E ACEITO as condições do Termo Resumido de Ciência e Aceite da Vias Aéreas. Estou ciente do pagamento de R$ 80,00 por bloco operacional, da média de R$ 80,00 por mês durante pelo menos 4 meses, da média de 8 biometrias e das minhas responsabilidades de disponibilidade e colaboração. Sei que o descumprimento causa prejuízo à empresa e leva à minha exclusão definitiva, e que a pessoa que me indicou também será suspensa."
 
 VIAS AÉREAS VIAGENS E TURISMO LTDA
 CNPJ: 63.817.773/0001-85`;
