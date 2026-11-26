@@ -148,6 +148,10 @@ export async function POST(req: Request) {
             adt: flight.adt,
             chd: flight.chd,
             inf: flight.inf,
+            outboundDep: flight.outboundDep || "",
+            outboundArr: flight.outboundArr || "",
+            inboundDep: flight.inboundDep || "",
+            inboundArr: flight.inboundArr || "",
           }
         : null,
     });

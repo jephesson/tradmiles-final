@@ -24,6 +24,11 @@ export type TelegramFlightApply = {
   adt: number;
   chd: number;
   inf: number;
+  /** Horário do voo que o cliente mandou (HH:MM), para a extensão abrir esse voo. */
+  outboundDep?: string;
+  outboundArr?: string;
+  inboundDep?: string;
+  inboundArr?: string;
 };
 
 type Chat = {
@@ -361,6 +366,10 @@ export default function TelegramPassengerPicker(props: {
             adt: Math.max(1, Math.trunc(Number(raw.adt) || 1)),
             chd: Math.max(0, Math.trunc(Number(raw.chd) || 0)),
             inf: Math.max(0, Math.trunc(Number(raw.inf) || 0)),
+            outboundDep: String(raw.outboundDep || ""),
+            outboundArr: String(raw.outboundArr || ""),
+            inboundDep: String(raw.inboundDep || ""),
+            inboundArr: String(raw.inboundArr || ""),
           }
         : null;
       void fetch("/api/telegram/learn", {

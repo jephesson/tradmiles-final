@@ -48,6 +48,11 @@ export default function ExtensaoLatamClient({ isEmissor = false }: { isEmissor?:
         </div>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
           <li>
+            <b>Novo:</b> ao ler o Telegram na venda, a busca da LATAM já abre <b>no voo que o cliente mandou</b>{" "}
+            (pelo horário) e mostra as tarifas — você só escolhe a tarifa.
+          </li>
+          <li>Passageiros: CPF e nascimento não se perdem do 2º passageiro em diante.</li>
+          <li>
             Formulário <b>v2</b> otimizado (LATAM{" "}
             <code className="rounded bg-slate-100 px-1">/v2/passageiros</code>)
             — acordeão, CPF, data, sexo e contato.

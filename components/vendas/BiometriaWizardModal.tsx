@@ -260,6 +260,17 @@ function buildLatamSearchLink(params: {
   return `https://www.latamairlines.com/br/pt/oferta-voos?${q.toString()}`;
 }
 
+type FlightTimes = { outboundDep?: string; outboundArr?: string; inboundDep?: string; inboundArr?: string };
+
+/** "#tm-voo=ida:14:15-16:45;volta:..." — a extensão abre esse voo nos resultados da LATAM. */
+function flightHash(t: FlightTimes | null) {
+  if (!t) return "";
+  const parts: string[] = [];
+  if (t.outboundDep && t.outboundArr) parts.push(`ida:${t.outboundDep}-${t.outboundArr}`);
+  if (t.inboundDep && t.inboundArr) parts.push(`volta:${t.inboundDep}-${t.inboundArr}`);
+  return parts.length ? `#tm-voo=${parts.join(";")}` : "";
+}
+
 function buildWhatsAppUrlFromContact(contact: WhatsAppContact, message: string) {
   if (!contact || !message.trim()) return null;
   if (contact.whatsappE164) return buildWhatsAppLink(contact.whatsappE164, message);
@@ -417,6 +428,8 @@ export default function BiometriaWizardModal({
   const [searchDestination, setSearchDestination] = useState("");
   const [searchOutbound, setSearchOutbound] = useState("");
   const [searchInbound, setSearchInbound] = useState("");
+  /** Horário do voo que o cliente mandou no Telegram (a extensão seleciona esse voo). */
+  const [flightTimes, setFlightTimes] = useState<FlightTimes | null>(null);
   const [searchAdt, setSearchAdt] = useState(1);
   const [searchChd, setSearchChd] = useState(0);
   const [searchInf, setSearchInf] = useState(0);
@@ -627,7 +640,7 @@ export default function BiometriaWizardModal({
       );
       return url || null;
     }
-    return buildLatamSearchLink({
+    const latam = buildLatamSearchLink({
       origin: searchOrigin,
       destination: searchDestination,
       outbound: searchOutbound,
@@ -637,7 +650,9 @@ export default function BiometriaWizardModal({
       chd: searchChd,
       inf: searchInf,
     });
+    return latam ? latam + flightHash(flightTimes) : null;
   }, [
+    flightTimes,
     program,
     searchOrigin,
     searchDestination,
@@ -876,6 +891,10 @@ export default function BiometriaWizardModal({
       adt?: number;
       chd?: number;
       inf?: number;
+      outboundDep?: string;
+      outboundArr?: string;
+      inboundDep?: string;
+      inboundArr?: string;
     } | null;
     passengerText: string;
     /** false = só preenche (não abre a aba da pesquisa). */
@@ -884,6 +903,13 @@ export default function BiometriaWizardModal({
     const f = payload.flight;
     const openSearch = payload.openSearch !== false;
     if (f) {
+      const times: FlightTimes = {
+        outboundDep: f.outboundDep || "",
+        outboundArr: f.outboundArr || "",
+        inboundDep: f.inboundDep || "",
+        inboundArr: f.inboundArr || "",
+      };
+      setFlightTimes(times.outboundDep || times.inboundDep ? times : null);
       if (f.origin) setSearchOrigin(f.origin);
       if (f.destination) setSearchDestination(f.destination);
       if (f.outbound) setSearchOutbound(f.outbound);
@@ -905,7 +931,7 @@ export default function BiometriaWizardModal({
           chd: f.chd,
           inf: f.inf,
         });
-        if (link && openSearch) window.open(link, "_blank");
+        if (link && openSearch) window.open(link + flightHash(times), "_blank");
       } else if (f.origin && f.destination && f.outbound) {
         const url = buildSmilesSearchUrl(
           f.origin,
@@ -1247,6 +1273,10 @@ export default function BiometriaWizardModal({
             destination: searchDestination || null,
             outbound: searchOutbound || null,
             inbound: searchTrip === "IDA_VOLTA" ? searchInbound || null : null,
+            outboundDep: flightTimes?.outboundDep || null,
+            outboundArr: flightTimes?.outboundArr || null,
+            inboundDep: flightTimes?.inboundDep || null,
+            inboundArr: flightTimes?.inboundArr || null,
             preparedBy: getSession()?.name || getSession()?.login || null,
           },
         }),

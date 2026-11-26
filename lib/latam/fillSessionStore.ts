@@ -20,6 +20,11 @@ export type FillSessionContext = {
   destination?: string | null;
   outbound?: string | null;
   inbound?: string | null;
+  /** Horário do voo do cliente (HH:MM): a extensão abre esse voo nos resultados da LATAM. */
+  outboundDep?: string | null;
+  outboundArr?: string | null;
+  inboundDep?: string | null;
+  inboundArr?: string | null;
   preparedAt?: string | null;
   preparedBy?: string | null;
 };

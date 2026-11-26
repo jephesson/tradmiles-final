@@ -24,7 +24,24 @@ export type TelegramParsedFlight = {
   inf: number;
   passengers: TelegramParsedPax[];
   passengerText: string;
+  /** Horário do voo escolhido pelo cliente (HH:MM), para a extensão já abrir esse voo na LATAM. */
+  outboundDep?: string;
+  outboundArr?: string;
+  inboundDep?: string;
+  inboundArr?: string;
 };
+
+/** "6:05", "06h05", "14:15" → "06:05"; inválido → "". */
+export function normClock(raw: unknown) {
+  const m = String(raw ?? "").trim().match(/^(\d{1,2})\s*[:hH]\s*(\d{2})/);
+  if (!m) return "";
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return "";
+  return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+}
+
+type FlightTimes = { outboundDep?: string; outboundArr?: string; inboundDep?: string; inboundArr?: string };
 
 function onlyDigits(s: string) {
   return String(s || "").replace(/\D/g, "");
@@ -186,6 +203,27 @@ const CITY_TO_IATA: Record<string, string> = {
   londrina: "LDB",
   maringa: "MGF",
   maringá: "MGF",
+  // Teresina (THE) não pode cair na lista de palavras ignoradas.
+  teresina: "THE",
+  "joao pessoa": "JPA",
+  aracaju: "AJU",
+  "sao luis": "SLZ",
+  palmas: "PMW",
+  "porto velho": "PVH",
+  "rio branco": "RBR",
+  macapa: "MCP",
+  "boa vista": "BVB",
+  "campo grande": "CGR",
+  uberlandia: "UDI",
+  ilheus: "IOS",
+  "porto seguro": "BPS",
+  "juazeiro do norte": "JDO",
+  petrolina: "PNZ",
+  "montes claros": "MOC",
+  imperatriz: "IMP",
+  santarem: "STM",
+  "campina grande": "CPV",
+  "feira de santana": "FEC",
 };
 
 const IATA_SKIP = new Set([
@@ -200,7 +238,6 @@ const IATA_SKIP = new Set([
   "INF",
   "PDF",
   "BRL",
-  "THE",
   "AND",
 ]);
 
@@ -318,7 +355,7 @@ function regexFlight(text: string) {
   return { origin, destination, outbound, inbound };
 }
 
-type TableLeg = { volta: boolean; from: string; to: string; date: string };
+type TableLeg = { volta: boolean; from: string; to: string; date: string; dep?: string; arr?: string };
 
 /** Monta ida/volta a partir das linhas da tabela (colunas Origem, Destino, Embarque). */
 export function legsFromTableRows(raw: unknown): { ida: TableLeg[]; volta: TableLeg[] } | null {
@@ -389,8 +426,10 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
       from: toIata(String(l?.from || "")),
       to: toIata(String(l?.to || "")),
       date: parseFlightDate(String(l?.date || "")) || "",
+      dep: normClock(l?.dep),
+      arr: normClock(l?.arr),
     }))
-    .filter((l) => l.from && l.to);
+    .filter((l) => l.from && l.to) as TableLeg[];
   let idaLegs = legs.filter((l) => !l.volta);
   let voltaLegs = legs.filter((l) => l.volta);
   // Tabela transcrita coluna a coluna (Origem/Destino/Embarque) é mais confiável que a rota resumida.
@@ -445,6 +484,15 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
       paxType,
     });
   }
+  // Horário: o que o modelo leu direto, senão o 1º trecho (saída) e o último (chegada) de cada sentido.
+  const legsIda = legs.filter((l) => !l.volta);
+  const legsVolta = legs.filter((l) => l.volta);
+  const times: FlightTimes = {
+    outboundDep: normClock(data.outboundDep) || legsIda[0]?.dep || "",
+    outboundArr: normClock(data.outboundArr) || legsIda[legsIda.length - 1]?.arr || "",
+    inboundDep: normClock(data.inboundDep) || legsVolta[0]?.dep || "",
+    inboundArr: normClock(data.inboundArr) || legsVolta[legsVolta.length - 1]?.arr || "",
+  };
   return finishFlight({
     origin,
     destination,
@@ -452,6 +500,7 @@ function fromModelData(data: Record<string, unknown>, seed: TelegramParsedFlight
     inbound,
     passengers,
     trip,
+    times,
     adt: Number(data.adt) || undefined,
     chd: Number(data.chd) || undefined,
     inf: Number(data.inf) || undefined,
@@ -468,6 +517,7 @@ function finishFlight(partial: {
   chd?: number;
   inf?: number;
   trip?: "IDA" | "IDA_VOLTA";
+  times?: FlightTimes;
 }): TelegramParsedFlight | null {
   const RANK = { ADT: 0, CHD: 1, INF: 2 } as const;
   const passengers = partial.passengers
@@ -498,6 +548,10 @@ function finishFlight(partial: {
     ...counted,
     passengers,
     passengerText: passengers.map(formatPaxBlock).filter(Boolean).join("\n\n"),
+    outboundDep: partial.times?.outboundDep || "",
+    outboundArr: partial.times?.outboundArr || "",
+    inboundDep: partial.times?.inboundDep || "",
+    inboundArr: partial.times?.inboundArr || "",
   };
 }
 
@@ -512,7 +566,13 @@ export function mergeParsedFlights(
   const outbound = plausibleFlightDate(a.outbound) ? a.outbound : b.outbound;
   const inbound = plausibleFlightDate(a.inbound) ? a.inbound : b.inbound;
   const passengers = a.passengers.length ? a.passengers : b.passengers;
-  return finishFlight({ origin, destination, outbound, inbound, passengers });
+  const times: FlightTimes = {
+    outboundDep: a.outboundDep || b.outboundDep,
+    outboundArr: a.outboundArr || b.outboundArr,
+    inboundDep: a.inboundDep || b.inboundDep,
+    inboundArr: a.inboundArr || b.inboundArr,
+  };
+  return finishFlight({ origin, destination, outbound, inbound, passengers, times });
 }
 
 /** O IATA (ou uma cidade que vira esse IATA) aparece no texto? */
@@ -615,6 +675,8 @@ Responda SOMENTE JSON:
   "destination": "IATA 3 letras",
   "outbound": "YYYY-MM-DD",
   "inbound": "YYYY-MM-DD ou null",
+  "outboundDep": "HH:MM ou null", "outboundArr": "HH:MM ou null",
+  "inboundDep": "HH:MM ou null", "inboundArr": "HH:MM ou null",
   "passengers": [
     { "fullName": string, "birthDate": "YYYY-MM-DD ou DD/MM/YYYY", "cpf": string|null, "paxType": "ADT"|"CHD"|"INF" }
   ]
@@ -627,6 +689,7 @@ Regras:
 - Ida e volta: destination é o destino da IDA (onde a volta começa), nunca igual à origin.
 - outbound = data da IDA do voo, nunca a data de nascimento.
 - inbound só se houver volta.
+- outboundDep/outboundArr = horário de saída e de chegada do voo de ida escolhido (ex.: "14:15 SSA → 16:45 GRU"); inboundDep/inboundArr o mesmo da volta. Só se estiver escrito; senão null.
 - paxType: INF < 2 na ida, CHD 2–11, ADT 12+.
 - Junte Nome + Sobrenome. CPF só dígitos. Não invente passageiro.`,
           },
@@ -680,7 +743,9 @@ JSON:
   "outbound": "YYYY-MM-DD",
   "inbound": "YYYY-MM-DD ou null",
   "trip": "IDA ou IDA_VOLTA",
-  "legs": [{ "direction": "IDA ou VOLTA", "from": "IATA", "to": "IATA", "date": "YYYY-MM-DD" }],
+  "outboundDep": "HH:MM ou null", "outboundArr": "HH:MM ou null",
+  "inboundDep": "HH:MM ou null", "inboundArr": "HH:MM ou null",
+  "legs": [{ "direction": "IDA ou VOLTA", "from": "IATA", "to": "IATA", "date": "YYYY-MM-DD", "dep": "HH:MM", "arr": "HH:MM" }],
   "tableRows": [{ "voo": "LA3134", "embarque": "DD/MM/AAAA HH:MM", "origem": "IATA da coluna Origem", "destino": "IATA da coluna Destino" }],
   "adt": 1,
   "chd": 0,
@@ -691,7 +756,8 @@ Hoje (Recife): ${recifeTodayIso()}.
 No card de voo: leia o IATA visível (SSA, CWB, GRU, CGH…). Se só aparecer cidade (Salvador, Curitiba), converta para IATA (SSA, CWB). Nunca use as 3 primeiras letras da cidade (SAL, CUR).
 Datas do VOO: "seg., 26 out" / "ter., 27 out" → YYYY-MM-DD do próximo dia válido a partir de hoje. NÃO use data de nascimento.
 Se houver ida e volta no mesmo print, preencha outbound E inbound e trip=IDA_VOLTA.
-legs: um item por trecho/voo, na ordem, marcando se é da IDA ou da VOLTA.
+legs: um item por trecho/voo, na ordem, marcando se é da IDA ou da VOLTA, com o horário de saída (dep) e chegada (arr).
+outboundDep/outboundArr: horário de saída e chegada do voo da IDA que o cliente mandou (no card LATAM: "14:15 SSA ... 16:45 GRU" → 14:15 e 16:45); inboundDep/inboundArr o mesmo da VOLTA. Se o print tiver vários voos, use o que estiver destacado/selecionado; se não der para saber, null.
 tableRows: só se houver tabela com colunas Origem e Destino — transcreva cada linha na ordem, copiando o texto de cada coluna como está escrito (vazio [] se não houver tabela).
 Passageiros: só se houver ficha/nome+CPF. Do card de voo NÃO invente passageiro. E-mail e telefone se aparecerem.`,
     },

@@ -283,6 +283,10 @@ export async function PUT(req: Request) {
     const t = String(v ?? "").trim().slice(0, max);
     return t || null;
   };
+  const clock = (v: unknown) => {
+    const m = String(v ?? "").match(/^(\d{1,2}):(\d{2})$/);
+    return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? `${m[1].padStart(2, "0")}:${m[2]}` : null;
+  };
   const context: FillSessionContext = {
     saleKey: str(rawCtx.saleKey, 200),
     clienteNome: str(rawCtx.clienteNome),
@@ -291,6 +295,10 @@ export async function PUT(req: Request) {
     destination: str(rawCtx.destination, 3)?.toUpperCase() || null,
     outbound: str(rawCtx.outbound, 10),
     inbound: str(rawCtx.inbound, 10),
+    outboundDep: clock(rawCtx.outboundDep),
+    outboundArr: clock(rawCtx.outboundArr),
+    inboundDep: clock(rawCtx.inboundDep),
+    inboundArr: clock(rawCtx.inboundArr),
     preparedAt: new Date().toISOString(),
     preparedBy: str(rawCtx.preparedBy),
   };
