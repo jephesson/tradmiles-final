@@ -1,9 +1,6 @@
 // app/dashboard/painel-emissoes/page.tsx
 
-import { cookies } from "next/headers";
 import PainelEmissoesClient from "./PainelEmissoesClient";
-import { readSessionCookie } from "@/lib/session";
-import { VIEW_AS_EMISSOR_COOKIE, viewAsForRole } from "@/lib/viewAsEmissor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +19,8 @@ function normalizeProgram(v: string) {
     : "latam";
 }
 
+/** Emissor também mexe na fila de assinatura (coloca e tira quem colocou). */
 export default async function Page({ searchParams }: { searchParams: SP }) {
   const program = normalizeProgram(getOne(searchParams, "programa"));
-  const store = await cookies();
-  const sess = readSessionCookie(store.get("tm.session")?.value);
-  const preview = viewAsForRole(sess?.role, store.get(VIEW_AS_EMISSOR_COOKIE)?.value);
-  return <PainelEmissoesClient initialProgram={program} readOnly={sess?.role === "emissor" || Boolean(preview)} />;
+  return <PainelEmissoesClient initialProgram={program} />;
 }

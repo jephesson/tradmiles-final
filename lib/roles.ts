@@ -57,6 +57,7 @@ export const EMISSOR_HOME = "/dashboard/vendas/nova";
 const EMISSOR_PAGES = [
   "/dashboard/vendas/nova",
   "/dashboard/painel-emissoes",
+  "/dashboard/fila-assinatura",
   "/dashboard/meus-ganhos",
   "/dashboard/agenda",
   "/dashboard/extensao-latam",
@@ -88,6 +89,8 @@ const EMISSOR_API: ApiRule[] = [
   { prefix: "/api/compras/liberadas", methods: ["GET"] },
   { prefix: "/api/emissions/panel", methods: ["GET"] },
   { prefix: "/api/emissions/renew-pdf", methods: ["GET"] },
+  // Fila de assinatura: ver, colocar e tirar quem ela mesma colocou (marcar assinatura é só do admin).
+  { prefix: "/api/fila-assinatura", methods: ["GET", "POST", "DELETE"] },
   { prefix: "/api/funcionarios", exact: true, methods: ["GET"] },
   { prefix: "/api/funcionarios/payment-cards", methods: ["GET"] },
   { prefix: "/api/users/simple", methods: ["GET"] },

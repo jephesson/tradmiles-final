@@ -90,11 +90,8 @@
 
   export default function PainelEmissoesClient({
     initialProgram,
-    readOnly = false,
   }: {
     initialProgram: string;
-    /** Emissor: só consulta CPFs, sem mexer na fila de assinatura. */
-    readOnly?: boolean;
   }) {
     const router = useRouter();
     const sp = useSearchParams();
@@ -551,7 +548,7 @@
             </div>
 
             <div className="flex items-center gap-2">
-              {program === "latam" && !readOnly ? (
+              {program === "latam" ? (
                 <>
                   <button
                     type="button"
@@ -771,7 +768,7 @@
                                       <Star size={15} className="fill-current" />
                                     </span>
                                   ) : null}
-                                  {elegivelFila && !readOnly ? (
+                                  {elegivelFila ? (
                                     <button
                                       type="button"
                                       disabled={filaRowBusyId === r.cedenteId}

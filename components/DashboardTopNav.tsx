@@ -204,6 +204,7 @@ export default function DashboardTopNav() {
             {[
               { href: "/dashboard/vendas/nova", label: "Efetuar venda" },
               { href: "/dashboard/painel-emissoes", label: "Painel de emissões" },
+              { href: "/dashboard/fila-assinatura", label: "Fila de assinatura" },
               { href: "/dashboard/meus-ganhos", label: "Meus ganhos" },
               { href: "/dashboard/agenda", label: "Agenda" },
             ].map((item) => {

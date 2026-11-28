@@ -704,6 +704,7 @@ export default function Sidebar() {
           >
             <NavLink href="/dashboard/vendas/nova">Efetuar venda</NavLink>
             <NavLink href="/dashboard/painel-emissoes">Painel de emissões</NavLink>
+            <NavLink href="/dashboard/fila-assinatura">Fila de assinatura</NavLink>
             <NavLink href="/dashboard/meus-ganhos">Meus ganhos</NavLink>
             <NavLink href="/dashboard/agenda">Agenda</NavLink>
             <NavLink href="/dashboard/telegram">Conectar Telegram</NavLink>
